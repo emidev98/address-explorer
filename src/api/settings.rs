@@ -2,6 +2,7 @@
 
 use dioxus::prelude::*;
 
+use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
 use crate::domain::theme::ThemePreference;
 
 #[cfg(feature = "server")]
@@ -37,5 +38,28 @@ pub async fn get_default_fiat_currency_api() -> Result<String, ServerFnError> {
 #[post("/api/settings/default-fiat-currency")]
 pub async fn save_default_fiat_currency_api(symbol: String) -> Result<String, ServerFnError> {
     settings::save_default_fiat_currency(&open_database()?, &symbol)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+#[server]
+#[get("/api/settings/exchanges")]
+pub async fn get_exchange_settings_api() -> Result<ExchangeSettings, ServerFnError> {
+    settings::load_exchange_settings(&open_database()?)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+#[server]
+#[post("/api/settings/confirm-destructive-actions")]
+pub async fn save_confirm_destructive_actions_api(enabled: bool) -> Result<(), ServerFnError> {
+    settings::save_confirm_destructive_actions(&open_database()?, enabled)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+#[server]
+#[post("/api/settings/on-chain-link-scoring")]
+pub async fn save_on_chain_link_scoring_api(
+    settings: OnChainLinkScoringSettings,
+) -> Result<OnChainLinkScoringSettings, ServerFnError> {
+    crate::application::settings::save_on_chain_link_scoring(&open_database()?, &settings)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

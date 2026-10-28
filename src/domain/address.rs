@@ -165,10 +165,10 @@ pub struct AddressOverviewQuery {
 /// The overview replicates the UTXO Utils addresses table: label, confirmed
 /// transaction count, spendable balance, first/last stored transaction time,
 /// the address type, and the owner scope. `spendable_balance_sats` derives
-/// from the stored mempool chain statistics, except for exchange-scoped
-/// addresses, which report zero until the Exchanges page is available; the
-/// transaction figures come from the local `transactions` store and are zero
-/// until the address is synced.
+/// from the stored mempool chain statistics for wallets, and from the stored
+/// exchange ledger balance for exchange-scoped addresses; the transaction
+/// figures come from the local `transactions` store and are zero until the
+/// address is synced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddressOverviewItem {
     pub address: String,
@@ -176,8 +176,9 @@ pub struct AddressOverviewItem {
     /// rust-bitcoin address type label (`p2pkh`, `p2sh`, `p2wpkh`, `p2wsh`,
     /// `p2tr`), `None` when the stored string fails to parse.
     pub address_type: Option<String>,
-    /// `chain_funded_txo_sum - chain_spent_txo_sum`, in satoshis; zero for
-    /// exchange-scoped addresses until the Exchanges page is available.
+    /// `chain_funded_txo_sum - chain_spent_txo_sum` for wallets, or the
+    /// stored exchange ledger balance for exchange-scoped addresses, in
+    /// satoshis.
     pub spendable_balance_sats: i64,
     /// Stored transactions with `confirmed = 1`.
     pub confirmed_tx_count: i64,
@@ -195,16 +196,22 @@ pub struct AddressOverviewItem {
 /// Addresses overview: the page rows plus the KPI totals.
 ///
 /// `items` match the requested sorting and scope filter. The KPI totals are
-/// global: they describe every stored address regardless of the filter, so
-/// the cards do not change when the table is filtered. The balance total
-/// excludes exchange-scoped addresses until the Exchanges page is available.
+/// global: they describe every listed address regardless of the filter, so
+/// the cards do not change when the table is filtered. The address count
+/// excludes exchange-scoped addresses without a stored ledger balance, which
+/// the overview never lists. The balance total includes the stored exchange
+/// ledger balances.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddressOverview {
     pub items: Vec<AddressOverviewItem>,
+    /// Stored addresses the overview lists globally: every wallet and
+    /// unclassified address, plus exchange-scoped addresses with a non-zero
+    /// ledger balance.
     pub address_count: i64,
     /// Confirmed transactions stored across all addresses.
     pub confirmed_tx_count: i64,
-    /// Total spendable balance across non-exchange addresses, in satoshis.
+    /// Total spendable balance across all addresses, including exchange ledger
+    /// balances, in satoshis.
     pub spendable_balance_sats: i64,
 }
 

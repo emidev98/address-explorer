@@ -7,6 +7,8 @@
 
 pub mod addresses;
 pub mod catalogs;
+pub mod exchanges;
+pub mod fiat_rates;
 pub mod prices;
 pub mod settings;
 pub mod transactions;

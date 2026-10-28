@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 
 use crate::api::addresses::{addresses_overview_api, delete_address_api, validate_address_api};
 use crate::api::prices::latest_price_api;
+use crate::api::settings::get_exchange_settings_api;
 use crate::api::transactions::sync_address_transactions_api;
 use crate::components::format::{format_address, format_btc, format_usd};
 use crate::components::{
@@ -39,10 +40,11 @@ pub fn Addresses() -> Element {
     // Backend-driven table state (Section 5.11 of CONTRIBUTING.md): the sort
     // and the scope filter are part of the overview query, so changing them
     // re-runs the request. The overview is not paginated because the KPIs
-    // and the holdings chart derive from the full listing.
+    // and the holdings chart need every matching row, not one page.
     let sort_by = use_signal(|| Option::<String>::None);
     let sort_dir = use_signal(SortDirection::default);
     let mut scope_filter = use_signal(AddressScopeFilter::default);
+    let mut confirm_destructive = use_signal(|| true);
 
     let mut overview = use_resource(move || async move {
         addresses_overview_api(AddressOverviewQuery {
@@ -52,6 +54,12 @@ pub fn Addresses() -> Element {
         })
         .await
         .map_err(|err| err.to_string())
+    });
+    let exchange_settings = use_resource(|| async move { get_exchange_settings_api().await.ok() });
+    use_effect(move || {
+        if let Some(Some(settings)) = exchange_settings() {
+            confirm_destructive.set(settings.confirm_destructive_actions);
+        }
     });
     let latest_price = use_resource(move || async move {
         latest_price_api("USD".to_string())
@@ -66,6 +74,8 @@ pub fn Addresses() -> Element {
     let latest_usd = latest_price().flatten();
     let empty_message = format!("No {} balances", scope_filter().empty_noun());
 
+    // `address_count` is the global count of the listed population; the
+    // backend excludes exchange addresses without a ledger balance.
     let kpi_values: [Option<String>; 4] = match &overview_state {
         Some(Ok(data)) => [
             Some(data.address_count.to_string()),
@@ -76,27 +86,34 @@ pub fn Addresses() -> Element {
         _ => [None, None, None, None],
     };
 
-    // The treemap aggregates holdings by address; exchange-owned addresses
-    // are always filtered out — their balances belong to the exchange's
-    // customers, not to the tracked wallets.
-    let holdings: Vec<HoldingSlice> = match &overview_state {
+    // The table and the treemap show the same rows, so the Scope chips select
+    // the population of both views: the backend already filters `items` by
+    // scope, and `is_listed` drops the balance-less exchange addresses.
+    let listed_items: Vec<AddressOverviewItem> = match &overview_state {
         Some(Ok(data)) => data
             .items
             .iter()
-            .filter(|item| !item.scope.is_exchange())
-            .map(|item| HoldingSlice {
-                label: item
-                    .description
-                    .clone()
-                    .unwrap_or_else(|| format_address(&item.address)),
-                balance_sats: item.spendable_balance_sats,
-            })
+            .filter(|item| is_listed(item))
+            .cloned()
             .collect(),
         _ => Vec::new(),
     };
 
+    // The treemap aggregates every listed address by its spendable balance —
+    // wallet, exchange ledger, and unclassified holdings alike.
+    let holdings: Vec<HoldingSlice> = listed_items
+        .iter()
+        .map(|item| HoldingSlice {
+            label: item
+                .description
+                .clone()
+                .unwrap_or_else(|| format_address(&item.address)),
+            balance_sats: item.spendable_balance_sats,
+        })
+        .collect();
+
     let table_content = match &overview_state {
-        Some(Ok(data)) => rsx! {
+        Some(Ok(_)) => rsx! {
             div { class: "md3-table-container",
                 table { class: "md3-table",
                     thead {
@@ -105,7 +122,7 @@ pub fn Addresses() -> Element {
                             SortableHeader {
                                 label: "Address".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("address"))
-                                            .then_some(sort_dir()),
+                                                                                                                                                                            .then_some(sort_dir()),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "address", SortDirection::Asc);
                                 },
@@ -113,7 +130,7 @@ pub fn Addresses() -> Element {
                             SortableHeader {
                                 label: "Label".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("label"))
-                                            .then_some(sort_dir()),
+                                                                                                                                                                            .then_some(sort_dir()),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "label", SortDirection::Asc);
                                 },
@@ -145,7 +162,7 @@ pub fn Addresses() -> Element {
                             SortableHeader {
                                 label: "Txs".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("txs"))
-                                            .then_some(sort_dir()),
+                                                                                                                                                                            .then_some(sort_dir()),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc);
                                 },
@@ -153,7 +170,7 @@ pub fn Addresses() -> Element {
                             SortableHeader {
                                 label: "Spendable Balance".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("balance"))
-                                            .then_some(sort_dir()),
+                                                                                                                                                                            .then_some(sort_dir()),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "balance", SortDirection::Desc);
                                 },
@@ -161,7 +178,7 @@ pub fn Addresses() -> Element {
                             SortableHeader {
                                 label: "Current Price".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("price"))
-                                            .then_some(sort_dir()),
+                                                                                                                                                                            .then_some(sort_dir()),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
                                 },
@@ -169,7 +186,7 @@ pub fn Addresses() -> Element {
                             SortableHeader {
                                 label: "First tx received".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("first_tx"))
-                                            .then_some(sort_dir()),
+                                                                                                                                                                            .then_some(sort_dir()),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc);
                                 },
@@ -177,7 +194,7 @@ pub fn Addresses() -> Element {
                             SortableHeader {
                                 label: "Last tx sent".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("last_tx"))
-                                            .then_some(sort_dir()),
+                                                                                                                                                                            .then_some(sort_dir()),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc);
                                 },
@@ -185,7 +202,7 @@ pub fn Addresses() -> Element {
                         }
                     }
                     tbody {
-                        if data.items.is_empty() {
+                        if listed_items.is_empty() {
                             tr {
                                 td {
                                     colspan: "9",
@@ -194,7 +211,7 @@ pub fn Addresses() -> Element {
                                 }
                             }
                         } else {
-                            for item in &data.items {
+                            for item in &listed_items {
                                 {
                                     let row = item.clone();
                                     let sync_address = row.address.clone();
@@ -283,7 +300,11 @@ pub fn Addresses() -> Element {
                                                         title: "Remove address",
                                                         aria_label: "Remove address",
                                                         onclick: move |_| {
-                                                            address_to_remove.set(Some(delete_address.clone()));
+                                                            if confirm_destructive() {
+                                                                address_to_remove.set(Some(delete_address.clone()));
+                                                            } else {
+                                                                remove_address(toast, address_to_remove, overview, delete_address.clone());
+                                                            }
                                                         },
                                                         {icon(ICON_DELETE)}
                                                     }
@@ -449,7 +470,11 @@ pub fn Addresses() -> Element {
                     confirm_text: "Yes, remove".to_string(),
                     cancel_text: "Cancel".to_string(),
                     on_cancel: move |_| address_to_remove.set(None),
-                    on_confirm: move |_| remove_address(toast, address_to_remove, overview),
+                    on_confirm: move |_| {
+                        if let Some(address) = address_to_remove() {
+                            remove_address(toast, address_to_remove, overview, address);
+                        }
+                    },
                 }
             }
         }
@@ -471,6 +496,20 @@ fn toggle_sort(
         sort_by.set(Some(key.to_string()));
         sort_dir.set(default_direction);
     }
+}
+
+/// Whether an overview row is listed in the table and aggregated by the
+/// holdings chart.
+///
+/// Exchange-scoped addresses are only listed while their stored ledger
+/// balance is non-zero: the reverse search relates an exchange to every
+/// stored address it transacted with, and an exchange address without a
+/// balance would crowd the table without telling anything. Wallets and
+/// unclassified addresses stay listed at any balance. The backend's global
+/// address count applies the same rule, so the "Addresses" KPI matches the
+/// listed population.
+fn is_listed(item: &AddressOverviewItem) -> bool {
+    !item.scope.is_exchange() || item.spendable_balance_sats != 0
 }
 
 /// Display label of the Scope column: the owner kind with its catalog name,
@@ -522,11 +561,8 @@ fn remove_address(
     mut toast: Toast,
     mut address_to_remove: Signal<Option<String>>,
     mut overview: Resource<Result<AddressOverview, String>>,
+    address: String,
 ) {
-    let Some(address) = address_to_remove() else {
-        return;
-    };
-
     spawn(async move {
         match delete_address_api(address.clone()).await {
             Ok(()) => {
@@ -674,5 +710,43 @@ fn icon(path: &str) -> Element {
             fill: "currentColor",
             path { d: "{path}" }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(scope: AddressScope, spendable_balance_sats: i64) -> AddressOverviewItem {
+        AddressOverviewItem {
+            address: "bc1qtest".to_string(),
+            description: None,
+            address_type: None,
+            spendable_balance_sats,
+            confirmed_tx_count: 0,
+            first_tx_time: None,
+            last_tx_time: None,
+            scope,
+            tx_index_rate_limited: false,
+        }
+    }
+
+    fn exchange() -> AddressScope {
+        AddressScope::Exchange { id: 1, name: None }
+    }
+
+    #[test]
+    fn exchange_addresses_are_listed_only_with_a_balance() {
+        assert!(!is_listed(&item(exchange(), 0)));
+        assert!(is_listed(&item(exchange(), 1)));
+        assert!(is_listed(&item(exchange(), -1)));
+    }
+
+    #[test]
+    fn wallet_and_unassigned_addresses_are_listed_at_any_balance() {
+        let wallet = AddressScope::Wallet { id: 1, name: None };
+
+        assert!(is_listed(&item(wallet, 0)));
+        assert!(is_listed(&item(AddressScope::Unassigned, 0)));
     }
 }

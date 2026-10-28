@@ -4,6 +4,7 @@
 
 use crate::data::repositories::settings as settings_repository;
 use crate::data::{Database, DatabaseError};
+use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
 use crate::domain::price::{normalize_symbol, PriceError};
 use crate::domain::theme::ThemePreference;
 
@@ -41,6 +42,24 @@ pub fn save_default_fiat_currency(
     let symbol = normalize_symbol(symbol)?;
     settings_repository::save_default_fiat_currency(database, &symbol)?;
     Ok(symbol)
+}
+
+pub fn load_exchange_settings(database: &Database) -> Result<ExchangeSettings, DatabaseError> {
+    settings_repository::load_exchange_settings(database)
+}
+
+pub fn save_confirm_destructive_actions(
+    database: &Database,
+    enabled: bool,
+) -> Result<(), DatabaseError> {
+    settings_repository::save_confirm_destructive_actions(database, enabled)
+}
+
+pub fn save_on_chain_link_scoring(
+    database: &Database,
+    settings: &OnChainLinkScoringSettings,
+) -> Result<OnChainLinkScoringSettings, DatabaseError> {
+    settings_repository::save_on_chain_link_scoring(database, settings)
 }
 
 #[cfg(test)]

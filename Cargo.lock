@@ -3,10 +3,11 @@
 version = 4
 
 [[package]]
-name = "address-exporer"
+name = "address-explorer"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "chrono",
  "dioxus",
  "dirs",
  "js-sys",

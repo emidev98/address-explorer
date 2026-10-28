@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use super::migrations::run_migrations;
 
-const APP_NAME: &str = "address-exporer";
+const APP_NAME: &str = "address-explorer";
 const DB_FILE_NAME: &str = "app.db";
 
 #[derive(Debug, Clone)]

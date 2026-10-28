@@ -20,10 +20,15 @@ pub fn Topbar() -> Element {
         header { class: "md3-top-app-bar",
             nav {
                 for (route, label) in screens {
-                    Link {
-                        to: route.clone(),
-                        class: if current == route { "active" } else { "" },
-                        "{label}"
+                    {
+                        let active = current == route
+                            || matches!(
+                                (&current, &route),
+                                (Route::ExchangeDetail { .. }, Route::Exchanges {})
+                            );
+                        rsx! {
+                            Link { to: route.clone(), class: if active { "active" } else { "" }, "{label}" }
+                        }
                     }
                 }
             }

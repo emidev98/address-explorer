@@ -84,6 +84,18 @@ pub(crate) const MIGRATIONS: &[(&str, Migration)] = &[
             "migrations/0011_historical_prices_close_time_index.sql"
         )),
     ),
+    (
+        "0012_exchanges",
+        Migration::Schema(include_str!("migrations/0012_exchanges.sql")),
+    ),
+    (
+        "0013_exchange_addresses",
+        Migration::Seed(seeds::exchange_addresses),
+    ),
+    (
+        "0014_exchange_addresses",
+        Migration::Seed(seeds::exchange_address_catalog),
+    ),
 ];
 
 /// Apply pending migrations in order. `include_seeds` is set for on-disk
@@ -497,6 +509,187 @@ mod tests {
             )
             .unwrap();
         assert_eq!(rate_limited, 0);
+    }
+
+    #[test]
+    fn exchange_migration_creates_tables_and_address_balance_column() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
+
+        for table in [
+            "exchange_accounts",
+            "exchange_transactions",
+            "fiat_exchange_rates",
+        ] {
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "missing table {table}");
+        }
+
+        connection
+            .execute(
+                "INSERT INTO addresses (
+                    address, chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
+                    chain_spent_txo_sum, chain_tx_count, mempool_funded_txo_count,
+                    mempool_funded_txo_sum, mempool_spent_txo_count, mempool_spent_txo_sum,
+                    mempool_tx_count
+                 ) VALUES ('bc1qexchangebalance', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)",
+                [],
+            )
+            .unwrap();
+        let balance: i64 = connection
+            .query_row(
+                "SELECT exchange_balance_sats FROM addresses WHERE address = 'bc1qexchangebalance'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(balance, 0);
+    }
+
+    #[test]
+    fn exchange_migration_upgrades_the_previous_database_without_losing_addresses() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        for (_, migration) in &MIGRATIONS[..11] {
+            if let Migration::Schema(sql) = migration {
+                connection.execute_batch(sql).unwrap();
+            }
+        }
+        connection.pragma_update(None, "user_version", 11).unwrap();
+        connection
+            .execute(
+                "INSERT INTO addresses (
+                    address, chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
+                    chain_spent_txo_sum, chain_tx_count, mempool_funded_txo_count,
+                    mempool_funded_txo_sum, mempool_spent_txo_count, mempool_spent_txo_sum,
+                    mempool_tx_count
+                 ) VALUES ('bc1qexisting12', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&mut connection, false).unwrap();
+
+        let version: i32 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i32);
+        let balance: i64 = connection
+            .query_row(
+                "SELECT exchange_balance_sats FROM addresses WHERE address = 'bc1qexisting12'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(balance, 0);
+        let address_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM addresses", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(address_count, 1);
+    }
+    #[test]
+    fn exchange_addresses_seed_upgrades_a_version_twelve_database() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        for (_, migration) in &MIGRATIONS[..12] {
+            if let Migration::Schema(sql) = migration {
+                connection.execute_batch(sql).unwrap();
+            }
+        }
+        connection.pragma_update(None, "user_version", 12).unwrap();
+        connection
+            .execute(
+                "INSERT INTO addresses (
+                    address, chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
+                    chain_spent_txo_sum, chain_tx_count, mempool_funded_txo_count,
+                    mempool_funded_txo_sum, mempool_spent_txo_count, mempool_spent_txo_sum,
+                    mempool_tx_count, description
+                 ) VALUES ('bc1qexisting13', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 'My wallet')",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&mut connection, true).unwrap();
+
+        let version: i32 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i32);
+
+        // The user's own row survives untouched.
+        let description: String = connection
+            .query_row(
+                "SELECT description FROM addresses WHERE address = 'bc1qexisting13'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(description, "My wallet");
+
+        // Both seed migrations run: the initial 0013 subset and the complete
+        // 0014 catalog, without duplicating any address.
+        let exchange_addresses: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exchange_addresses, 296);
+    }
+
+    #[test]
+    fn exchange_address_catalog_upgrades_a_version_thirteen_database() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        for (_, migration) in &MIGRATIONS[..12] {
+            if let Migration::Schema(sql) = migration {
+                connection.execute_batch(sql).unwrap();
+            }
+        }
+        // Reproduce the on-disk state after 0013: eight seeded wallets plus a
+        // user-owned address.
+        seeds::exchange_addresses(&connection).unwrap();
+        connection.pragma_update(None, "user_version", 13).unwrap();
+        connection
+            .execute(
+                "INSERT INTO addresses (
+                    address, chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
+                    chain_spent_txo_sum, chain_tx_count, mempool_funded_txo_count,
+                    mempool_funded_txo_sum, mempool_spent_txo_count, mempool_spent_txo_sum,
+                    mempool_tx_count, description
+                 ) VALUES ('bc1quserowned14', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 'User wallet')",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&mut connection, true).unwrap();
+
+        let version: i32 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i32);
+
+        let exchange_addresses: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exchange_addresses, 296);
+
+        let user_description: String = connection
+            .query_row(
+                "SELECT description FROM addresses WHERE address = 'bc1quserowned14'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(user_description, "User wallet");
     }
 
     #[test]

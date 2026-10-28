@@ -6,7 +6,7 @@ use crate::api::settings::get_theme_api;
 use crate::components::theme::{apply as apply_theme, attribute_script};
 use crate::components::{provide_toast, ToastHost, Topbar};
 use crate::domain::theme::ThemePreference;
-use crate::screens::{Addresses, Exchanges, Flow, Prices, Settings};
+use crate::screens::{Addresses, ExchangeDetail, Exchanges, Flow, Prices, Settings};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -18,6 +18,11 @@ pub enum Route {
     Flow {},
     #[route("/exchanges")]
     Exchanges {},
+    #[route("/exchanges/:exchange_id?:transaction_id")]
+    ExchangeDetail {
+        exchange_id: i64,
+        transaction_id: Option<String>,
+    },
     #[route("/prices")]
     Prices {},
     #[route("/settings")]
@@ -58,5 +63,30 @@ pub fn App() -> Element {
         // Rendered after the router so toasts layer above page content and
         // modal dialogs.
         ToastHost {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exchange_detail_route_round_trips_the_optional_transaction_query() {
+        let route = Route::ExchangeDetail {
+            exchange_id: 12,
+            transaction_id: Some("abc".to_string()),
+        };
+        assert_eq!(route.to_string(), "/exchanges/12?transaction_id=abc");
+        assert_eq!(
+            "/exchanges/12?transaction_id=abc".parse::<Route>().unwrap(),
+            route
+        );
+
+        let without_query = Route::ExchangeDetail {
+            exchange_id: 12,
+            transaction_id: None,
+        };
+        assert_eq!(without_query.to_string(), "/exchanges/12?");
+        assert_eq!("/exchanges/12".parse::<Route>().unwrap(), without_query);
     }
 }

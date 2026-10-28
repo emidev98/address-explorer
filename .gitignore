@@ -17,6 +17,7 @@ target
 # assets/pricing/README.md); only the packed btc_usd.bin is
 # committed and bundled with the app.
 assets/pricing/raw_data
+assets/exchange_samples
 
 # rustc will dump stack traces when hitting an internal compiler error to PWD
 rustc-ice-*.txt

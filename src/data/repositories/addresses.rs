@@ -1,7 +1,8 @@
 //! SQL access to the `addresses` table.
 
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 
+use super::exchanges as exchange_repository;
 use crate::data::{Database, DatabaseError};
 use crate::domain::address::{AddressEntity, AddressListItem, AddressScopeFilter};
 use crate::domain::table::SortDirection;
@@ -85,20 +86,18 @@ pub struct AddressOverviewFilter {
 /// Spendable balance expression shared by the overview listing, its balance
 /// sorting, and the KPI totals.
 ///
-/// Exchange-scoped addresses count as zero on the Addresses page for now.
-/// Their stored mempool statistics are left intact so the future Exchanges
-/// page can consume the real values.
-///
-/// TODO(exchanges-page): Report the real exchange balances once the
-/// Exchanges page is available; until then keep them out of the Addresses
-/// page balances.
-const SPENDABLE_BALANCE_SATS: &str = "CASE WHEN a.exchange_id IS NOT NULL THEN 0 \
+/// Exchange-scoped addresses display their stored ledger balance. The
+/// balance of a provider is kept on its alphabetically first address; the
+/// other addresses of that provider store zero. The real on-chain statistics
+/// remain untouched for the exchange page and reconciliation.
+const SPENDABLE_BALANCE_SATS: &str =
+    "CASE WHEN a.exchange_id IS NOT NULL THEN a.exchange_balance_sats \
      ELSE a.chain_funded_txo_sum - a.chain_spent_txo_sum END";
 
 /// One row of [`list_overview_rows`]: the stored address, the resolved
 /// owner catalog names, its confirmed-transaction statistics (zero/none
-/// for unsynced addresses), and its reported spendable balance (zero for
-/// exchange-scoped addresses until the Exchanges page is available).
+/// for unsynced addresses), and its reported spendable balance (the stored
+/// exchange ledger balance for exchange-scoped addresses).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressOverviewRow {
     pub entity: AddressEntity,
@@ -178,13 +177,16 @@ pub fn list_overview_rows(
 
 /// Global KPI totals of the addresses page: the stored address count, the
 /// confirmed transactions across all of them, and the total spendable
-/// balance in satoshis. The count and transaction totals are unfiltered;
-/// the balance total excludes exchange-scoped addresses for now (see
+/// balance in satoshis. The totals are unfiltered; the address count excludes
+/// exchange-scoped addresses without a stored ledger balance, matching the
+/// rows the overview lists, while their stored transactions still count.
+/// Exchange-scoped addresses contribute their stored ledger balance (see
 /// [`SPENDABLE_BALANCE_SATS`]). The cards therefore do not change when the
 /// table's scope filter changes.
 pub fn overview_totals(database: &Database) -> Result<(i64, i64, i64), DatabaseError> {
     let sql = format!(
-        "SELECT (SELECT COUNT(*) FROM addresses a),
+        "SELECT (SELECT COUNT(*) FROM addresses a
+                 WHERE a.exchange_id IS NULL OR a.exchange_balance_sats <> 0),
                 (SELECT COUNT(*) FROM transactions WHERE confirmed = 1),
                 (SELECT COALESCE(SUM({SPENDABLE_BALANCE_SATS}), 0)
                  FROM addresses a)"
@@ -206,19 +208,50 @@ pub fn update_address_details(
     exchange_id: Option<i64>,
     wallet_id: Option<i64>,
 ) -> Result<bool, DatabaseError> {
-    let connection = database.connection()?;
-    let updated = connection.execute(
+    let mut connection = database.connection()?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let previous_exchange: Option<i64> = transaction
+        .query_row(
+            "SELECT exchange_id FROM addresses WHERE address = ?1",
+            [address],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    let updated = transaction.execute(
         "UPDATE addresses
          SET description = ?2, exchange_id = ?3, wallet_id = ?4
          WHERE address = ?1",
         params![address, description, exchange_id, wallet_id],
     )?;
+    if updated == 1 {
+        if let Some(previous) = previous_exchange {
+            exchange_repository::refresh_provider_balance_tx(&transaction, previous)?;
+        }
+        if let Some(current) = exchange_id {
+            exchange_repository::refresh_provider_balance_tx(&transaction, current)?;
+        }
+    }
+    transaction.commit()?;
     Ok(updated == 1)
 }
 
 pub fn delete_address(database: &Database, address: &str) -> Result<(), DatabaseError> {
-    let connection = database.connection()?;
-    connection.execute("DELETE FROM addresses WHERE address = ?1", [address])?;
+    let mut connection = database.connection()?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let exchange_id: Option<i64> = transaction
+        .query_row(
+            "SELECT exchange_id FROM addresses WHERE address = ?1",
+            [address],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    transaction.execute("DELETE FROM addresses WHERE address = ?1", [address])?;
+    if let Some(exchange_id) = exchange_id {
+        exchange_repository::refresh_provider_balance_tx(&transaction, exchange_id)?;
+    }
+    transaction.commit()?;
     Ok(())
 }
 
@@ -237,8 +270,18 @@ pub fn delete_address(database: &Database, address: &str) -> Result<(), Database
 /// an interrupted indexing walk. Only
 /// [`set_tx_index_rate_limited`] changes it.
 pub fn insert_address(database: &Database, value: &AddressEntity) -> Result<(), DatabaseError> {
-    let connection = database.connection()?;
-    connection.execute(
+    let mut connection = database.connection()?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let previous: Option<Option<i64>> = transaction
+        .query_row(
+            "SELECT exchange_id FROM addresses WHERE address = ?1",
+            [&value.address],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let existed = previous.is_some();
+    let previous_exchange = previous.flatten();
+    transaction.execute(
         "INSERT INTO addresses (
             address, description, exchange_id, wallet_id,
             chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
@@ -283,6 +326,19 @@ pub fn insert_address(database: &Database, value: &AddressEntity) -> Result<(), 
             value.mempool_tx_count,
         ],
     )?;
+    // A stats refresh (same owner) must preserve the stored ledger balance.
+    // Only a new address or an owner change can move the anchor.
+    let owner_changed =
+        !existed || value.wallet_id.is_some() || value.exchange_id != previous_exchange;
+    if owner_changed {
+        if let Some(previous) = previous_exchange {
+            exchange_repository::refresh_provider_balance_tx(&transaction, previous)?;
+        }
+        if let Some(current) = value.exchange_id {
+            exchange_repository::refresh_provider_balance_tx(&transaction, current)?;
+        }
+    }
+    transaction.commit()?;
     Ok(())
 }
 
@@ -674,17 +730,42 @@ mod tests {
         assert_eq!(exchanges.len(), 1);
         assert_eq!(exchanges[0].entity.address, "bc1qexchange");
         assert_eq!(exchanges[0].exchange_name.as_deref(), Some("Binance"));
-        // Exchange balances are reported as zero, but the stored stats are
-        // preserved for the future Exchanges page.
+        // Exchange balances are zero here because no ledger account exists,
+        // but the stored on-chain stats are preserved.
         assert_eq!(exchanges[0].spendable_balance_sats, 0);
         assert_eq!(exchanges[0].entity.chain_funded_txo_sum, 200);
 
-        // The KPI totals ignore the filter, but the balance total excludes
-        // exchange-scoped addresses.
+        // The KPI totals ignore the filter. The address count excludes the
+        // exchange address without a ledger balance (the overview does not
+        // list it); the balance total excludes exchange-scoped on-chain stats.
         let (count, confirmed, balance) = overview_totals(&database).unwrap();
-        assert_eq!(count, 3);
+        assert_eq!(count, 2);
         assert_eq!(confirmed, 1);
         assert_eq!(balance, 400);
+    }
+
+    #[test]
+    fn overview_address_count_skips_exchange_addresses_without_a_ledger_balance() {
+        let database = Database::open_in_memory().unwrap();
+        overview_address(&database, "bc1qwallet", 100, None, None, Some(1));
+        overview_address(&database, "bc1qplain", 300, None, None, None);
+        overview_address(&database, "bc1qexchangezero", 200, None, Some(1), None);
+        overview_address(&database, "bc1qexchangebalance", 400, None, Some(1), None);
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE addresses SET exchange_balance_sats = 5000 \
+                 WHERE address = 'bc1qexchangebalance'",
+                [],
+            )
+            .unwrap();
+
+        let (count, _, balance) = overview_totals(&database).unwrap();
+        // Wallet and unclassified addresses always count; an exchange
+        // address counts once its ledger balance is non-zero.
+        assert_eq!(count, 3);
+        assert_eq!(balance, 400 + 5_000);
     }
 
     #[test]
@@ -703,6 +784,69 @@ mod tests {
         assert_eq!(rows[2].entity.chain_funded_txo_sum, 9_000);
     }
 
+    #[test]
+    fn stored_exchange_ledger_balance_is_used_by_overview_sort_and_totals() {
+        let database = Database::open_in_memory().unwrap();
+        overview_address(&database, "bc1qwallet", 100, None, None, Some(1));
+        overview_address(&database, "bc1qexchange", 9_000, None, Some(1), None);
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE addresses SET exchange_balance_sats = 5000 WHERE address = 'bc1qexchange'",
+                [],
+            )
+            .unwrap();
+
+        let rows = list_overview_rows(
+            &database,
+            &AddressOverviewFilter {
+                scope: AddressScopeFilter::Exchanges,
+                ..AddressOverviewFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(rows[0].spendable_balance_sats, 5_000);
+        // The real on-chain statistics are preserved separately.
+        assert_eq!(rows[0].entity.chain_funded_txo_sum, 9_000);
+
+        let (_, _, balance) = overview_totals(&database).unwrap();
+        assert_eq!(balance, 5_100);
+
+        let rows = list_overview_rows(&database, &AddressOverviewFilter::default()).unwrap();
+        let order: Vec<&str> = rows.iter().map(|row| row.entity.address.as_str()).collect();
+        assert_eq!(order, ["bc1qexchange", "bc1qwallet"]);
+    }
+
+    #[test]
+    fn stats_refresh_does_not_clear_exchange_balance_column() {
+        let database = Database::open_in_memory().unwrap();
+        overview_address(&database, "bc1qexchange", 100, None, Some(1), None);
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE addresses SET exchange_balance_sats = 7000 WHERE address = 'bc1qexchange'",
+                [],
+            )
+            .unwrap();
+        // A regular stats refresh must leave the exchange ledger column alone.
+        overview_address(&database, "bc1qexchange", 900, None, Some(1), None);
+        let stored = get_address(&database, "bc1qexchange").unwrap().unwrap();
+        assert_eq!(stored.chain_funded_txo_sum, 900);
+        assert_eq!(
+            database
+                .connection()
+                .unwrap()
+                .query_row(
+                    "SELECT exchange_balance_sats FROM addresses WHERE address = 'bc1qexchange'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            7_000
+        );
+    }
     #[test]
     fn update_details_rewrites_description_and_owner_and_reports_missing() {
         let database = Database::open_in_memory().unwrap();

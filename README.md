@@ -1,12 +1,12 @@
 # Explorer
 
-A simple Dioxus application for exploring files and directories.
+A Dioxus application for exploring Bitcoin addresses, historical prices, and exchange ledgers.
 
 ## Features
 
-- Browse files and directories
-- View file contents
-- Simple and minimal UI
+- Track Bitcoin addresses, balances, and transaction history
+- Explore historical BTC prices and fiat conversions
+- Import exchange CSV ledgers, reconcile them with cached on-chain data, and review provider balances
 - Switch between Material 3 color palettes and appearance modes in Settings
 
 ## Installation
@@ -33,6 +33,15 @@ cargo build --release
 ```
 
 Then run the compiled binary.
+
+## Sample exchange data
+
+Mocked Revolut, Binance, and Crypto.com ledgers with more than 100 BTC
+operations each live in [`assets/exchange_samples/`](assets/exchange_samples/).
+Drop one of the CSV files into **Exchanges → Import Data** to try the
+import, preview, and reconciliation flow. The same folder documents the public
+exchange wallets that are seeded into the addresses collection with their
+exchange scope.
 
 ## Development
 

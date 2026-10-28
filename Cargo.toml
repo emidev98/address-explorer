@@ -1,5 +1,5 @@
 [package]
-name = "address-exporer"
+name = "address-explorer"
 version = "0.1.0"
 authors = ["emidev98 <eharastasan@gmail.com>"]
 edition = "2021"
@@ -15,6 +15,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 bitcoin = { version = "0.32", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 
 # Client-side-only helpers (the date picker's "today" comes from the
 # browser clock; `SystemTime` panics on wasm32).

@@ -4,12 +4,15 @@
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::data::{Database, DatabaseError};
+use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
 use crate::domain::price::USD_SYMBOL;
 use crate::domain::theme::{ThemeMode, ThemePalette, ThemePreference};
 
 const PALETTE_KEY: &str = "theme";
 const MODE_KEY: &str = "mode";
 const DEFAULT_FIAT_CURRENCY_KEY: &str = "default_fiat_currency";
+const CONFIRM_DESTRUCTIVE_KEY: &str = "confirm_destructive_actions";
+const ON_CHAIN_SCORING_KEY: &str = "on_chain_link_scoring";
 
 /// Load the stored theme, falling back to defaults for missing or
 /// unrecognized values.
@@ -51,6 +54,47 @@ pub fn load_default_fiat_currency(database: &Database) -> Result<String, Databas
 pub fn save_default_fiat_currency(database: &Database, symbol: &str) -> Result<(), DatabaseError> {
     let connection = database.connection()?;
     write_setting(&connection, DEFAULT_FIAT_CURRENCY_KEY, symbol)
+}
+
+/// Load the app-wide confirmation setting and exchange reconciliation
+/// weights, falling back to defaults for missing or malformed values.
+pub fn load_exchange_settings(database: &Database) -> Result<ExchangeSettings, DatabaseError> {
+    let connection = database.connection()?;
+    let confirm = read_setting(&connection, CONFIRM_DESTRUCTIVE_KEY)?
+        .and_then(|value| value.parse::<bool>().ok())
+        .unwrap_or(true);
+    let scoring = read_setting(&connection, ON_CHAIN_SCORING_KEY)?
+        .and_then(|value| serde_json::from_str::<OnChainLinkScoringSettings>(&value).ok())
+        .unwrap_or_default()
+        .normalized();
+    Ok(ExchangeSettings {
+        confirm_destructive_actions: confirm,
+        on_chain_link_scoring: scoring,
+    })
+}
+
+pub fn save_confirm_destructive_actions(
+    database: &Database,
+    enabled: bool,
+) -> Result<(), DatabaseError> {
+    let connection = database.connection()?;
+    write_setting(
+        &connection,
+        CONFIRM_DESTRUCTIVE_KEY,
+        if enabled { "true" } else { "false" },
+    )
+}
+
+pub fn save_on_chain_link_scoring(
+    database: &Database,
+    settings: &OnChainLinkScoringSettings,
+) -> Result<OnChainLinkScoringSettings, DatabaseError> {
+    let settings = settings.normalized();
+    let value =
+        serde_json::to_string(&settings).map_err(|error| DatabaseError::new(error.to_string()))?;
+    let connection = database.connection()?;
+    write_setting(&connection, ON_CHAIN_SCORING_KEY, &value)?;
+    Ok(settings)
 }
 
 fn read_setting(connection: &Connection, key: &str) -> Result<Option<String>, DatabaseError> {
@@ -142,6 +186,51 @@ mod tests {
         assert_eq!(load_default_fiat_currency(&database).unwrap(), "RON");
     }
 
+    #[test]
+    fn exchange_settings_default_and_round_trip() {
+        let database = Database::open_in_memory().unwrap();
+        let defaults = load_exchange_settings(&database).unwrap();
+        assert!(defaults.confirm_destructive_actions);
+        assert_eq!(
+            defaults.on_chain_link_scoring,
+            OnChainLinkScoringSettings::default()
+        );
+
+        save_confirm_destructive_actions(&database, false).unwrap();
+        let scoring = OnChainLinkScoringSettings {
+            hash_weight: -1.0,
+            amount_tolerance_sats: 0.0,
+            ..OnChainLinkScoringSettings::default()
+        };
+        let saved = save_on_chain_link_scoring(&database, &scoring).unwrap();
+        assert_eq!(saved.hash_weight, 0.0);
+        assert_eq!(saved.amount_tolerance_sats, 5_000.0);
+
+        let loaded = load_exchange_settings(&database).unwrap();
+        assert!(!loaded.confirm_destructive_actions);
+        assert_eq!(loaded.on_chain_link_scoring, saved);
+    }
+
+    #[test]
+    fn invalid_exchange_settings_fall_back_to_defaults() {
+        let database = Database::open_in_memory().unwrap();
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO setting (key, value) VALUES
+                    ('confirm_destructive_actions', 'not-a-bool'),
+                    ('on_chain_link_scoring', 'not-json')",
+                [],
+            )
+            .unwrap();
+        let settings = load_exchange_settings(&database).unwrap();
+        assert!(settings.confirm_destructive_actions);
+        assert_eq!(
+            settings.on_chain_link_scoring,
+            OnChainLinkScoringSettings::default()
+        );
+    }
     #[test]
     fn invalid_stored_values_fall_back_to_defaults() {
         let database = Database::open_in_memory().unwrap();

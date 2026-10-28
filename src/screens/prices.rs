@@ -324,7 +324,7 @@ pub fn Prices() -> Element {
                                     SortableHeader {
                                         label: "Date".to_string(),
                                         active_direction: (sort_by().as_deref() == Some("date"))
-                                            .then_some(sort_dir()),
+                                                                                    .then_some(sort_dir()),
                                         on_sort: move |_| {
                                             toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
                                             page.set(0);
@@ -333,7 +333,7 @@ pub fn Prices() -> Element {
                                     SortableHeader {
                                         label: "Price".to_string(),
                                         active_direction: (sort_by().as_deref() == Some("price"))
-                                            .then_some(sort_dir()),
+                                                                                    .then_some(sort_dir()),
                                         on_sort: move |_| {
                                             toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
                                             page.set(0);

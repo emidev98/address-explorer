@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
-const APP_NAME: &str = "address-exporer";
+const APP_NAME: &str = "AddressExplorer";
 const DB_FILE_NAME: &str = "app.db";
 
 const MIGRATIONS: &[(&str, &str)] = &[(

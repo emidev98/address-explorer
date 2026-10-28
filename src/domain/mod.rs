@@ -6,6 +6,7 @@
 pub mod address;
 pub mod catalog;
 pub mod civil_time;
+pub mod exchange;
 pub mod price;
 pub mod table;
 pub mod theme;

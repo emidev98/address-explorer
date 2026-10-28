@@ -13,6 +13,7 @@ use crate::data::Database;
 
 pub mod addresses;
 pub mod catalogs;
+pub mod exchanges;
 pub mod prices;
 pub mod settings;
 pub mod transactions;
