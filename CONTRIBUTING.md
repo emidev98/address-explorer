@@ -24,6 +24,7 @@ When sources disagree, contributors **MUST** prioritize project configuration an
 
 - **Language:** stable Rust unless the repository explicitly documents a toolchain exception.
 - **UI:** Dioxus. The version pinned by `Cargo.toml`/`Cargo.lock` determines the usable API. Section 5 describes the Dioxus conventions; contributors **MUST** update that section deliberately when the dependency baseline changes rather than mixing APIs.
+- **Charts:** Apache ECharts, vendored in `assets/vendor/echarts/`, is the default and only charting library. Section 5.10 describes the required chart component boundaries.
 - **Persistence:** SQLite through `rusqlite` for native application builds. Browser/WASM builds **MUST NOT** assume that a native `rusqlite` persistence implementation can be reused unchanged; a browser target requires an explicitly supported storage adapter.
 - **Targets:** Linux, macOS, and Android. Platform-specific APIs **SHOULD** be isolated behind narrow modules or target-specific compilation.
 
@@ -35,17 +36,20 @@ The layout example **SHOULD** be adapted to the repository as it exists. Contrib
 
 ```text
 src/
-├── main.rs                 # Application entry point
+├── main.rs                 # Application entry point and composition root
 ├── app.rs                  # Root component and top-level navigation
+├── api/                    # Server-function API controllers (fullstack entry points)
 ├── components/             # Reusable presentation components
+│   └── charts/             # One component per chart (Apache ECharts)
 ├── screens/                # Screen/page components and screen-specific state
-├── application/            # Use cases and orchestration
+├── application/            # Services: use cases and orchestration, one module per domain
 ├── domain/                 # Domain types, validation, pure business rules
 ├── data/
 │   ├── mod.rs
 │   ├── database.rs         # Connection creation and SQLite configuration
 │   ├── migrations.rs       # Ordered schema migrations
 │   └── repositories/       # SQL access grouped by domain entity
+├── clients/                # External API clients, one module per provider
 ├── workers/                # CPU-intensive work and long-running workers
 └── error.rs                # Shared application error types, if needed
 ```
@@ -161,6 +165,53 @@ rsx! {
 }
 ```
 
+#### Styling: Tailwind CSS v4 and Material 3
+
+The interface uses a Material 3 theme implemented with Tailwind CSS v4 in
+`tailwind.css`. `assets/tailwind.css` is the compiled stylesheet that the
+application loads, so contributors **MUST** rebuild it after changing either
+the theme or the Tailwind classes in the Rust views:
+
+```bash
+npx @tailwindcss/cli@4.1.5 -i tailwind.css -o assets/tailwind.css
+```
+
+The theme provides:
+
+- Material 3 color roles as utilities, such as `bg-primary`,
+  `bg-surface-container`, and `text-on-surface-variant`.
+- The full type scale, such as `text-headline-medium`, `text-body-medium`,
+  and `text-label-large`.
+- Shape tokens (`rounded-md3-md`), elevation (`shadow-md3-1`), and motion
+  easings (`ease-md3-standard`).
+- Component classes used by the views, including `md3-top-app-bar`,
+  `md3-screen`, `md3-button-filled`, `md3-text-field`, `md3-table`,
+  `md3-card`, and `md3-fab`.
+
+The available palettes are Ocean, Forest, Sunset, Orchid (the default), and
+Graphite Lime. `data-theme` selects the palette and `data-mode` selects
+`light`, `dark`, or `system`; both are applied to the document root. When no
+mode has been stored yet, the theme follows `prefers-color-scheme`.
+
+The palette and appearance are changed in **Settings → Theme**. Preferences
+are saved automatically to the SQLite `setting` table, created by
+`src/clients/database/migrations/0003_settings.sql`. The theme is loaded
+during server rendering, applied in the document head before the app markup
+is parsed, and serialized into the page so hydration starts with the same
+values instead of flashing the default palette. Palette definitions live in
+`assets/material3-tailwind-palettes.css`, which `tailwind.css` imports. The
+theme aliases the `--md-*` palette variables to the `--md-sys-color-*` roles,
+so palette changes affect both the component classes and the Tailwind color
+utilities. Changes that alter palettes, color roles, or component classes
+**MUST** be verified in both light and dark appearance modes before review.
+
+Charts draw on a canvas and cannot consume the component classes or Tailwind
+utilities: when a new style is added it **MUST** also be available for the
+charts. New color roles and visual treatments **MUST** be expressed through
+the chart theme tokens in `src/components/charts/theme.rs`, which reference
+the same `--md-sys-color-*` variables (Section 5.10); chart styling **MUST
+NOT** fork the theme with hardcoded colors.
+
 ### 5.4 Signals, derived state, context, and hooks
 
 - Local reactive state **SHOULD** use `use_signal`. Values derivable from other reactive values **SHOULD** use direct expressions or `use_memo` rather than a second independently mutable source of truth.
@@ -273,7 +324,76 @@ For a server-rendered web application, the initial client render **MUST** match 
 
 ### 5.9 Dioxus development workflow
 
-Contributors **SHOULD** use the Dioxus CLI version recommended for the dependency baseline and commands documented for the intended target. `dx serve` **MAY** be used for local development when configured for that target. Formatting commands are defined in Section 4; platform bundling, system dependencies, and release packaging are covered in Sections 4 and 9. Version-matched official Dioxus documentation takes precedence over outdated snippets.
+Contributors **SHOULD** use the Dioxus CLI version recommended for the dependency baseline and commands documented for the intended target. `dx serve` **MAY** be used for local development when configured for that target. Formatting commands are defined in Section 4; platform bundling, system dependencies, and release packaging are covered in Sections 4 and 10. Version-matched official Dioxus documentation takes precedence over outdated snippets.
+
+### 5.10 Charts (Apache ECharts)
+
+Apache ECharts is the default charting library for this project. The browser bundle and its licenses are vendored under `assets/vendor/echarts/` so charts work without a CDN or network connection. Contributors **MUST NOT** add another charting library, load ECharts from a third-party CDN, or enable a second charting stack without updating this guide and documenting the reason.
+
+- Every chart **MUST** be its own dedicated component, normally under `src/components/charts/`. The component **MUST** own the complete presentation: the ECharts option, layout, colors, labels, arrows, tooltips, animations, responsive behavior, and chart-specific interactions.
+- Chart components **MUST** receive only their business data, plus optional presentation metadata such as an accessible label. A screen or page **MUST NOT** build an ECharts option, call the ECharts JavaScript API, embed chart JSON, or choose chart internals; it passes data to the chart component and lets the component decide how to display it.
+- Chart props and data types **MUST** stay domain-oriented. They **MUST NOT** expose raw ECharts options, canvas elements, or other rendering details to the calling screen. The component converts its data into an option internally.
+- Chart components **MUST NOT** fetch, persist, or own business records. Loading, empty, and error states belong to the screen or application layer that supplies the data. Pure helpers such as layout calculation and option construction **SHOULD** be separate functions with unit tests.
+- The shared hosts in `src/components/charts/echarts.rs` — `EChartsHost`, plus `EChartsZoomHost` for charts that forward ECharts interaction events such as `datazoom` back to Rust — are the only place that may initialize, update, resize, or dispose ECharts. A chart component passes its serialized option to one of those hosts instead of manipulating the DOM or JavaScript directly.
+- Options **MUST** be generated with typed serialization such as `serde_json`, never by concatenating untrusted values into JavaScript source. Any custom JavaScript **MUST** escape data with the same care.
+- Chart elements that should follow the app theme **MUST** use the color tokens from `src/components/charts/theme.rs` instead of hardcoded colors. A token is a `var(--md-sys-color-*)` string referencing the same Material 3 color role the CSS uses, with an optional `~alpha` suffix (for example `var(--md-sys-color-primary~0.15)`) for translucent fills the canvas cannot express through CSS. The host resolves every token in the option against the computed page style when it applies the option, and re-applies all options when `data-theme`, `data-mode`, or the system color scheme changes, so charts track palette and appearance switches without a reload. When filling a shape that carries text, the fill and label colors **MUST** be a paired role and its `on-*` counterpart (for example `primary` with `on-primary`) so the palette keeps the contrast it guarantees.
+- Charts **MUST** provide an accessible label and remain legible in the supported light and dark appearance modes. Contributors **SHOULD** verify the rendered chart, resizing, and both modes before requesting review.
+- When updating ECharts, replace the vendored bundle and license files together, record the new version in this guide or the vendoring README, and run the checks in Section 4.
+
+Example chart component shape:
+
+```rust
+/// Business data received from the screen.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BalancePoint {
+    pub label: String,
+    pub value: f64,
+}
+
+/// The component owns option construction and rendering.
+#[component]
+pub fn BalanceChart(points: Vec<BalancePoint>) -> Element {
+    let option = build_option(&points).to_string();
+
+    rsx! {
+        EChartsHost { option, aria_label: "Balance chart".to_string() }
+    }
+}
+```
+
+The screen only supplies data:
+
+```rust
+rsx! {
+    BalanceChart { points }
+}
+```
+
+### 5.11 Data tables: pagination and sorting
+
+Every screen that lists rows in a table **MUST** use the shared backend-driven table pattern defined here, so all tables paginate and sort the same way. The historical prices screen (`src/screens/prices.rs`) is the reference implementation.
+
+**Query contract.**
+
+- A table listing endpoint **MUST** be a server function taking a single query struct that flattens the shared [`TableQuery`](src/domain/table.rs) (`#[serde(flatten)]`) and adds the table's specific filters as typed fields (for example `PriceTableQuery` adds `symbol`, `from_time`, `to_time`). It **MUST** return the shared `TablePage<T>` (`items` plus the filtered `total` across all pages).
+- `TableQuery` carries the 0-based `page`, the `page_size`, and the optional `sort_by` key with its `sort_dir`. Page numbers are 0-based in the query and 1-based in the UI. Services **MUST** clamp `page_size` to a documented maximum.
+- Any change to filters or sorting **MUST** reset the page to 0.
+
+**Pagination bar.**
+
+- Screens **MUST** render the shared `TablePagination` component (from `src/components/table_controls.rs`) directly above the table: Previous and Next buttons around an editable 1-based page index and the totals (` of N · M entries`).
+- The page index **MUST** be editable: entering a number navigates to that page, clamped to the valid range. The endpoint **MUST** therefore accept arbitrary page indexes, not only previous/next steps.
+
+**Sorting.**
+
+- Sorting **MUST** run in the backend, never in the UI over one loaded page. Column headers of sortable columns **MUST** use the shared `SortableHeader` component; clicking the active column toggles its direction, clicking another column selects it.
+- Sortable columns **MUST** be a fixed allowlist enum owned by the table's repository (for example `PriceSortColumn`), parsed from the client's string key and mapped to a fixed `ORDER BY` expression. Client input **MUST NOT** reach SQL as an identifier (Section 6.3), and an unknown sort key **MUST** be rejected at the service boundary.
+- The `ORDER BY` expression **MUST** sort by the column's typed storage class: dates and timestamps as epoch-integer (or ISO date) columns, numbers as `REAL`/`INTEGER` columns — never as formatted display strings. Dates must compare as dates and numbers as numbers ("2024-…" and `100.0 > 20.0`, never lexicographic `"100.0" < "20.0"`). A deterministic secondary key (for example the primary key or timestamp) **MUST** follow the sort column so paginating a sorted listing never overlaps or skips rows.
+
+**Extending the pattern.**
+
+- When a table's behavior changes, the change **MUST** extend the shared definitions rather than hand-rolling equivalents: a new sortable column goes to the repository's allowlist enum and gains a `SortableHeader`, and a new filter becomes a typed field of the endpoint's query struct. Screens **MUST NOT** implement their own pagination bar or sort headers.
+- A new table **MUST** be built from these pieces: a `TableQuery`-flattening endpoint, a service that validates the sort key and clamps the page size, repository `WHERE` fragments shared between the list and count queries, and the shared controls from `src/components/table_controls.rs`.
 
 ## 6. SQLite and `rusqlite` conventions
 
@@ -393,9 +513,84 @@ Database initialization **MUST** follow this order: resolve the platform-approve
 
 Each connection **MUST** apply the settings the schema relies on, such as foreign-key enforcement and a deliberate busy timeout. Connection pragmas **SHOULD** be chosen intentionally and **MUST** be tested on every supported target.
 
-## 7. Clean-code standards for Rust
+## 7. Single Responsibility Principle and module design
 
-### 7.1 Naming and function design
+The Single Responsibility Principle (SRP) states that a module, struct, or function **SHOULD** have exactly one responsibility — one reason to change. In this repository, a "reason to change" is a single actor or concern that can request a change: the UI design, a business rule, the database schema, an external API contract, or a platform API. A unit of code that changes for two different reasons **MUST** be split.
+
+### 7.1 Applying SRP at every level
+
+SRP applies recursively — to the crate, each module, each struct, and each function:
+
+- Every module **MUST** have a single responsibility that can be stated in one sentence without "and" (for example: "`frankfurter::http` performs HTTP requests to the Frankfurter API"). A module whose responsibility needs an "and" ("parses responses *and* decides which assets to display") **SHOULD** be split.
+- A unit that mixes pure computation with I/O (SQL, HTTP, filesystem, clocks) **MUST** be split so the pure part can be tested without the side effect.
+- A unit that talks to two different external systems (for example, SQLite and a network API) **SHOULD** be split into two focused units plus a third that orchestrates them.
+- A file that both wires the application together (composition) and implements behavior **SHOULD** be split: wiring lives in the entry point, behavior in modules.
+- A useful extraction test: a module **SHOULD** be movable into its own crate without dragging in unrelated code. If extraction would pull in UI, persistence, and networking at once, the boundary is wrong.
+
+### 7.2 Layer responsibilities
+
+The repository follows a layered architecture in which each layer has exactly one job. The classic *controller → service → repository* layering maps onto this Dioxus application as follows:
+
+| Layer | Location | Responsibility |
+| --- | --- | --- |
+| Controllers (entry points) | `src/api/` (server functions), `src/screens/`, event handlers in `src/components/` | Translate requests and user input into service calls; render results |
+| Services (business logic) | `src/application/` (one module per domain) | Encapsulate business rules; orchestrate repositories and clients |
+| Repositories | `src/data/repositories/` | The only modules that execute SQL (Section 6.3) |
+| API clients | `src/clients/<provider>/` | The only modules that speak to an external API |
+| Models (structs) | `src/domain/`, `src/clients/<provider>/types.rs` | Plain data types shared between layers |
+
+Rules for each layer:
+
+- **API controllers** (`src/api/`) are the `#[server]` entry points of the application. They **MUST** be thin: open the database, call exactly one service operation, and translate errors into `ServerFnError`. They **MUST NOT** contain business rules or SQL.
+- **Controllers (screens and event handlers)** are the entry points for user actions. They **MUST** be thin: parse input, call exactly one service operation (directly or through an API controller), and render the outcome. They **MUST NOT** contain business rules, SQL, or direct HTTP calls. Section 5.5 applies.
+- **Services** encapsulate the business logic of one domain each. A service **MUST** own the rules and workflow for its domain and **SHOULD** expose one public function per use case, orchestrating repositories and clients to fulfill it. Services **MUST NOT** contain SQL text, HTTP details, RSX, or Dioxus signal code.
+- **Repositories** are the only place where SQL appears (Section 6.3). One repository **SHOULD** cover one domain entity or aggregate. Repositories translate between rows and domain types and **MUST NOT** make business decisions (validation rules, pricing, formatting) — those belong to services or the domain.
+- **API clients** are the entry points for external APIs. There **SHOULD** be one client module per provider, and transport (`http.rs`), wire types (`types.rs`), configuration (`config.rs`), and errors (`error.rs`) **SHOULD** each live in their own file inside the provider folder, as the existing `src/clients/` modules do.
+- **Models (structs)** are plain data. A model **MUST NOT** contain SQL, HTTP, another layer's transport details, or Dioxus code. Small behavior that belongs to the value itself, such as validation or formatting, **MAY** live on the type.
+
+Where the current repository does not yet contain a listed folder, contributors **SHOULD** create it when the first real use case appears and **MUST NOT** instead place that logic in a screen or component.
+
+### 7.3 Dependency rule
+
+Dependencies **MUST** point inward: controllers → services → repositories/clients → models. An inner layer **MUST NOT** import an outer layer:
+
+- Models **MUST NOT** import services, repositories, clients, screens, or components.
+- Services **MUST NOT** import screens, components, or RSX code.
+- Repositories and clients **MUST NOT** import services; a service composes them, never the reverse.
+- Circular dependencies between modules are **NOT RECOMMENDED** and usually indicate a missing module or a misplaced type.
+
+When a service needs a side effect that tests must replace (clock, network, randomness), define a narrow trait — a *port* — owned by the service layer, and implement it in the outer *adapter* (ports-and-adapters / hexagonal architecture). A port **SHOULD NOT** be introduced for a single trivial use without a concrete testing or substitution need (Section 8.3). Passing the dependency as a parameter (dependency injection) **SHOULD** be preferred over constructing it inside the function; construction and wiring **SHOULD** happen once, at the entry point (the *composition root*).
+
+### 7.4 Where structs and models live
+
+All shared data types **MUST** have a designated home; contributors **MUST NOT** redefine the same concept ad hoc in whichever file happens to need it:
+
+- **Domain types** (the application's own concepts, such as an address entry or a balance) live in the domain module for their domain (`src/domain/` in the Section 3 layout).
+- **Wire types** for an external API live in that provider's `types.rs` (for example `src/clients/mempool/bitcoin/types.rs`) and **MUST** be mapped to domain types at the client boundary — external API schemas **MUST NOT** leak into services or UI.
+- **Persistence types**, when they differ from domain types, live next to their repository and **MUST NOT** cross the repository boundary.
+- **View types** used only for rendering (for example `BalancePoint` in Section 5.10) live next to the component that consumes them.
+
+When data crosses a layer boundary, it **SHOULD** be mapped explicitly (a DTO/mapping step) rather than reusing another layer's type for convenience, unless the type is a genuine shared domain type.
+
+### 7.5 Additional structural patterns
+
+- **Use-case entry points:** each user-visible operation **SHOULD** correspond to one public service function named from the domain vocabulary (`rename_address`, `refresh_exchange_rates`). An event handler **SHOULD** call exactly one such function.
+- **Unit of work:** when one logical change spans multiple repository calls, the coordinating service **MUST** run them in one transaction (Section 6.4); a repository **SHOULD NOT** silently open cross-entity transactions on its own.
+- **Anti-patterns** that **MUST NOT** be introduced: god modules that accumulate unrelated functions; `Manager`/`Util`/`Helpers` grab-bag modules; business logic inside event handlers or wiring code; SQL or HTTP outside repositories/clients; one struct serving as the model for every layer.
+
+### 7.6 Module-building checklist
+
+Before adding or extending a module, contributors **SHOULD** be able to answer "yes" to each of the following:
+
+1. The module's responsibility fits in one sentence without "and".
+2. The module belongs to exactly one layer in Section 7.2 and imports only from inner layers.
+3. Its public surface is minimal — items are `pub` only when another layer needs them; otherwise `pub(crate)` or private.
+4. Its types come from the locations in Section 7.4 rather than ad-hoc redefinition.
+5. Its pure logic can be unit-tested without Dioxus, a database file, or the network (Sections 5.6 and 9).
+
+## 8. Clean-code standards for Rust
+
+### 8.1 Naming and function design
 
 - Names **MUST** describe intent. Contributors **SHOULD** prefer `load_recent_notes` over `get_data`, and `DatabaseWorker` over `Manager` when that is what the type does.
 - Functions **SHOULD** do one coherent job. Split a function when it mixes input validation, SQL, transformation, UI updates, and error presentation.
@@ -404,7 +599,7 @@ Each connection **MUST** apply the settings the schema relies on, such as foreig
 - Unnecessary abbreviations, unexplained numeric literals, deeply nested conditionals, and excessively long parameter lists **SHOULD** be avoided.
 - Typed domain structures and enums **SHOULD** be preferred over loosely related tuples or stringly typed state when the structure has meaning.
 
-### 7.2 Errors, invariants, and panic policy
+### 8.2 Errors, invariants, and panic policy
 
 - Fallible functions **SHOULD** return `Result` and use `Option` for a legitimate absence rather than panic.
 - `unwrap()` and `expect()` **MAY** be used in tests or for a truly impossible invariant explained by a specific message. They **MUST NOT** be routine production error handling.
@@ -412,7 +607,7 @@ Each connection **MUST** apply the settings the schema relies on, such as foreig
 - Input **MUST** be validated at boundaries. Once validation succeeds, internal functions **SHOULD** rely on explicit invariants.
 - Errors **MUST NOT** be silently swallowed with `let _ = ...` or empty `Err` branches. Ignoring an error **MAY** be acceptable only when intentional and documented.
 
-### 7.3 Abstractions, comments, and unsafe code
+### 8.3 Abstractions, comments, and unsafe code
 
 - A trait, generic framework, macro, or dependency **SHOULD NOT** be introduced for one trivial use without a concrete benefit.
 - Duplicated business rules **SHOULD** be extracted when duplication could allow behavior to diverge.
@@ -421,7 +616,7 @@ Each connection **MUST** apply the settings the schema relies on, such as foreig
 - `unsafe` **MUST** be avoided unless necessary. Every unsafe block **MUST** include a nearby `// SAFETY:` comment explaining why its requirements are upheld.
 - Clippy warnings **SHOULD** be resolved rather than broadly allowed. A targeted lint allowance **MAY** be used with a comment explaining its rationale.
 
-### 7.4 Dependencies, side effects, and privacy
+### 8.4 Dependencies, side effects, and privacy
 
 - A dependency **SHOULD** be added only when it provides meaningful value over the standard library or existing dependencies.
 - Filesystem access, database access, clocks, environment variables, and OS APIs **SHOULD** be kept at clear boundaries so domain logic remains testable.
@@ -429,7 +624,7 @@ Each connection **MUST** apply the settings the schema relies on, such as foreig
 - Secrets, private user data, authentication tokens, and sensitive database contents **MUST NOT** be logged.
 - Analytics, telemetry, or network behavior **MUST NOT** be added without documenting its purpose and privacy implications.
 
-## 8. Tests and quality gates
+## 9. Tests and quality gates
 
 A change **MUST** include tests when it changes business rules, persistence behavior, data validation, migrations, concurrency behavior, or error handling. UI-only changes **SHOULD** include component tests or documented manual verification appropriate to the feature.
 
@@ -446,7 +641,7 @@ Tests **MUST NOT** depend on a developer's real database, home directory, networ
 
 The baseline pre-PR commands are listed in Section 4. Release builds and target-specific bundle commands **SHOULD** be tested for platform-sensitive changes. If a check cannot be run, the pull request **MUST** identify which check was skipped and why.
 
-## 9. Cross-platform compatibility
+## 10. Cross-platform compatibility
 
 - Platform-specific imports and APIs **SHOULD** be kept behind narrow modules or `cfg` gates.
 - Code **MUST NOT** assume that the current working directory is writable or points to the application directory.
@@ -455,7 +650,7 @@ The baseline pre-PR commands are listed in Section 4. Release builds and target-
 - A feature unavailable on a platform **MUST** fail gracefully or be explicitly marked unsupported; it **MUST NOT** silently report success.
 - CI **SHOULD** include Linux and macOS builds and Android compilation/package checks. Platform packaging, signing, and notarization requirements **MUST** be documented separately from ordinary development builds.
 
-## 10. Pull requests and review
+## 11. Pull requests and review
 
 Every pull request **SHOULD** be small enough to review as one logical change. A pull request **MUST** explain:
 
@@ -474,9 +669,9 @@ Before requesting review, contributors **MUST**:
 - [ ] Check that no secrets, local database files, build artifacts, or unrelated formatting changes are included.
 - [ ] Describe any validation that could not be performed.
 
-Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, and platform compatibility—not only whether the code compiles.
+Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, respect for the layer boundaries in Section 7, and platform compatibility—not only whether the code compiles.
 
-## 11. References
+## 12. References
 
 Contributors **MUST** use documentation matching the versions pinned by the repository.
 
@@ -487,10 +682,13 @@ Contributors **MUST** use documentation matching the versions pinned by the repo
 - [Dioxus Router](https://dioxuslabs.com/learn/0.7/essentials/router/)
 - [Dioxus platform support](https://dioxuslabs.com/learn/0.7/guides/platforms/)
 - [Dioxus desktop/mobile bundling](https://dioxuslabs.com/learn/0.7/tutorial/bundle/)
+- [Apache ECharts documentation](https://echarts.apache.org/en/index.html)
+- [Apache ECharts option reference](https://echarts.apache.org/en/option.html)
 - [`rusqlite` documentation](https://docs.rs/rusqlite/latest/rusqlite/)
 - [`rusqlite::Connection`](https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html)
 - [`rusqlite::Transaction`](https://docs.rs/rusqlite/latest/rusqlite/struct.Transaction.html)
 - [SQLite documentation](https://www.sqlite.org/docs.html)
+- [Rust Design Patterns](https://rust-unofficial.github.io/patterns/)
 - [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119)
 - [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174)
 

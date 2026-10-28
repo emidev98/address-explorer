@@ -1,11 +1,9 @@
 #![allow(dead_code, unused_imports)]
 
+pub mod coinmetrics;
+pub mod frankfurter;
 pub mod mempool;
 
-#[cfg(feature = "server")]
-pub mod database;
-
+pub use coinmetrics::*;
+pub use frankfurter::*;
 pub use mempool::*;
-
-#[cfg(feature = "server")]
-pub use database::*;

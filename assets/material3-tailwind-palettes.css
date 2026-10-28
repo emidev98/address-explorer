@@ -1,0 +1,224 @@
+/* Material 3-inspired color schemes for Tailwind CSS v4. */
+/* Usage: set data-theme="ocean|forest|sunset|orchid|graphite-lime" and data-mode="light|dark|system" on <html>. */
+/* This file is imported by tailwind.css, so it must not import Tailwind again. */
+
+:root { color-scheme: light; }
+:root[data-mode="light"] { color-scheme: light; }
+:root[data-mode="dark"] { color-scheme: dark; }
+:root[data-mode="system"] { color-scheme: light dark; }
+
+:root {
+  --md-error: light-dark(#B3261E, #F2B8B5);
+  --md-on-error: light-dark(#FFFFFF, #601410);
+  --md-error-container: light-dark(#F9DEDC, #8C1D18);
+  --md-on-error-container: light-dark(#410E0B, #F9DEDC);
+  --md-shadow: #000000;
+  --md-scrim: #000000;
+}
+
+:root[data-theme="ocean"] {
+  --md-primary: light-dark(#2457A7, #A8C7FF);
+  --md-on-primary: light-dark(#FFFFFF, #082E63);
+  --md-primary-container: light-dark(#D7E3FF, #24457A);
+  --md-on-primary-container: light-dark(#001B3F, #D7E3FF);
+  --md-inverse-primary: light-dark(#ADC7FF, #2C5AA0);
+  --md-secondary: light-dark(#526174, #BBC7DB);
+  --md-on-secondary: light-dark(#FFFFFF, #263141);
+  --md-secondary-container: light-dark(#D7E3F8, #3B485A);
+  --md-on-secondary-container: light-dark(#101C2A, #D7E3F8);
+  --md-tertiary: light-dark(#785900, #E9C16C);
+  --md-on-tertiary: light-dark(#FFFFFF, #3E2E00);
+  --md-tertiary-container: light-dark(#FFE08A, #5A4500);
+  --md-on-tertiary-container: light-dark(#251A00, #FFE08A);
+  --md-background: light-dark(#F9F9FF, #101318);
+  --md-on-background: light-dark(#191B20, #E2E2E9);
+  --md-surface-container-lowest: light-dark(#FFFFFF, #0B0E12);
+  --md-surface-container-low: light-dark(#F3F4FB, #191C22);
+  --md-surface-container: light-dark(#EDEEF5, #1D2026);
+  --md-surface-container-high: light-dark(#E7E8EF, #282A31);
+  --md-surface-container-highest: light-dark(#E1E2E9, #33353C);
+  --md-on-surface-variant: light-dark(#44474F, #C3C6D0);
+  --md-outline: light-dark(#747780, #8D909A);
+  --md-outline-variant: light-dark(#C4C6D0, #43464F);
+  --md-inverse-surface: light-dark(#2E3036, #E2E2E9);
+  --md-inverse-on-surface: light-dark(#F0F0F7, #2E3036);
+  --md-surface: var(--md-background);
+  --md-on-surface: var(--md-on-background);
+  --md-surface-variant: var(--md-surface-container-high);
+  --md-surface-tint: var(--md-primary);
+}
+
+:root[data-theme="forest"] {
+  --md-primary: light-dark(#2F6654, #9FD5BF);
+  --md-on-primary: light-dark(#FFFFFF, #00382A);
+  --md-primary-container: light-dark(#BFEBD7, #1D4F40);
+  --md-on-primary-container: light-dark(#002116, #BFEBD7);
+  --md-inverse-primary: light-dark(#A4D9C3, #326B58);
+  --md-secondary: light-dark(#4F635A, #B6CCBE);
+  --md-on-secondary: light-dark(#FFFFFF, #22352C);
+  --md-secondary-container: light-dark(#D1E8D8, #374B41);
+  --md-on-secondary-container: light-dark(#0B1F16, #D1E8D8);
+  --md-tertiary: light-dark(#665E31, #D6C98E);
+  --md-on-tertiary: light-dark(#FFFFFF, #37310B);
+  --md-tertiary-container: light-dark(#EFE3A9, #4D461C);
+  --md-on-tertiary-container: light-dark(#211B00, #EFE3A9);
+  --md-background: light-dark(#F7FBF7, #101512);
+  --md-on-background: light-dark(#191D19, #E0E4DE);
+  --md-surface-container-lowest: light-dark(#FFFFFF, #0B100D);
+  --md-surface-container-low: light-dark(#F0F5F0, #171C19);
+  --md-surface-container: light-dark(#EAEFEA, #1C221E);
+  --md-surface-container-high: light-dark(#E4EAE4, #272D29);
+  --md-surface-container-highest: light-dark(#DFE4DF, #323833);
+  --md-on-surface-variant: light-dark(#414943, #C1C9C1);
+  --md-outline: light-dark(#727A73, #8B938B);
+  --md-outline-variant: light-dark(#C1C9C1, #414943);
+  --md-inverse-surface: light-dark(#2E322E, #E0E4DE);
+  --md-inverse-on-surface: light-dark(#F0F4EF, #2E322E);
+  --md-surface: var(--md-background);
+  --md-on-surface: var(--md-on-background);
+  --md-surface-variant: var(--md-surface-container-high);
+  --md-surface-tint: var(--md-primary);
+}
+
+:root[data-theme="sunset"] {
+  --md-primary: light-dark(#9C4435, #FFB4A5);
+  --md-on-primary: light-dark(#FFFFFF, #5F170D);
+  --md-primary-container: light-dark(#FFDAD3, #7A291C);
+  --md-on-primary-container: light-dark(#3B0903, #FFDAD3);
+  --md-inverse-primary: light-dark(#FFB4A5, #9C4435);
+  --md-secondary: light-dark(#77574F, #E7BDB3);
+  --md-on-secondary: light-dark(#FFFFFF, #442A24);
+  --md-secondary-container: light-dark(#FFDBD2, #5B3F38);
+  --md-on-secondary-container: light-dark(#2C1511, #FFDBD2);
+  --md-tertiary: light-dark(#496454, #B3D6BD);
+  --md-on-tertiary: light-dark(#FFFFFF, #1F3A2B);
+  --md-tertiary-container: light-dark(#CFE9D5, #354F40);
+  --md-on-tertiary-container: light-dark(#062015, #CFE9D5);
+  --md-background: light-dark(#FFF8F6, #1A1110);
+  --md-on-background: light-dark(#241917, #F0DEDA);
+  --md-surface-container-lowest: light-dark(#FFFFFF, #140C0B);
+  --md-surface-container-low: light-dark(#FFF0EC, #211715);
+  --md-surface-container: light-dark(#F9EAE6, #271C1A);
+  --md-surface-container-high: light-dark(#F3E4E0, #332725);
+  --md-surface-container-highest: light-dark(#EDE0DC, #3E322F);
+  --md-on-surface-variant: light-dark(#53433F, #D8C2BD);
+  --md-outline: light-dark(#85736F, #A18B85);
+  --md-outline-variant: light-dark(#D8C2BD, #53433F);
+  --md-inverse-surface: light-dark(#392E2B, #F0DEDA);
+  --md-inverse-on-surface: light-dark(#FBEEEA, #392E2B);
+  --md-surface: var(--md-background);
+  --md-on-surface: var(--md-on-background);
+  --md-surface-variant: var(--md-surface-container-high);
+  --md-surface-tint: var(--md-primary);
+}
+
+/* Orchid is the default palette until a stored preference is applied. */
+:root,
+:root[data-theme="orchid"] {
+  --md-primary: light-dark(#6750A4, #D0BCFF);
+  --md-on-primary: light-dark(#FFFFFF, #381E72);
+  --md-primary-container: light-dark(#EADDFF, #4F378B);
+  --md-on-primary-container: light-dark(#21005D, #EADDFF);
+  --md-inverse-primary: light-dark(#D0BCFF, #6750A4);
+  --md-secondary: light-dark(#625B71, #CCC2DC);
+  --md-on-secondary: light-dark(#FFFFFF, #332D41);
+  --md-secondary-container: light-dark(#E8DEF8, #4A4458);
+  --md-on-secondary-container: light-dark(#1E192B, #E8DEF8);
+  --md-tertiary: light-dark(#7E5260, #F2B8C6);
+  --md-on-tertiary: light-dark(#FFFFFF, #4B2533);
+  --md-tertiary-container: light-dark(#FFD9E2, #653B49);
+  --md-on-tertiary-container: light-dark(#31101D, #FFD9E2);
+  --md-background: light-dark(#FFFBFF, #141218);
+  --md-on-background: light-dark(#1D1A22, #E7E0EA);
+  --md-surface-container-lowest: light-dark(#FFFFFF, #0F0D13);
+  --md-surface-container-low: light-dark(#F8F1FA, #1B181F);
+  --md-surface-container: light-dark(#F2ECF4, #211E25);
+  --md-surface-container-high: light-dark(#ECE6EE, #2C2830);
+  --md-surface-container-highest: light-dark(#E6E0E8, #37333B);
+  --md-on-surface-variant: light-dark(#49454F, #CAC4D0);
+  --md-outline: light-dark(#79747E, #938D98);
+  --md-outline-variant: light-dark(#CAC4D0, #49454F);
+  --md-inverse-surface: light-dark(#322F37, #E7E0EA);
+  --md-inverse-on-surface: light-dark(#F5EFF7, #322F37);
+  --md-surface: var(--md-background);
+  --md-on-surface: var(--md-on-background);
+  --md-surface-variant: var(--md-surface-container-high);
+  --md-surface-tint: var(--md-primary);
+}
+
+:root[data-theme="graphite-lime"] {
+  --md-primary: light-dark(#4D5F00, #C4D57C);
+  --md-on-primary: light-dark(#FFFFFF, #263400);
+  --md-primary-container: light-dark(#D8E99A, #3A4A00);
+  --md-on-primary-container: light-dark(#171F00, #D8E99A);
+  --md-inverse-primary: light-dark(#C4D57C, #4D5F00);
+  --md-secondary: light-dark(#586149, #C2CAAA);
+  --md-on-secondary: light-dark(#FFFFFF, #2B3320);
+  --md-secondary-container: light-dark(#DDE6C6, #414A33);
+  --md-on-secondary-container: light-dark(#151D0C, #DDE6C6);
+  --md-tertiary: light-dark(#3D6373, #B1D8E8);
+  --md-on-tertiary: light-dark(#FFFFFF, #193541);
+  --md-tertiary-container: light-dark(#C5EAFB, #264B5B);
+  --md-on-tertiary-container: light-dark(#001F29, #C5EAFB);
+  --md-background: light-dark(#FAFAF4, #12140F);
+  --md-on-background: light-dark(#1B1D16, #E3E4D9);
+  --md-surface-container-lowest: light-dark(#FFFFFF, #0D0F0A);
+  --md-surface-container-low: light-dark(#F3F4EB, #191B15);
+  --md-surface-container: light-dark(#EDEEE5, #1F211A);
+  --md-surface-container-high: light-dark(#E7E8DF, #292B24);
+  --md-surface-container-highest: light-dark(#E1E2D9, #34362E);
+  --md-on-surface-variant: light-dark(#45483D, #C5C8B9);
+  --md-outline: light-dark(#76796B, #909384);
+  --md-outline-variant: light-dark(#C5C8B9, #45483D);
+  --md-inverse-surface: light-dark(#303229, #E3E4D9);
+  --md-inverse-on-surface: light-dark(#F1F2E8, #303229);
+  --md-surface: var(--md-background);
+  --md-on-surface: var(--md-on-background);
+  --md-surface-variant: var(--md-surface-container-high);
+  --md-surface-tint: var(--md-primary);
+}
+
+@theme inline {
+  --color-md-primary: var(--md-primary);
+  --color-md-on-primary: var(--md-on-primary);
+  --color-md-primary-container: var(--md-primary-container);
+  --color-md-on-primary-container: var(--md-on-primary-container);
+  --color-md-inverse-primary: var(--md-inverse-primary);
+  --color-md-secondary: var(--md-secondary);
+  --color-md-on-secondary: var(--md-on-secondary);
+  --color-md-secondary-container: var(--md-secondary-container);
+  --color-md-on-secondary-container: var(--md-on-secondary-container);
+  --color-md-tertiary: var(--md-tertiary);
+  --color-md-on-tertiary: var(--md-on-tertiary);
+  --color-md-tertiary-container: var(--md-tertiary-container);
+  --color-md-on-tertiary-container: var(--md-on-tertiary-container);
+  --color-md-background: var(--md-background);
+  --color-md-on-background: var(--md-on-background);
+  --color-md-surface: var(--md-surface);
+  --color-md-on-surface: var(--md-on-surface);
+  --color-md-surface-container-lowest: var(--md-surface-container-lowest);
+  --color-md-surface-container-low: var(--md-surface-container-low);
+  --color-md-surface-container: var(--md-surface-container);
+  --color-md-surface-container-high: var(--md-surface-container-high);
+  --color-md-surface-container-highest: var(--md-surface-container-highest);
+  --color-md-surface-variant: var(--md-surface-variant);
+  --color-md-on-surface-variant: var(--md-on-surface-variant);
+  --color-md-outline: var(--md-outline);
+  --color-md-outline-variant: var(--md-outline-variant);
+  --color-md-inverse-surface: var(--md-inverse-surface);
+  --color-md-inverse-on-surface: var(--md-inverse-on-surface);
+  --color-md-surface-tint: var(--md-surface-tint);
+  --color-md-error: var(--md-error);
+  --color-md-on-error: var(--md-on-error);
+  --color-md-error-container: var(--md-error-container);
+  --color-md-on-error-container: var(--md-on-error-container);
+  --color-md-shadow: var(--md-shadow);
+  --color-md-scrim: var(--md-scrim);
+}
+
+/* Example semantic base styles; add or remove as needed. */
+@layer base {
+  body { background: var(--md-background); color: var(--md-on-background); }
+}
+
+/* Tailwind utilities include bg-md-primary, text-md-on-primary, bg-md-surface-container, border-md-outline, etc. */

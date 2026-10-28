@@ -7,6 +7,7 @@ A simple Dioxus application for exploring files and directories.
 - Browse files and directories
 - View file contents
 - Simple and minimal UI
+- Switch between Material 3 color palettes and appearance modes in Settings
 
 ## Installation
 
@@ -36,6 +37,12 @@ Then run the compiled binary.
 ## Development
 
 For development guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Styles
+
+The interface uses a Material 3 theme implemented with Tailwind CSS v4. For
+styling conventions, theme structure, and rebuild instructions, see
+[CONTRIBUTING.md](CONTRIBUTING.md#styling-tailwind-css-v4-and-material-3).
 
 ## Screenshots
 

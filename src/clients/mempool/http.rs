@@ -1,5 +1,5 @@
 use crate::clients::mempool::error::MempoolError;
-use reqwest::Client;
+use reqwest::{Client, Response, StatusCode};
 use serde::de::DeserializeOwned;
 
 #[derive(Clone)]
@@ -32,33 +32,27 @@ impl HttpClient {
     }
 
     pub async fn get_text(&self, path: &str) -> Result<String, MempoolError> {
-        let response = self
-            .client
-            .get(self.url(path))
-            .send()
-            .await?
-            .error_for_status()?;
-        Ok(response.text().await?)
+        let response = self.client.get(self.url(path)).send().await?;
+        Ok(error_for_status(response)?.text().await?)
     }
 
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, MempoolError> {
-        let response = self
-            .client
-            .get(self.url(path))
-            .send()
-            .await?
-            .error_for_status()?;
-        Ok(response.json::<T>().await?)
+        let response = self.client.get(self.url(path)).send().await?;
+        Ok(error_for_status(response)?.json::<T>().await?)
     }
 
     pub async fn post_text(&self, path: &str, body: String) -> Result<String, MempoolError> {
-        let response = self
-            .client
-            .post(self.url(path))
-            .body(body)
-            .send()
-            .await?
-            .error_for_status()?;
-        Ok(response.text().await?)
+        let response = self.client.post(self.url(path)).body(body).send().await?;
+        Ok(error_for_status(response)?.text().await?)
     }
+}
+
+/// `Response::error_for_status`, except that HTTP 429 maps to the dedicated
+/// [`MempoolError::RateLimited`] so callers can pause and resume instead of
+/// handling it as a generic HTTP failure.
+fn error_for_status(response: Response) -> Result<Response, MempoolError> {
+    if response.status() == StatusCode::TOO_MANY_REQUESTS {
+        return Err(MempoolError::RateLimited);
+    }
+    Ok(response.error_for_status()?)
 }

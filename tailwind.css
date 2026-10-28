@@ -1,1 +1,1111 @@
+/**
+ * Material 3 theme for Tailwind CSS v4.
+ *
+ * This file provides three layers:
+ *
+ * 1. Material 3 system tokens (`--md-sys-*`) for color, elevation, motion,
+ *    and state layers. Color roles alias the palettes from
+ *    `assets/material3-tailwind-palettes.css`, which `data-theme` (palette)
+ *    and `data-mode` (light, dark, or system) select on the root element.
+ * 2. Tailwind theme mappings (`@theme static`) so the tokens are available
+ *    as utilities such as `bg-primary`, `text-on-surface-variant`,
+ *    `rounded-md3-md`, `shadow-md3-1`, and `text-headline-medium`.
+ * 3. Material components (`.md3-*`) used by the application views.
+ *
+ * Material 3 specification: https://m3.material.io/
+ *
+ * The type scale uses Roboto, the Material default. No remote font is
+ * requested; the stack falls back to the platform UI font when Roboto is not
+ * installed. Add a locally hosted Roboto font face if the exact Material
+ * typeface is required on every platform.
+ */
+
 @import "tailwindcss";
+@import "./assets/material3-tailwind-palettes.css";
+
+/* Scan the Dioxus RSX views for utility class names. */
+@source "./src/**/*.rs";
+
+/* ==========================================================================
+   Tailwind theme mappings
+   ========================================================================== */
+
+/*
+ * `static` keeps every design token in the compiled stylesheet even when no
+ * utility currently references it. That makes the tokens available to the
+ * `.md3-*` component rules below and to future views without another build
+ * configuration change.
+ */
+@theme static {
+  /* M3 uses Roboto for its default typeface. */
+  --font-sans:
+    "Roboto", "Roboto Flex", "Segoe UI", system-ui, -apple-system,
+    BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  /* ------------------------------------------------------------------
+     Color roles
+     ------------------------------------------------------------------ */
+  --color-primary: var(--md-sys-color-primary);
+  --color-on-primary: var(--md-sys-color-on-primary);
+  --color-primary-container: var(--md-sys-color-primary-container);
+  --color-on-primary-container: var(--md-sys-color-on-primary-container);
+
+  --color-secondary: var(--md-sys-color-secondary);
+  --color-on-secondary: var(--md-sys-color-on-secondary);
+  --color-secondary-container: var(--md-sys-color-secondary-container);
+  --color-on-secondary-container: var(--md-sys-color-on-secondary-container);
+
+  --color-tertiary: var(--md-sys-color-tertiary);
+  --color-on-tertiary: var(--md-sys-color-on-tertiary);
+  --color-tertiary-container: var(--md-sys-color-tertiary-container);
+  --color-on-tertiary-container: var(--md-sys-color-on-tertiary-container);
+
+  --color-error: var(--md-sys-color-error);
+  --color-on-error: var(--md-sys-color-on-error);
+  --color-error-container: var(--md-sys-color-error-container);
+  --color-on-error-container: var(--md-sys-color-on-error-container);
+
+  --color-background: var(--md-sys-color-background);
+  --color-on-background: var(--md-sys-color-on-background);
+
+  --color-surface: var(--md-sys-color-surface);
+  --color-on-surface: var(--md-sys-color-on-surface);
+  --color-surface-variant: var(--md-sys-color-surface-variant);
+  --color-on-surface-variant: var(--md-sys-color-on-surface-variant);
+  --color-surface-tint: var(--md-sys-color-surface-tint);
+  --color-surface-dim: var(--md-sys-color-surface-dim);
+  --color-surface-bright: var(--md-sys-color-surface-bright);
+  --color-surface-container-lowest: var(--md-sys-color-surface-container-lowest);
+  --color-surface-container-low: var(--md-sys-color-surface-container-low);
+  --color-surface-container: var(--md-sys-color-surface-container);
+  --color-surface-container-high: var(--md-sys-color-surface-container-high);
+  --color-surface-container-highest: var(--md-sys-color-surface-container-highest);
+
+  --color-outline: var(--md-sys-color-outline);
+  --color-outline-variant: var(--md-sys-color-outline-variant);
+  --color-shadow: var(--md-sys-color-shadow);
+  --color-scrim: var(--md-sys-color-scrim);
+
+  --color-inverse-surface: var(--md-sys-color-inverse-surface);
+  --color-inverse-on-surface: var(--md-sys-color-inverse-on-surface);
+  --color-inverse-primary: var(--md-sys-color-inverse-primary);
+
+  --color-primary-fixed: var(--md-sys-color-primary-fixed);
+  --color-primary-fixed-dim: var(--md-sys-color-primary-fixed-dim);
+  --color-on-primary-fixed: var(--md-sys-color-on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--md-sys-color-on-primary-fixed-variant);
+
+  --color-secondary-fixed: var(--md-sys-color-secondary-fixed);
+  --color-secondary-fixed-dim: var(--md-sys-color-secondary-fixed-dim);
+  --color-on-secondary-fixed: var(--md-sys-color-on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--md-sys-color-on-secondary-fixed-variant);
+
+  --color-tertiary-fixed: var(--md-sys-color-tertiary-fixed);
+  --color-tertiary-fixed-dim: var(--md-sys-color-tertiary-fixed-dim);
+  --color-on-tertiary-fixed: var(--md-sys-color-on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--md-sys-color-on-tertiary-fixed-variant);
+
+  /* ------------------------------------------------------------------
+     Type scale
+     Each text token includes its M3 line height, tracking, and weight.
+     ------------------------------------------------------------------ */
+  --text-display-large: 3.5625rem;
+  --text-display-large--line-height: 4rem;
+  --text-display-large--letter-spacing: -0.015625rem;
+  --text-display-large--font-weight: 400;
+
+  --text-display-medium: 2.8125rem;
+  --text-display-medium--line-height: 3.25rem;
+  --text-display-medium--letter-spacing: 0;
+  --text-display-medium--font-weight: 400;
+
+  --text-display-small: 2.25rem;
+  --text-display-small--line-height: 2.75rem;
+  --text-display-small--letter-spacing: 0;
+  --text-display-small--font-weight: 400;
+
+  --text-headline-large: 2rem;
+  --text-headline-large--line-height: 2.5rem;
+  --text-headline-large--letter-spacing: 0;
+  --text-headline-large--font-weight: 400;
+
+  --text-headline-medium: 1.75rem;
+  --text-headline-medium--line-height: 2.25rem;
+  --text-headline-medium--letter-spacing: 0;
+  --text-headline-medium--font-weight: 400;
+
+  --text-headline-small: 1.5rem;
+  --text-headline-small--line-height: 2rem;
+  --text-headline-small--letter-spacing: 0;
+  --text-headline-small--font-weight: 400;
+
+  --text-title-large: 1.375rem;
+  --text-title-large--line-height: 1.75rem;
+  --text-title-large--letter-spacing: 0;
+  --text-title-large--font-weight: 400;
+
+  --text-title-medium: 1rem;
+  --text-title-medium--line-height: 1.5rem;
+  --text-title-medium--letter-spacing: 0.009375rem;
+  --text-title-medium--font-weight: 500;
+
+  --text-title-small: 0.875rem;
+  --text-title-small--line-height: 1.25rem;
+  --text-title-small--letter-spacing: 0.00625rem;
+  --text-title-small--font-weight: 500;
+
+  --text-body-large: 1rem;
+  --text-body-large--line-height: 1.5rem;
+  --text-body-large--letter-spacing: 0.03125rem;
+  --text-body-large--font-weight: 400;
+
+  --text-body-medium: 0.875rem;
+  --text-body-medium--line-height: 1.25rem;
+  --text-body-medium--letter-spacing: 0.015625rem;
+  --text-body-medium--font-weight: 400;
+
+  --text-body-small: 0.75rem;
+  --text-body-small--line-height: 1rem;
+  --text-body-small--letter-spacing: 0.025rem;
+  --text-body-small--font-weight: 400;
+
+  --text-label-large: 0.875rem;
+  --text-label-large--line-height: 1.25rem;
+  --text-label-large--letter-spacing: 0.00625rem;
+  --text-label-large--font-weight: 500;
+
+  --text-label-medium: 0.75rem;
+  --text-label-medium--line-height: 1rem;
+  --text-label-medium--letter-spacing: 0.03125rem;
+  --text-label-medium--font-weight: 500;
+
+  --text-label-small: 0.6875rem;
+  --text-label-small--line-height: 1rem;
+  --text-label-small--letter-spacing: 0.03125rem;
+  --text-label-small--font-weight: 500;
+
+  /* Line-height utilities that pair with the type scale. The application
+     uses these explicitly (for example `leading-headline-medium`). */
+  --leading-display-large: 4rem;
+  --leading-display-medium: 3.25rem;
+  --leading-display-small: 2.75rem;
+  --leading-headline-large: 2.5rem;
+  --leading-headline-medium: 2.25rem;
+  --leading-headline-small: 2rem;
+  --leading-title-large: 1.75rem;
+  --leading-title-medium: 1.5rem;
+  --leading-title-small: 1.25rem;
+  --leading-body-large: 1.5rem;
+  --leading-body-medium: 1.25rem;
+  --leading-body-small: 1rem;
+  --leading-label-large: 1.25rem;
+  --leading-label-medium: 1rem;
+  --leading-label-small: 1rem;
+
+  /* ------------------------------------------------------------------
+     Shape scale
+     ------------------------------------------------------------------ */
+  --radius-md3-none: 0px;
+  --radius-md3-xs: 0.25rem; /* 4px  - extra small */
+  --radius-md3-sm: 0.5rem; /* 8px  - small */
+  --radius-md3-md: 0.75rem; /* 12px - medium */
+  --radius-md3-lg: 1rem; /* 16px - large */
+  --radius-md3-xl: 1.75rem; /* 28px - extra large */
+  --radius-md3-full: 9999px;
+
+  /* ------------------------------------------------------------------
+     Elevation
+     ------------------------------------------------------------------ */
+  --shadow-md3-0: var(--md-sys-elevation-0);
+  --shadow-md3-1: var(--md-sys-elevation-1);
+  --shadow-md3-2: var(--md-sys-elevation-2);
+  --shadow-md3-3: var(--md-sys-elevation-3);
+  --shadow-md3-4: var(--md-sys-elevation-4);
+  --shadow-md3-5: var(--md-sys-elevation-5);
+
+  /* ------------------------------------------------------------------
+     Motion easings
+     ------------------------------------------------------------------ */
+  --ease-md3-standard: var(--md-sys-motion-easing-standard);
+  --ease-md3-standard-decelerate: var(--md-sys-motion-easing-standard-decelerate);
+  --ease-md3-standard-accelerate: var(--md-sys-motion-easing-standard-accelerate);
+  --ease-md3-emphasized: var(--md-sys-motion-easing-emphasized);
+  --ease-md3-emphasized-decelerate: var(--md-sys-motion-easing-emphasized-decelerate);
+  --ease-md3-emphasized-accelerate: var(--md-sys-motion-easing-emphasized-accelerate);
+}
+
+/* ==========================================================================
+   Material 3 system tokens
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Shared dimensions, motion, and state layers. */
+  --md3-top-app-bar-height: 4rem;
+
+  --md-sys-state-hover-state-layer-opacity: 0.08;
+  --md-sys-state-focus-state-layer-opacity: 0.1;
+  --md-sys-state-pressed-state-layer-opacity: 0.1;
+  --md-sys-state-dragged-state-layer-opacity: 0.16;
+
+  --md-sys-elevation-0: none;
+  --md-sys-elevation-1:
+    0 1px 2px 0 rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-2:
+    0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-3:
+    0 1px 3px 0 rgb(0 0 0 / 0.3), 0 4px 8px 3px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-4:
+    0 2px 3px 0 rgb(0 0 0 / 0.3), 0 6px 10px 4px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-5:
+    0 4px 4px 0 rgb(0 0 0 / 0.3), 0 8px 12px 6px rgb(0 0 0 / 0.15);
+
+  --md-sys-motion-duration-short1: 50ms;
+  --md-sys-motion-duration-short2: 100ms;
+  --md-sys-motion-duration-short3: 150ms;
+  --md-sys-motion-duration-short4: 200ms;
+  --md-sys-motion-duration-medium1: 250ms;
+  --md-sys-motion-duration-medium2: 300ms;
+  --md-sys-motion-duration-medium3: 350ms;
+  --md-sys-motion-duration-medium4: 400ms;
+  --md-sys-motion-duration-long1: 450ms;
+  --md-sys-motion-duration-long2: 500ms;
+  --md-sys-motion-duration-long3: 550ms;
+  --md-sys-motion-duration-long4: 600ms;
+
+  --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md-sys-motion-easing-standard-decelerate: cubic-bezier(0, 0, 0, 1);
+  --md-sys-motion-easing-standard-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  /* Color roles. The values come from
+     assets/material3-tailwind-palettes.css, where `data-theme` selects the
+     palette and `data-mode` selects light, dark, or system. These aliases
+     keep the component rules below independent of the palette variable
+     names. */
+  --md-sys-color-primary: var(--md-primary);
+  --md-sys-color-on-primary: var(--md-on-primary);
+  --md-sys-color-primary-container: var(--md-primary-container);
+  --md-sys-color-on-primary-container: var(--md-on-primary-container);
+
+  --md-sys-color-secondary: var(--md-secondary);
+  --md-sys-color-on-secondary: var(--md-on-secondary);
+  --md-sys-color-secondary-container: var(--md-secondary-container);
+  --md-sys-color-on-secondary-container: var(--md-on-secondary-container);
+
+  --md-sys-color-tertiary: var(--md-tertiary);
+  --md-sys-color-on-tertiary: var(--md-on-tertiary);
+  --md-sys-color-tertiary-container: var(--md-tertiary-container);
+  --md-sys-color-on-tertiary-container: var(--md-on-tertiary-container);
+
+  --md-sys-color-error: var(--md-error);
+  --md-sys-color-on-error: var(--md-on-error);
+  --md-sys-color-error-container: var(--md-error-container);
+  --md-sys-color-on-error-container: var(--md-on-error-container);
+
+  --md-sys-color-background: var(--md-background);
+  --md-sys-color-on-background: var(--md-on-background);
+
+  --md-sys-color-surface: var(--md-surface);
+  --md-sys-color-on-surface: var(--md-on-surface);
+  --md-sys-color-surface-variant: var(--md-surface-variant);
+  --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
+  --md-sys-color-surface-tint: var(--md-surface-tint);
+
+  /* The palette file does not define explicit dim/bright surfaces, so derive
+     them from the closest palette container roles. */
+  --md-sys-color-surface-dim: light-dark(
+    var(--md-surface-container-low),
+    var(--md-surface)
+  );
+  --md-sys-color-surface-bright: light-dark(
+    var(--md-surface-container-lowest),
+    var(--md-surface-container-highest)
+  );
+
+  --md-sys-color-surface-container-lowest: var(--md-surface-container-lowest);
+  --md-sys-color-surface-container-low: var(--md-surface-container-low);
+  --md-sys-color-surface-container: var(--md-surface-container);
+  --md-sys-color-surface-container-high: var(--md-surface-container-high);
+  --md-sys-color-surface-container-highest: var(--md-surface-container-highest);
+
+  --md-sys-color-outline: var(--md-outline);
+  --md-sys-color-outline-variant: var(--md-outline-variant);
+  --md-sys-color-shadow: var(--md-shadow);
+  --md-sys-color-scrim: var(--md-scrim);
+
+  --md-sys-color-inverse-surface: var(--md-inverse-surface);
+  --md-sys-color-inverse-on-surface: var(--md-inverse-on-surface);
+  --md-sys-color-inverse-primary: var(--md-inverse-primary);
+
+  /* Fixed roles do not have separate palette entries; derive them from the
+     corresponding container and accent roles. */
+  --md-sys-color-primary-fixed: var(--md-primary-container);
+  --md-sys-color-primary-fixed-dim: var(--md-primary);
+  --md-sys-color-on-primary-fixed: var(--md-on-primary-container);
+  --md-sys-color-on-primary-fixed-variant: var(--md-on-primary);
+
+  --md-sys-color-secondary-fixed: var(--md-secondary-container);
+  --md-sys-color-secondary-fixed-dim: var(--md-secondary);
+  --md-sys-color-on-secondary-fixed: var(--md-on-secondary-container);
+  --md-sys-color-on-secondary-fixed-variant: var(--md-on-secondary);
+
+  --md-sys-color-tertiary-fixed: var(--md-tertiary-container);
+  --md-sys-color-tertiary-fixed-dim: var(--md-tertiary);
+  --md-sys-color-on-tertiary-fixed: var(--md-on-tertiary-container);
+  --md-sys-color-on-tertiary-fixed-variant: var(--md-on-tertiary);
+}
+
+/* Follow the system preference until the stored mode is applied to the
+   document root. */
+:root:not([data-mode]) {
+  color-scheme: light dark;
+}
+
+/* ==========================================================================
+   Base styles
+   ========================================================================== */
+
+@layer base {
+  html {
+    background-color: var(--md-sys-color-background);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    background-color: var(--md-sys-color-background);
+    color: var(--md-sys-color-on-background);
+    font-family: var(--font-sans);
+    @apply text-body-medium;
+  }
+
+  ::selection {
+    background-color: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ==========================================================================
+   Material 3 components
+   ========================================================================== */
+
+@layer components {
+  /* ------------------------------------------------------------------
+     Layout: screen container
+     ------------------------------------------------------------------ */
+  .md3-screen {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 80rem;
+    margin-inline: auto;
+  }
+
+  /* ------------------------------------------------------------------
+     Top app bar (small)
+     The navigation links are styled as primary tabs.
+     ------------------------------------------------------------------ */
+  .md3-top-app-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    align-items: stretch;
+    height: var(--md3-top-app-bar-height);
+    padding-inline: 1rem;
+    background-color: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+    box-shadow: var(--md-sys-elevation-1);
+  }
+
+  .md3-top-app-bar nav {
+    display: flex;
+    align-items: stretch;
+    gap: 0.25rem;
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .md3-top-app-bar nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .md3-top-app-bar a {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    min-width: 4rem;
+    height: 100%;
+    padding-inline: 1rem;
+    border-radius: var(--radius-md3-sm) var(--radius-md3-sm) 0 0;
+    color: var(--md-sys-color-on-surface-variant);
+    text-decoration: none;
+    white-space: nowrap;
+    @apply text-label-large;
+    transition:
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-top-app-bar a::before {
+    content: "";
+    position: absolute;
+    inset: 0.5rem 0.25rem;
+    border-radius: var(--radius-md3-sm);
+    background-color: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-top-app-bar a:hover::before {
+    opacity: var(--md-sys-state-hover-state-layer-opacity);
+  }
+
+  .md3-top-app-bar a:focus-visible::before {
+    opacity: var(--md-sys-state-focus-state-layer-opacity);
+  }
+
+  .md3-top-app-bar a:active::before {
+    opacity: var(--md-sys-state-pressed-state-layer-opacity);
+  }
+
+  .md3-top-app-bar a:hover {
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-top-app-bar a.active {
+    color: var(--md-sys-color-primary);
+  }
+
+  .md3-top-app-bar a.active::after {
+    content: "";
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0;
+    left: 0.75rem;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    background-color: var(--md-sys-color-primary);
+  }
+
+  @media (min-width: 48rem) {
+    .md3-top-app-bar {
+      padding-inline: 1.5rem;
+    }
+  }
+
+  /* ------------------------------------------------------------------
+     Buttons
+     Use one of the variant classes; `.md3-button` is an optional base
+     class for shared markup.
+     ------------------------------------------------------------------ */
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ) {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.5rem;
+    padding-inline: 1.5rem;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md3-full);
+    font-family: inherit;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      border-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      box-shadow var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  )::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-color: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
+  }
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):hover:not(:disabled)::before {
+    opacity: var(--md-sys-state-hover-state-layer-opacity);
+  }
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):focus-visible::before {
+    opacity: var(--md-sys-state-focus-state-layer-opacity);
+  }
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):active:not(:disabled)::before {
+    opacity: var(--md-sys-state-pressed-state-layer-opacity);
+  }
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):disabled,
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  )[aria-disabled="true"] {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 12%,
+      transparent
+    );
+    border-color: transparent;
+    color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
+    box-shadow: none;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):disabled::before,
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  )[aria-disabled="true"]::before {
+    opacity: 0;
+  }
+
+  .md3-button-filled {
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+  }
+
+  .md3-button-filled:hover:not(:disabled) {
+    box-shadow: var(--md-sys-elevation-1);
+  }
+
+  .md3-button-tonal {
+    background-color: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+
+  .md3-button-tonal:hover:not(:disabled) {
+    box-shadow: var(--md-sys-elevation-1);
+  }
+
+  .md3-button-elevated {
+    background-color: var(--md-sys-color-surface-container-low);
+    color: var(--md-sys-color-primary);
+    box-shadow: var(--md-sys-elevation-1);
+  }
+
+  .md3-button-elevated:hover:not(:disabled) {
+    box-shadow: var(--md-sys-elevation-2);
+  }
+
+  .md3-button-outlined {
+    border-color: var(--md-sys-color-outline);
+    background-color: transparent;
+    color: var(--md-sys-color-primary);
+  }
+
+  .md3-button-text {
+    padding-inline: 0.75rem;
+    background-color: transparent;
+    color: var(--md-sys-color-primary);
+  }
+
+  /* ------------------------------------------------------------------
+     Settings controls
+     ------------------------------------------------------------------ */
+  .md3-settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-lg);
+    background-color: var(--md-sys-color-surface-container-low);
+  }
+
+  .md3-theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0.75rem;
+  }
+
+  .md3-theme-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-md);
+    background-color: var(--md-sys-color-surface-container-lowest);
+    color: var(--md-sys-color-on-surface);
+    text-align: start;
+    cursor: pointer;
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      border-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      box-shadow var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-theme-option:hover:not(:disabled) {
+    background-color: var(--md-sys-color-surface-container);
+  }
+
+  .md3-theme-option[aria-pressed="true"] {
+    border-color: var(--md-sys-color-primary);
+    background-color: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+    box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+  }
+
+  .md3-theme-option:disabled {
+    cursor: not-allowed;
+    opacity: 0.38;
+  }
+
+  .md3-theme-swatch {
+    width: 2rem;
+    height: 2rem;
+    flex: none;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-full);
+  }
+
+  .md3-theme-swatch-ocean {
+    background-image: linear-gradient(135deg, #2457a7 0 50%, #a8c7ff 50% 100%);
+  }
+
+  .md3-theme-swatch-forest {
+    background-image: linear-gradient(135deg, #2f6654 0 50%, #9fd5bf 50% 100%);
+  }
+
+  .md3-theme-swatch-sunset {
+    background-image: linear-gradient(135deg, #9c4435 0 50%, #ffb4a5 50% 100%);
+  }
+
+  .md3-theme-swatch-orchid {
+    background-image: linear-gradient(135deg, #6750a4 0 50%, #d0bcff 50% 100%);
+  }
+
+  .md3-theme-swatch-graphite-lime {
+    background-image: linear-gradient(135deg, #4d5f00 0 50%, #c4d57c 50% 100%);
+  }
+
+  .md3-chip-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* ------------------------------------------------------------------
+     Filled text field
+     Markup:
+       div.md3-text-field > input.md3-input
+     ------------------------------------------------------------------ */
+  .md3-text-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 3.5rem;
+    overflow: hidden;
+    border-radius: var(--radius-md3-xs) var(--radius-md3-xs) 0 0;
+    background-color: var(--md-sys-color-surface-container-highest);
+    box-shadow: inset 0 -1px 0 var(--md-sys-color-on-surface-variant);
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      box-shadow var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-text-field:not(:has(.md3-input:disabled)):hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      var(--md-sys-color-surface-container-highest)
+    );
+  }
+
+  .md3-text-field:focus-within {
+    box-shadow: inset 0 -2px 0 var(--md-sys-color-primary);
+  }
+
+  .md3-input {
+    width: 100%;
+    height: 3.5rem;
+    padding-inline: 1rem;
+    border: 0;
+    outline: none;
+    background-color: transparent;
+    color: var(--md-sys-color-on-surface);
+    caret-color: var(--md-sys-color-primary);
+    @apply text-body-large;
+  }
+
+  .md3-input::placeholder {
+    color: var(--md-sys-color-on-surface-variant);
+    opacity: 1;
+  }
+
+  .md3-input:disabled {
+    color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
+    cursor: not-allowed;
+  }
+
+  .md3-text-field:has(.md3-input:disabled) {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 4%,
+      var(--md-sys-color-surface-container-highest)
+    );
+  }
+
+  /* ------------------------------------------------------------------
+     Data table
+     Wrap the table in `.md3-table-container` so narrow screens can scroll
+     horizontally without moving the rest of the page.
+     ------------------------------------------------------------------ */
+  .md3-table-container {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-md);
+    background-color: var(--md-sys-color-surface-container-lowest);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .md3-table {
+    width: 100%;
+    min-width: 48rem;
+    border-collapse: separate;
+    border-spacing: 0;
+    color: var(--md-sys-color-on-surface);
+    @apply text-body-medium;
+  }
+
+  .md3-table thead {
+    background-color: var(--md-sys-color-surface-container);
+  }
+
+  .md3-table th {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    color: var(--md-sys-color-on-surface-variant);
+    font-weight: 500;
+    text-align: start;
+    white-space: nowrap;
+    @apply text-title-small;
+  }
+
+  .md3-table td {
+    padding: 0.875rem 1rem;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    vertical-align: middle;
+    text-align: start;
+  }
+
+  .md3-table tbody tr {
+    transition: background-color var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-table tbody tr:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
+  }
+
+  .md3-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  /* ------------------------------------------------------------------
+     Cards
+     ------------------------------------------------------------------ */
+  .md3-card {
+    padding: 1rem;
+    border-radius: var(--radius-md3-md);
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-card-elevated {
+    background-color: var(--md-sys-color-surface-container-low);
+    box-shadow: var(--md-sys-elevation-1);
+  }
+
+  .md3-card-filled {
+    background-color: var(--md-sys-color-surface-container-highest);
+  }
+
+  .md3-card-outlined {
+    border: 1px solid var(--md-sys-color-outline-variant);
+    background-color: var(--md-sys-color-surface);
+  }
+
+  /* ------------------------------------------------------------------
+     Lists
+     ------------------------------------------------------------------ */
+  .md3-list {
+    display: flex;
+    flex-direction: column;
+    padding-block: 0.5rem;
+  }
+
+  .md3-list-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-height: 3.5rem;
+    padding-inline: 1rem;
+    color: var(--md-sys-color-on-surface);
+    text-decoration: none;
+    transition: background-color var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-list-item:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
+  }
+
+  .md3-list-item:focus-visible {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 10%,
+      transparent
+    );
+  }
+
+  /* ------------------------------------------------------------------
+     Chips
+     ------------------------------------------------------------------ */
+  .md3-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2rem;
+    padding-inline: 0.75rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-sm);
+    background-color: transparent;
+    color: var(--md-sys-color-on-surface-variant);
+    white-space: nowrap;
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-chip:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
+  }
+
+  .md3-chip-selected {
+    border-color: transparent;
+    background-color: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+
+  /* ------------------------------------------------------------------
+     Floating action button (FAB)
+     ------------------------------------------------------------------ */
+  .md3-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: var(--radius-md3-lg);
+    background-color: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+    box-shadow: var(--md-sys-elevation-3);
+    transition:
+      box-shadow var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-fab:hover {
+    box-shadow: var(--md-sys-elevation-4);
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-primary-container) 8%,
+      var(--md-sys-color-primary-container)
+    );
+  }
+
+  .md3-fab-extended {
+    width: auto;
+    height: 3.5rem;
+    padding-inline: 1rem 1.25rem;
+    border-radius: var(--radius-md3-lg);
+    @apply text-label-large;
+  }
+
+  /* ------------------------------------------------------------------
+     Icon button
+     ------------------------------------------------------------------ */
+  .md3-icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--radius-md3-full);
+    color: var(--md-sys-color-on-surface-variant);
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-icon-button:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface-variant) 8%,
+      transparent
+    );
+    color: var(--md-sys-color-on-surface);
+  }
+
+  /* ------------------------------------------------------------------
+     Misc
+     ------------------------------------------------------------------ */
+  .md3-divider {
+    height: 1px;
+    border: 0;
+    background-color: var(--md-sys-color-outline-variant);
+  }
+
+  .md3-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1rem;
+    height: 1rem;
+    padding-inline: 0.25rem;
+    border-radius: var(--radius-md3-full);
+    background-color: var(--md-sys-color-error);
+    color: var(--md-sys-color-on-error);
+    @apply text-label-small;
+  }
+}

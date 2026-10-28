@@ -29,16 +29,18 @@ pub struct Vout {
     pub scriptpubkey: String,
     pub scriptpubkey_asm: String,
     pub scriptpubkey_type: String,
-    pub scriptpubkey_address: String,
+    /// Absent for outputs that do not belong to an address, such as OP_RETURN.
+    pub scriptpubkey_address: Option<String>,
     pub value: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct TxStatus {
     pub confirmed: bool,
-    pub block_height: i64,
-    pub block_hash: String,
-    pub block_time: i64,
+    /// Confirmation metadata is absent while a transaction is in the mempool.
+    pub block_height: Option<i64>,
+    pub block_hash: Option<String>,
+    pub block_time: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -58,11 +60,12 @@ pub struct Tx {
 pub struct TxVin {
     pub txid: String,
     pub vout: i64,
-    pub prevout: Vout,
+    /// Coinbase inputs do not spend a previous output.
+    pub prevout: Option<Vout>,
     pub scriptsig: String,
     pub scriptsig_asm: String,
     pub is_coinbase: bool,
-    pub sequence: String,
+    pub sequence: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -282,4 +285,46 @@ pub struct Channel {
     pub single_funded: Option<bool>,
     pub node_left: Node,
     pub node_right: Node,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tx;
+
+    #[test]
+    fn deserialize_unconfirmed_coinbase_with_op_return_output() {
+        // Mempool omits confirmation metadata for pending transactions, uses a
+        // null prevout for coinbase inputs, and omits the address for OP_RETURN.
+        let json = r#"{
+            "txid": "abc",
+            "version": 1,
+            "locktime": 0,
+            "vin": [{
+                "txid": "0000000000000000000000000000000000000000000000000000000000000000",
+                "vout": 4294967295,
+                "prevout": null,
+                "scriptsig": "",
+                "scriptsig_asm": "",
+                "is_coinbase": true,
+                "sequence": 4294967295
+            }],
+            "vout": [{
+                "scriptpubkey": "6a00",
+                "scriptpubkey_asm": "OP_RETURN OP_0",
+                "scriptpubkey_type": "op_return",
+                "value": 0
+            }],
+            "size": 100,
+            "weight": 400,
+            "fee": 0,
+            "status": { "confirmed": false }
+        }"#;
+
+        let transaction: Tx = serde_json::from_str(json).expect("transaction should deserialize");
+
+        assert!(!transaction.status.confirmed);
+        assert_eq!(transaction.status.block_height, None);
+        assert!(transaction.vin[0].prevout.is_none());
+        assert!(transaction.vout[0].scriptpubkey_address.is_none());
+    }
 }

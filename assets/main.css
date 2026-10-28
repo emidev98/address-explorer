@@ -1,107 +1,513 @@
-/* App-wide styling */
-body {
-    background-color: #0f1116;
-    color: #ffffff;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    margin: 20px;
-}
-
-#hero {
-    margin: 0;
+/* App-wide layout overrides that sit on top of the Material 3 theme */
+#screens {
+    padding: 1.5rem;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: center;
+    gap: 1.5rem;
+    min-height: calc(100vh - var(--md3-top-app-bar-height, 4rem));
 }
 
-#links {
-    width: 400px;
-    text-align: left;
-    font-size: x-large;
-    color: white;
-    display: flex;
-    flex-direction: column;
+@media (max-width: 40rem) {
+    #screens {
+        padding: 1rem;
+    }
 }
 
-#links a {
-    color: white;
-    text-decoration: none;
-    margin-top: 20px;
-    margin: 10px 0px;
-    border: white 1px solid;
-    border-radius: 5px;
-    padding: 10px;
-}
-
-#links a:hover {
-    background-color: #1f1f1f;
-    cursor: pointer;
-}
-
-#header {
-    max-width: 1200px;
-}
-
-/* Navbar */
-#navbar {
-    display: flex;
-    flex-direction: row;
-  }
-  
-#navbar a {
-    color: #ffffff;
-    margin-right: 20px;
-    text-decoration: none;
-    transition: color 0.2s ease;
-}
-
-#navbar a:hover {
-    cursor: pointer;
-    color: #91a4d2;
-}
-
-/* Blog page */
-#blog {
-    margin-top: 50px;
-  }
-  
-#blog a {
-    color: #ffffff;
-    margin-top: 50px;
-}
-
-/* Echo */
-#echo {
-    width: 360px;
-    margin-left: auto;
-    margin-right: auto;
-    margin-top: 50px;
-    background-color: #1e222d;
-    padding: 20px;
-    border-radius: 10px;
-}
-
-#echo>h4 {
-    margin: 0px 0px 15px 0px;
-}
-
-
-#echo>input {
-    border: none;
-    border-bottom: 1px white solid;
-    background-color: transparent;
-    color: #ffffff;
-    transition: border-bottom-color 0.2s ease;
-    outline: none;
-    display: block;
-    padding: 0px 0px 5px 0px;
+/* Container for ECharts host components. ECharts needs an explicit height to
+   size its canvas; the host component handles resizing from there. */
+.md3-chart {
     width: 100%;
+    height: 20rem;
+    min-height: 16rem;
 }
 
-#echo>input:focus {
-    border-bottom-color: #6d85c6;
+/* Wide flow charts stay legible on narrow screens by scrolling horizontally
+   instead of shrinking their nodes below a useful size. */
+.md3-chart-scroll {
+    width: 100%;
+    overflow-x: auto;
 }
 
-#echo>p {
-    margin: 20px 0px 0px auto;
+.md3-chart-scroll .md3-chart {
+    min-width: 48rem;
+}
+
+.md3-chart-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-lg);
+    background-color: var(--md-sys-color-surface-container-low);
+}
+
+/* Chart card body: reserves the chart's height from the first render so the
+   card never collapses while data loads or when an empty state replaces the
+   chart. */
+.md3-chart-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 20rem;
+}
+
+.md3-chart-body .md3-chart {
+    align-self: stretch;
+}
+
+/* Screen heading with a page-level action, such as importing an address. */
+.md3-page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+/* Modal import dialog. The scrim covers the viewport while the dialog is
+   mounted, and the panel remains scrollable on short screens. */
+.md3-dialog-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background-color: rgb(0 0 0 / 32%);
+}
+
+.md3-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    width: min(100%, 32rem);
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+    padding: 1.5rem;
+    border-radius: var(--radius-md3-lg);
+    background-color: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+    box-shadow: var(--md-sys-elevation-3);
+}
+
+.md3-dialog-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+/* Native selects inside text fields (import dialog, settings); theme the
+   popup options so both appearance modes stay legible (the arrow control
+   stays native). */
+select.md3-input {
+    cursor: pointer;
+}
+
+select.md3-input option {
+    background-color: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+    font: inherit;
+}
+
+@media (max-width: 40rem) {
+    .md3-dialog-scrim {
+        padding: 1rem;
+    }
+
+    .md3-dialog {
+        max-height: calc(100vh - 2rem);
+        padding: 1.25rem;
+    }
+}
+
+/* KPI row of the addresses page: four cards on wide screens, two columns on
+   narrow ones, matching the grid layout of the UTXO Utils Addresses page. */
+.md3-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+}
+
+@media (max-width: 60rem) {
+    .md3-kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.md3-kpi {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    min-height: 4.5rem;
+    text-align: center;
+}
+
+.md3-kpi-value {
+    white-space: nowrap;
+}
+
+/* Row actions of the addresses table (sync, edit, remove). */
+.md3-table-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.md3-icon-button.md3-icon-button-danger:hover {
+    color: var(--md-sys-color-error);
+}
+
+/* Inline warning indicator in the addresses table actions cell: transaction
+   indexing of the row stopped on a mempool rate limit. */
+.md3-icon-warning {
+    display: inline-flex;
+    align-items: center;
+    color: var(--md-sys-color-error);
+}
+
+/* Toast: transient status message centered above all content, including the
+   modal dialog scrim (z-index 60). */
+.md3-toast-host {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 24px;
+    z-index: 70;
+    display: flex;
+    justify-content: center;
+    padding: 0 16px;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.md3-toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 560px;
+    padding: 10px 8px 10px 16px;
+    border-radius: 8px;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
+    pointer-events: auto;
+}
+
+.md3-toast-success {
+    background-color: var(--md-sys-color-tertiary);
+    color: var(--md-sys-color-on-tertiary);
+}
+
+.md3-toast-error {
+    background-color: var(--md-sys-color-error);
+    color: var(--md-sys-color-on-error);
+}
+
+.md3-toast-info {
+    background-color: var(--md-sys-color-inverse-surface);
+    color: var(--md-sys-color-inverse-on-surface);
+}
+
+.md3-toast-text {
+    flex: 1;
+}
+
+.md3-toast-dismiss {
+    color: inherit;
+}
+
+/* Address cell of the addresses table: copy action next to the shortened
+   address, kept on one line. */
+.md3-table-copy {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+
+/* Hover card of the historical prices table: the row's info button reveals
+   the prices stored for the other symbols at the same close time. The card
+   opens to the side so it never escapes the horizontally scrollable table
+   container, and its own height is capped so long conversion lists scroll
+   inside the card. */
+.md3-price-info {
+    position: relative;
+    display: inline-flex;
+}
+
+.md3-price-tooltip {
+    position: absolute;
+    z-index: 20;
+    top: 50%;
+    inset-inline-start: calc(100% + 0.5rem);
+    transform: translateY(-50%);
+    display: none;
+    flex-direction: column;
+    gap: 0.375rem;
+    min-width: 12rem;
+    max-height: 16rem;
+    overflow-y: auto;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-md);
+    background-color: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+    box-shadow: var(--md-sys-elevation-3);
+    text-align: start;
+}
+
+.md3-price-info:hover .md3-price-tooltip,
+.md3-price-info:focus-within .md3-price-tooltip {
+    display: flex;
+}
+
+.md3-price-tooltip-row {
+    white-space: nowrap;
+}
+
+/* Shared pagination bar of data tables, rendered directly above the table:
+   Previous/Next around the editable page index and the totals (Section 5.11
+   of CONTRIBUTING.md). */
+.md3-pagination {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+/* The editable page index between the Previous and Next buttons. */
+.md3-pagination-index {
+    width: 4.5rem;
+}
+
+.md3-pagination-index .md3-input {
+    text-align: center;
+}
+
+/* Compact variant of the date-range filter for page headers: the fields
+   keep just the width a date needs. */
+.md3-date-range.md3-date-range-compact > div {
+    width: 9.5rem;
+}
+
+/* Compact date picker: a read-only field whose date only changes through
+   its calendar popup, so the whole control stays 40 px tall and the full
+   surface acts as the calendar button. The popup anchors to the field. */
+.md3-date-picker {
+    position: relative;
+}
+
+.md3-date-picker .md3-text-field,
+.md3-date-picker .md3-input {
+    height: 2.5rem;
+    min-height: 2.5rem;
+    font-size: var(--text-body-medium);
+}
+
+.md3-date-picker .md3-input {
+    padding-block: 0;
+    padding-right: 2.5rem;
+    cursor: pointer;
+}
+
+.md3-date-picker .md3-input:disabled {
+    cursor: not-allowed;
+}
+
+/* Calendar affordance overlaid on the field; clicks pass through to the
+   input so the whole field opens the popup. */
+.md3-date-picker .md3-text-field svg {
+    position: absolute;
+    right: 0.75rem;
+    pointer-events: none;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+/* Transparent layer catching outside clicks while the calendar is open. */
+.md3-date-picker-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+}
+
+.md3-date-picker-popup {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    left: 0;
+    z-index: 71;
+    width: 18rem;
+    max-width: 90vw;
+    padding: 0.75rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-md);
+    background-color: var(--md-sys-color-surface-container);
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+}
+
+/* Date fields near the bottom of a modal open their calendar upward: the
+   popup then overlays the dialog content instead of extending the dialog's
+   scrollable height past its lower edge. */
+.md3-date-picker-popup.md3-date-picker-popup-above {
+    top: auto;
+    bottom: calc(100% + 0.25rem);
+}
+
+.md3-date-picker-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.md3-date-picker-month {
+    color: var(--md-sys-color-on-surface);
+}
+
+.md3-date-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+}
+
+.md3-date-picker-weekday {
+    padding-block: 0.25rem;
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: var(--text-label-small);
+    text-align: center;
+}
+
+.md3-date-picker-day {
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: none;
+    color: var(--md-sys-color-on-surface);
+    font-size: var(--text-body-small);
+    cursor: pointer;
+}
+
+.md3-date-picker-day:hover {
+    background-color: var(--md-sys-color-surface-container-highest);
+}
+
+.md3-date-picker-day.md3-date-picker-selected,
+.md3-date-picker-day.md3-date-picker-selected:hover {
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+}
+
+.md3-date-picker-day.md3-date-picker-today {
+    box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+}
+
+/* Prices table: per-column min-widths keep the layout stable when sorting
+   changes the row order. Cells never shrink or wrap; when the table does
+   not fit, the container scrolls horizontally instead. */
+.md3-prices-table td {
+    white-space: nowrap;
+}
+
+.md3-prices-table th:nth-child(1),
+.md3-prices-table td:nth-child(1) {
+    min-width: 4rem;
+}
+
+.md3-prices-table th:nth-child(2),
+.md3-prices-table td:nth-child(2) {
+    min-width: 11.5rem;
+}
+
+.md3-prices-table th:nth-child(3),
+.md3-prices-table td:nth-child(3) {
+    min-width: 9rem;
+}
+
+.md3-prices-table th:nth-child(4),
+.md3-prices-table td:nth-child(4) {
+    min-width: 14rem;
+}
+
+/* Sortable column header: the whole header cell is the sort button. */
+.md3-sort-button {
+    all: unset;
+    box-sizing: border-box;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font: inherit;
+    color: inherit;
+}
+
+.md3-sort-button:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.md3-sort-arrow {
+    font-size: 0.85em;
+    opacity: 0.8;
+}
+
+/* Scope column of the addresses table: the header stacks the column title
+   above the All / Wallets / Exchanges filter chips, rendered compact so the
+   header row keeps its height. The chips never wrap: the column widens
+   until all three fit on one row. */
+.md3-table-scope-filter {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.375rem;
+}
+
+/* Empty state row of a table that must stay visible when a scope filter
+   matches no rows. */
+.md3-table td.md3-table-empty {
+    padding-block: 1.5rem;
+    color: var(--md-sys-color-on-surface-variant);
+    text-align: center;
+}
+
+.md3-table-scope-filter .md3-chip-group {
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+}
+
+.md3-table-scope-filter .md3-chip {
+    height: 1.5rem;
+    padding-inline: 0.5rem;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+}
+
+/* Chart card heading with an optional action, such as resetting the zoom. */
+.md3-chart-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+/* Date-range filter of the historical prices table: the two native date
+   fields keep a fixed comfortable width and wrap on narrow screens. */
+.md3-date-range {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+}
+
+.md3-date-range > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: min(100%, 12rem);
 }

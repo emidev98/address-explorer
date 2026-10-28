@@ -13,6 +13,11 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Kaggle source datasets for the price history. They are re-downloadable (see
+# assets/pricing/README.md); only the packed btc_usd.bin is
+# committed and bundled with the app.
+assets/pricing/raw_data
+
 # rustc will dump stack traces when hitting an internal compiler error to PWD
 rustc-ice-*.txt
 
