@@ -7,7 +7,10 @@ use crate::components::theme::{apply as apply_theme, attribute_script};
 use crate::components::{provide_toast, FiatCurrency, ToastHost, Topbar};
 use crate::domain::price::USD_SYMBOL;
 use crate::domain::theme::ThemePreference;
-use crate::screens::{Addresses, ExchangeDetail, Exchanges, Flow, Prices, Settings};
+use crate::screens::{
+    Addresses, ExchangeDetail, Exchanges, Flow, Prices, SettingsExchangeTypes, SettingsGeneral,
+    SettingsLayout, SettingsWalletTypes,
+};
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
@@ -26,8 +29,13 @@ pub enum Route {
     },
     #[route("/prices")]
     Prices {},
+    #[layout(SettingsLayout)]
     #[route("/settings")]
-    Settings {},
+    SettingsGeneral {},
+    #[route("/settings/wallet-types")]
+    SettingsWalletTypes {},
+    #[route("/settings/exchange-types")]
+    SettingsExchangeTypes {},
 }
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
@@ -104,5 +112,22 @@ mod tests {
         };
         assert_eq!(without_query.to_string(), "/exchanges/12?");
         assert_eq!("/exchanges/12".parse::<Route>().unwrap(), without_query);
+    }
+
+    #[test]
+    fn settings_routes_round_trip() {
+        assert_eq!(Route::SettingsGeneral {}.to_string(), "/settings");
+        assert_eq!(
+            Route::SettingsWalletTypes {}.to_string(),
+            "/settings/wallet-types"
+        );
+        assert_eq!(
+            Route::SettingsExchangeTypes {}.to_string(),
+            "/settings/exchange-types"
+        );
+        assert_eq!(
+            "/settings/wallet-types".parse::<Route>().unwrap(),
+            Route::SettingsWalletTypes {}
+        );
     }
 }

@@ -6,8 +6,8 @@ use crate::api::exchanges::{delete_exchange_api, list_exchanges_api};
 use crate::api::settings::get_exchange_settings_api;
 use crate::app::Route;
 use crate::components::{
-    use_toast, ConfirmDialog, ExchangeAccountDialog, ImportDataDialog, Kpi, SortableHeader,
-    TablePagination, Toast,
+    use_toast, BadgeSize, ConfirmDialog, ExchangeAccountDialog, ImportDataDialog, Kpi,
+    ProviderBadge, SortableHeader, TablePagination, Toast,
 };
 use crate::domain::civil_time;
 use crate::domain::exchange::{
@@ -99,32 +99,50 @@ pub fn Exchanges() -> Element {
                             SortableHeader {
                                 label: "Name".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("name")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "name", SortDirection::Asc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "name", SortDirection::Asc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "Txs".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("txs")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "OnChain Operations".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("onchain")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "onchain", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "onchain", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "First Transaction".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("first_tx")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "Last Transaction".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("last_tx")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "Last Modification".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("last_modified")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "last_modified", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "last_modified", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
                         }
                     }
@@ -207,15 +225,23 @@ pub fn Exchanges() -> Element {
                                                 aria_label: "Open {row.name}",
                                                 onclick: move |event| {
                                                     event.stop_propagation();
-                                                    navigator.push(Route::ExchangeDetail {
-                                                        exchange_id: view_row.id,
-                                                        transaction_id: None,
-                                                    });
+                                                    navigator
+                                                        .push(Route::ExchangeDetail {
+                                                            exchange_id: view_row.id,
+                                                            transaction_id: None,
+                                                        });
                                                 },
                                                 span { class: "md3-exchange-name-cell",
                                                     strong { "{row.name}" }
                                                     if let Some(provider) = &row.provider_name {
-                                                        span { class: "md3-exchange-provider", "{provider}" }
+                                                        span { class: "md3-exchange-provider md3-exchange-provider-badge",
+                                                            ProviderBadge {
+                                                                name: provider.clone(),
+                                                                color: row.provider_color.clone(),
+                                                                size: BadgeSize::Compact,
+                                                            }
+                                                            "{provider}"
+                                                        }
                                                     }
                                                 }
                                             }

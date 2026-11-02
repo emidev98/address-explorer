@@ -1,21 +1,21 @@
 //! Data migrations that bulk-load reference datasets into SQLite.
 //!
-//! The packed BTC price history in `assets/pricing/btc_usd.bin`
-//! becomes the `USD` rows of `historical_prices`. The file layout is
-//! specified by `assets/pricing/README.md` and decoded by [`pricing_format`];
-//! the import rules are:
+//! The packed BTC price history in `assets/pricing/btc_usd.bin` becomes the
+//! `USD` rows of `historical_prices` through the `0015_historical_prices_data`
+//! entry. The file layout is specified by `assets/pricing/README.md` and
+//! decoded by [`pricing_format`]; the import rules are:
 //!
 //! - records that do not decode are skipped by the codec;
 //! - duplicate close times keep the first occurrence in file order, enforced
-//!   with `INSERT OR IGNORE`, which also makes a re-run of the import a
-//!   no-op (see the `0009` backfill entry in `migrations.rs`).
+//!   with `INSERT OR IGNORE`, which also makes a re-run of the import a no-op.
 //!
 //! The bundled exchange address collection in
-//! `assets/exchange_samples/exchange_addresses.csv` becomes exchange-scoped
-//! rows of the `addresses` table. It is embedded with `include_str!` so
-//! packaged builds do not need a runtime file lookup, and a conflict on the
-//! address primary key is ignored so an existing address keeps the user's
-//! description and classification.
+//! `assets/exchange_samples/exchange_addresses.csv` and the researched catalog
+//! in `migrations/0019_addresses_data.sql` become exchange-scoped rows of the
+//! `addresses` table through the `0019_addresses_data` entry. The CSV is embedded
+//! with `include_str!` so packaged builds do not need a runtime file lookup,
+//! and a conflict on the address primary key is ignored so an existing address
+//! keeps the user's description and classification.
 //!
 //! Seed migrations run only for on-disk databases (`open_path`,
 //! `open_default`); see `run_migrations` in `migrations.rs`.
@@ -38,22 +38,22 @@ pub const BTC_USD_SYMBOL: &str = "USD";
 const PACKED_RELATIVE_PATH: &str = "assets/pricing/btc_usd.bin";
 const PACKED_ENV_VAR: &str = "ADDRESS_EXPLORER_PRICING_FILE";
 
-/// Bundled public exchange wallets, imported by the
-/// `0013_exchange_addresses` seed migration. See
-/// `assets/exchange_samples/README.md` for attribution sources.
+/// Bundled public exchange wallets, imported first by the `0019_addresses_data`
+/// seed migration. See `assets/exchange_samples/README.md` for attribution
+/// sources.
 const EXCHANGE_ADDRESSES_CSV: &str =
     include_str!("../../assets/exchange_samples/exchange_addresses.csv");
 
-/// Full researched exchange-wallet catalog, imported by the
-/// `0014_exchange_addresses` seed migration. Every row is tagged by exchange
-/// name and existing addresses keep their user-edited description and owner.
-const EXCHANGE_ADDRESS_CATALOG_SQL: &str = include_str!("migrations/0014_exchange_addresses.sql");
+/// Full researched exchange-wallet catalog, imported by the `0019_addresses_data`
+/// seed migration after the CSV bundle. Every row is tagged by exchange name
+/// and existing addresses keep their user-edited description and owner.
+const EXCHANGE_ADDRESS_CATALOG_SQL: &str = include_str!("migrations/0019_addresses_data.sql");
 
 /// Number of exchange wallets the catalog is expected to cover. Keep in sync
 /// with the SQL file; the seed fails loudly when a catalog name is missing.
 const EXCHANGE_ADDRESS_CATALOG_SIZE: i64 = 296;
 
-/// Data migration `0008_historical_prices_import` entry point.
+/// Data migration `0015_historical_prices_data` entry point.
 ///
 /// Fails loudly when the packed pricing file cannot be located or yields no
 /// importable rows, because a migration MUST NOT silently produce an empty
@@ -137,9 +137,18 @@ pub fn import_packed_prices(connection: &Connection, path: &Path) -> Result<usiz
     Ok(imported)
 }
 
-/// Data migration `0013_exchange_addresses` entry point.
+/// Data migration `0019_addresses_data` entry point.
 ///
-/// Stores the public exchange wallets from the bundled address collection as
+/// Imports the bundled CSV collection first, then the complete researched
+/// catalog, so the CSV's descriptions win for the addresses it introduced,
+/// exactly as the historical incremental sequence did. Both steps are
+/// idempotent and never overwrite a user-edited description or classification.
+pub fn addresses(connection: &Connection) -> Result<(), DatabaseError> {
+    exchange_addresses(connection)?;
+    exchange_address_catalog(connection)
+}
+
+/// Imports the bundled public exchange wallets from the CSV collection as
 /// exchange-scoped `addresses` rows. Existing addresses are left untouched so
 /// a re-run never overwrites a user-edited description or classification.
 pub fn exchange_addresses(connection: &Connection) -> Result<(), DatabaseError> {
@@ -184,11 +193,12 @@ pub fn exchange_addresses(connection: &Connection) -> Result<(), DatabaseError> 
     Ok(())
 }
 
-/// Data migration `0014_exchange_addresses` entry point.
+/// Imports the researched exchange-wallet catalog from
+/// `migrations/0019_addresses_data.sql`.
 ///
-/// Runs the checked-in SQL catalog. The SQL is idempotent: it joins the
-/// exchange catalog by name and skips addresses that are already stored, so
-/// user-edited descriptions and classifications are preserved.
+/// The SQL is idempotent: it joins the exchange catalog by name and skips
+/// addresses that are already stored, so user-edited descriptions and
+/// classifications are preserved.
 pub fn exchange_address_catalog(connection: &Connection) -> Result<(), DatabaseError> {
     connection.execute_batch(EXCHANGE_ADDRESS_CATALOG_SQL)?;
     let stored: i64 = connection.query_row(
@@ -273,10 +283,8 @@ mod tests {
 
     fn fresh_connection() -> Connection {
         let connection = Connection::open_in_memory().unwrap();
-        let schema = match &migrations::MIGRATIONS[6].1 {
-            migrations::Migration::Schema(sql) => sql,
-            _ => panic!("0007_historical_prices must stay a schema migration"),
-        };
+        let schema = migrations::schema_sql("historical_prices")
+            .expect("historical_prices must stay a SQL migration");
         connection.execute_batch(schema).unwrap();
         connection
     }
@@ -442,8 +450,8 @@ mod tests {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
 
-        // The historical 0013 seed runs first; the user then labels one of
-        // those rows. The 0014 catalog must not overwrite either choice.
+        // The CSV bundle runs first; the user then labels one of those rows.
+        // The researched catalog must not overwrite either choice.
         exchange_addresses(&connection).unwrap();
         connection
             .execute(
@@ -513,6 +521,37 @@ mod tests {
     }
 
     #[test]
+    fn addresses_seed_imports_the_csv_bundle_before_the_catalog() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
+
+        // Re-running the consolidated entry must not duplicate a row.
+        addresses(&connection).unwrap();
+        addresses(&connection).unwrap();
+
+        let total: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, EXCHANGE_ADDRESS_CATALOG_SIZE);
+
+        // The CSV bundle is imported first, so its label wins over the
+        // catalog's later description for the same address.
+        let description: String = connection
+            .query_row(
+                "SELECT description FROM addresses
+                 WHERE address = '3LYJfcfHPXYJreMsASk2jkn69LWEYKzexb'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(description, "Binance cold wallet 2");
+    }
+
+    #[test]
     fn exchange_address_catalog_moves_the_provider_balance_to_the_new_anchor() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
@@ -536,8 +575,7 @@ mod tests {
             )
             .unwrap();
 
-        exchange_addresses(&connection).unwrap();
-        exchange_address_catalog(&connection).unwrap();
+        addresses(&connection).unwrap();
 
         let (address, balance): (String, i64) = connection
             .query_row(

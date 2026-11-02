@@ -149,7 +149,7 @@ pub fn list_accounts(
         None => "tx_count DESC NULLS LAST, a.id DESC".to_string(),
     };
     let sql = format!(
-        "SELECT a.id, a.name, a.provider_id, p.name, a.last_modified_at,
+        "SELECT a.id, a.name, a.provider_id, p.name, p.brand_color, a.last_modified_at,
                 COUNT(t.id) AS tx_count,
                 COALESCE(SUM(CASE WHEN t.tx_type IN ('deposit', 'withdrawal')
                     AND t.match_state <> 'unmatched' THEN 1 ELSE 0 END), 0) AS onchain_matched_count,
@@ -173,12 +173,13 @@ pub fn list_accounts(
             name: row.get(1)?,
             provider_id: row.get(2)?,
             provider_name: row.get(3)?,
-            last_modified_at: row.get(4)?,
-            tx_count: row.get(5)?,
-            onchain_matched_count: row.get(6)?,
-            onchain_total_count: row.get(7)?,
-            first_tx_time: row.get(8)?,
-            last_tx_time: row.get(9)?,
+            provider_color: row.get(4)?,
+            last_modified_at: row.get(5)?,
+            tx_count: row.get(6)?,
+            onchain_matched_count: row.get(7)?,
+            onchain_total_count: row.get(8)?,
+            first_tx_time: row.get(9)?,
+            last_tx_time: row.get(10)?,
         })
     })?;
     let mut items = Vec::new();

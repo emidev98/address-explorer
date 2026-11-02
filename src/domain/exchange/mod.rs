@@ -182,6 +182,8 @@ pub struct ExchangeAccountRow {
     /// `None` means Manual Import.
     pub provider_id: Option<i64>,
     pub provider_name: Option<String>,
+    /// Optional brand color of the provider, shown beside its name.
+    pub provider_color: Option<String>,
     /// All ledger rows of the account.
     pub tx_count: i64,
     /// Withdrawals/deposits with a non-unmatched reconciliation state.

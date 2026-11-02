@@ -1,7 +1,6 @@
 //! Exchange-specific dialogs: Import Data, account edit, transaction
 //! inspector, duplicate resolution, and manual on-chain linking.
 
-use dioxus::html::HasFileData;
 use dioxus::prelude::*;
 
 use crate::api::catalogs::list_exchange_types_api;
@@ -10,7 +9,10 @@ use crate::api::exchanges::{
     link_exchange_transaction_api, preview_import_data_api, save_exchange_transaction_api,
 };
 use crate::components::format::{format_address, format_btc, format_fiat};
-use crate::components::{use_fiat_currency, use_toast, ConfirmDialog};
+use crate::components::{
+    use_fiat_currency, use_toast, CatalogOptionsSelect, ConfirmDialog, CsvDropzone,
+};
+use crate::domain::catalog::CatalogKind;
 use crate::domain::civil_time;
 use crate::domain::exchange::{
     ExchangeAccount, ExchangeDuplicateChoice, ExchangeDuplicateInfo, ExchangeLinkOutcome,
@@ -143,76 +145,6 @@ fn trigger_import_data_preview(
         preview.set(Some(result));
         loading.set(false);
     });
-}
-
-fn read_selected_file(
-    file: dioxus::html::FileData,
-    on_file: EventHandler<(String, String)>,
-    mut error: Signal<Option<String>>,
-) {
-    let name = file.name();
-    error.set(None);
-    spawn(async move {
-        match file.read_string().await {
-            Ok(text) => on_file.call((name, text)),
-            Err(err) => error.set(Some(err.to_string())),
-        }
-    });
-}
-
-/// Drop zone shared by the CSV import dialog.
-#[component]
-pub fn ImportDataDropzone(
-    file_name: String,
-    disabled: bool,
-    on_file: EventHandler<(String, String)>,
-) -> Element {
-    let local_error = use_signal(|| Option::<String>::None);
-    let accept = ".csv,.txt";
-
-    rsx! {
-        div {
-            class: "md3-import-data-dropzone",
-            ondragover: move |event| event.prevent_default(),
-            ondrop: move |event| {
-                event.prevent_default();
-                if let Some(file) = event.files().into_iter().next() {
-                    read_selected_file(file, on_file, local_error);
-                }
-            },
-            label { class: "md3-import-data-dropzone-inner",
-                input {
-                    r#type: "file",
-                    accept: "{accept}",
-                    disabled,
-                    class: "md3-import-data-file-input",
-                    onchange: move |event| {
-                        if let Some(file) = event.files().into_iter().next() {
-                            read_selected_file(file, on_file, local_error);
-                        }
-                    },
-                }
-                span { class: "md3-import-data-dropzone-icon", "⇧" }
-                strong {
-                    if file_name.is_empty() {
-                        "Choose a CSV file"
-                    } else {
-                        "Replace CSV file"
-                    }
-                }
-                span { class: "text-body-small text-on-surface-variant",
-                    if file_name.is_empty() {
-                        "Drop a CSV export here or click to browse"
-                    } else {
-                        "{file_name}"
-                    }
-                }
-            }
-            if let Some(error) = local_error() {
-                p { class: "text-body-small md3-exchange-error", "{error}" }
-            }
-        }
-    }
 }
 
 /// Import exchange ledger data into a new or existing account.
@@ -348,6 +280,10 @@ pub fn ImportDataDialog(
         });
     };
 
+    let provider_entries = providers().and_then(|state| state.ok()).unwrap_or_default();
+    let providers_loading = providers().is_none();
+    let auto_fill_entries = provider_entries.clone();
+
     rsx! {
         div {
             class: "md3-dialog-scrim",
@@ -382,36 +318,29 @@ pub fn ImportDataDialog(
                         }
                     }
                     label { class: "text-body-medium text-on-surface-variant", "Provider *" }
-                    div { class: "md3-text-field",
-                        select {
-                            class: "md3-input",
-                            value: provider_id().map(|id| id.to_string()).unwrap_or_default(),
-                            disabled: *loading.read(),
-                            onchange: move |event| {
-                                let selected = event.value().parse::<i64>().ok();
-                                provider_touched.set(true);
-                                provider_id.set(selected);
-                                if name().trim().is_empty() {
-                                    if let Some(Ok(list)) = providers() {
-                                        if let Some(provider) = selected
-                                            .and_then(|id| { list.into_iter().find(|entry| entry.id == id) })
-                                        {
-                                            name.set(provider.name);
-                                        }
-                                    }
-                                }
-                            },
-                            option { value: "", "Manual Import" }
-                            if let Some(Ok(list)) = providers() {
-                                for provider in list {
-                                    option { value: "{provider.id}", "{provider.name}" }
+                    CatalogOptionsSelect {
+                        kind: CatalogKind::Exchange,
+                        value: provider_id(),
+                        on_change: move |selected| {
+                            provider_touched.set(true);
+                            provider_id.set(selected);
+                            if name().trim().is_empty() {
+                                if let Some(provider) = selected.and_then(|id| {
+                                    auto_fill_entries.iter().find(|entry| entry.id == id).cloned()
+                                }) {
+                                    name.set(provider.name);
                                 }
                             }
-                        }
+                        },
+                        disabled: *loading.read(),
+                        id: "import-data-provider".to_string(),
+                        placeholder: "Manual Import".to_string(),
+                        entries: provider_entries.clone(),
+                        loading: providers_loading,
                     }
                 }
 
-                ImportDataDropzone {
+                CsvDropzone {
                     file_name: file_name(),
                     disabled: *loading.read(),
                     on_file,
@@ -617,6 +546,9 @@ pub fn ExchangeAccountDialog(
         });
     };
 
+    let provider_entries = providers().and_then(|state| state.ok()).unwrap_or_default();
+    let providers_loading = providers().is_none();
+
     rsx! {
         div {
             class: "md3-dialog-scrim",
@@ -648,19 +580,15 @@ pub fn ExchangeAccountDialog(
                     }
                 }
                 label { class: "text-body-medium text-on-surface-variant", "Provider *" }
-                div { class: "md3-text-field",
-                    select {
-                        class: "md3-input",
-                        value: provider_id().map(|id| id.to_string()).unwrap_or_default(),
-                        disabled: *loading.read(),
-                        onchange: move |event| provider_id.set(event.value().parse::<i64>().ok()),
-                        option { value: "", "Manual Import" }
-                        if let Some(Ok(list)) = providers() {
-                            for provider in list {
-                                option { value: "{provider.id}", "{provider.name}" }
-                            }
-                        }
-                    }
+                CatalogOptionsSelect {
+                    kind: CatalogKind::Exchange,
+                    value: provider_id(),
+                    on_change: move |selected| provider_id.set(selected),
+                    disabled: *loading.read(),
+                    id: "exchange-edit-provider".to_string(),
+                    placeholder: "Manual Import".to_string(),
+                    entries: provider_entries,
+                    loading: providers_loading,
                 }
                 div { class: "md3-dialog-actions",
                     button {

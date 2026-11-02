@@ -1,26 +1,4 @@
--- Exchange ledger accounts imported from CSV exports.
---
--- Exchange transactions are kept separate from on-chain transactions: they
--- describe the exchange's own ledger, while `transactions` indexes publicly
--- visible Bitcoin transactions. Reconciliation links the two.
---
--- `exchange_balance_sats` stores the aggregate ledger balance of a provider on
--- its alphabetically first address. It is derived state maintained by the
--- exchange and address repositories in the same transaction as every ledger
--- or address mutation that can change it.
-
-CREATE TABLE IF NOT EXISTS exchange_accounts (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-    provider_id INTEGER REFERENCES exchanges_types(id) ON DELETE SET NULL,
-    created_at INTEGER NOT NULL,
-    last_imported_at INTEGER,
-    last_modified_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_exchange_accounts_provider
-    ON exchange_accounts(provider_id);
-
+-- Ledger rows of an imported exchange account.
 CREATE TABLE IF NOT EXISTS exchange_transactions (
     id INTEGER PRIMARY KEY,
     exchange_id INTEGER NOT NULL,
@@ -62,18 +40,3 @@ CREATE INDEX IF NOT EXISTS idx_exchange_transactions_account_timestamp
     ON exchange_transactions(exchange_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_exchange_transactions_matched_txid
     ON exchange_transactions(matched_tx_id);
-
--- Historical fiat rates used to convert exchange fiat values into the
--- user's current default currency. Cached permanently so dynamic conversion
--- does not require a network request for every page load.
-CREATE TABLE IF NOT EXISTS fiat_exchange_rates (
-    base TEXT NOT NULL,
-    quote TEXT NOT NULL,
-    rate_date TEXT NOT NULL,
-    rate REAL NOT NULL CHECK (rate > 0),
-    fetched_at INTEGER NOT NULL,
-    PRIMARY KEY (base, quote, rate_date)
-);
-
-ALTER TABLE addresses
-    ADD COLUMN exchange_balance_sats INTEGER NOT NULL DEFAULT 0;

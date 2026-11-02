@@ -179,7 +179,7 @@ select.md3-input option {
     gap: 0.25rem;
 }
 
-.md3-icon-button.md3-icon-button-danger:hover {
+.md3-icon-button.md3-icon-button-danger:hover:not(:disabled) {
     color: var(--md-sys-color-error);
 }
 

@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 
-use crate::components::{use_toast, Toast};
+use crate::components::{use_toast, CatalogSelect, Toast};
 use crate::domain::address::{
     AddressEntity, AddressImportResult, AddressSaveOutcome, AddressScope,
 };
+use crate::domain::catalog::CatalogKind;
 
 /// Owner kind chosen in the import dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,17 +97,6 @@ pub fn ImportAddressDialog(
     let mut selected_owner = use_signal(|| edit_owner);
     let mut exchange_id = use_signal(|| edit_exchange_id);
     let mut wallet_id = use_signal(|| edit_wallet_id);
-
-    let exchanges = use_resource(|| async move {
-        crate::api::catalogs::list_exchange_types_api()
-            .await
-            .map_err(|err| err.to_string())
-    });
-    let wallets = use_resource(|| async move {
-        crate::api::catalogs::list_wallet_types_api()
-            .await
-            .map_err(|err| err.to_string())
-    });
 
     // A validated clipboard address only fills the input: importing always
     // waits for the user to review the options and confirm. In modify mode
@@ -276,42 +266,24 @@ pub fn ImportAddressDialog(
                 }
 
                 if let Some(OwnerKind::Wallet) = selected_owner() {
-                    div { class: "md3-text-field",
-                        select {
-                            id: "import-address-wallet",
-                            class: "md3-input",
-                            value: wallet_id().map(|id| id.to_string()).unwrap_or_default(),
-                            onchange: move |event| {
-                                wallet_id.set(event.value().parse::<i64>().ok());
-                            },
-                            disabled: *loading.read(),
-                            option { value: "", "Select a wallet type" }
-                            if let Some(Ok(list)) = wallets() {
-                                for wallet in list {
-                                    option { value: "{wallet.id}", "{wallet.name}" }
-                                }
-                            }
-                        }
+                    CatalogSelect {
+                        kind: CatalogKind::Wallet,
+                        value: wallet_id(),
+                        on_change: move |selected| wallet_id.set(selected),
+                        disabled: *loading.read(),
+                        id: "import-address-wallet".to_string(),
+                        placeholder: "Select a wallet type".to_string(),
                     }
                 }
 
                 if let Some(OwnerKind::Exchange) = selected_owner() {
-                    div { class: "md3-text-field",
-                        select {
-                            id: "import-address-exchange",
-                            class: "md3-input",
-                            value: exchange_id().map(|id| id.to_string()).unwrap_or_default(),
-                            onchange: move |event| {
-                                exchange_id.set(event.value().parse::<i64>().ok());
-                            },
-                            disabled: *loading.read(),
-                            option { value: "", "Select an exchange" }
-                            if let Some(Ok(list)) = exchanges() {
-                                for exchange in list {
-                                    option { value: "{exchange.id}", "{exchange.name}" }
-                                }
-                            }
-                        }
+                    CatalogSelect {
+                        kind: CatalogKind::Exchange,
+                        value: exchange_id(),
+                        on_change: move |selected| exchange_id.set(selected),
+                        disabled: *loading.read(),
+                        id: "import-address-exchange".to_string(),
+                        placeholder: "Select an exchange".to_string(),
                     }
                 }
 

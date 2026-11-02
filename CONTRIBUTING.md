@@ -227,7 +227,7 @@ mode has been stored yet, the theme follows `prefers-color-scheme`.
 
 The palette and appearance are changed in **Settings → Theme**. Preferences
 are saved automatically to the SQLite `setting` table, created by
-`src/clients/database/migrations/0003_settings.sql`. The theme is loaded
+`src/data/migrations/0001_setting.sql`. The theme is loaded
 during server rendering, applied in the document head before the app markup
 is parsed, and serialized into the page so hydration starts with the same
 values instead of flashing the default palette. Palette definitions live in
@@ -427,6 +427,18 @@ Every screen that lists rows in a table **MUST** use the shared backend-driven t
 - When a table's behavior changes, the change **MUST** extend the shared definitions rather than hand-rolling equivalents: a new sortable column goes to the repository's allowlist enum and gains a `SortableHeader`, and a new filter becomes a typed field of the endpoint's query struct. Screens **MUST NOT** implement their own pagination bar or sort headers.
 - A new table **MUST** be built from these pieces: a `TableQuery`-flattening endpoint, a service that validates the sort key and clamps the page size, repository `WHERE` fragments shared between the list and count queries, and the shared controls from `src/components/table_controls.rs`.
 
+### 5.12 Catalog settings (Wallet Types and Exchange Types)
+
+The Settings area has two provider-catalog sub-settings built on one generic pattern. Contributors **MUST** extend that pattern rather than hand-rolling a second catalog screen:
+
+- **Two-level taxonomy.** `exchanges_types` and `wallets_types` are the provider rows; `exchange_categories` and `wallet_categories` are their categories. A provider has at most one optional category. The `CatalogKind` enum selects both tables through a fixed allowlist; client input **MUST NOT** reach an SQL identifier.
+- **One generic API.** The endpoints live under `/api/settings/catalogs/:kind/...` and serve both kinds. The `kind` path segment is parsed into `CatalogKind` before any service call. The legacy `/api/exchanges/types` and `/api/wallets/types` picker endpoints are thin wrappers over the same service.
+- **Identity.** Provider names are unique case-insensitively. A slug is derived from the name at creation and **MUST NOT** change afterwards, so CSV imports and external references stay stable. The seed rows from `src/data/migrations/0007_exchanges_types_data.sql` and `src/data/migrations/0009_wallets_types_data.sql` are fully user-owned; future migrations **MUST NOT** re-seed providers by name.
+- **Brand color.** Each seed row carries the provider's primary published brand color from its official brand guidelines or press kit. The color only colors the provider badge; a row may have none, in which case `src/components/provider_badge.rs` derives a stable fallback. A user-edited color **MUST NOT** be overwritten: new colors for existing rows are added as a backfill migration (for example `src/data/migrations/0020_provider_brand_colors.sql`) that updates only `brand_color IS NULL` rows, and the seed files are updated at the same time so fresh databases match (Section 6.5.2).
+- **Listings.** Provider tables follow Section 5.11 through the shared `TableQuery`, `CatalogTypePage` with global KPI totals, an allowlisted sort enum, a clamped page size, and the shared `TablePagination` / `SortableHeader` controls.
+- **Deletion is a cascade.** Deleting providers removes their addresses (and the addresses' stored transactions) and, for exchanges, their ledger accounts (and the accounts' ledger rows) in one transaction. The UI **MUST** preview the affected counts and require confirmation; a category delete that still has providers **MUST** require typing the category name. The "Confirm destructive actions" setting may skip a dialog only when no related rows exist.
+- **CSV import is create-only and partial.** Valid rows are inserted, duplicate names/slugs and invalid rows are skipped and reported, and an unknown category falls back to Uncategorized. The preview and the apply path **MUST** re-run the same pure planner against fresh database state.
+
 ## 6. SQLite and `rusqlite` conventions
 
 ### 6.1 Connection lifecycle and file location
@@ -544,6 +556,91 @@ Schema changes **MUST** be versioned and repeatable. A contributor changing the 
 Database initialization **MUST** follow this order: resolve the platform-approved application-data directory; create it if needed; open and configure the connection; run pending migrations; then permit normal repository operations. The exact path-resolution mechanism is platform-specific and **MUST NOT** assume the current working directory is writable.
 
 Each connection **MUST** apply the settings the schema relies on, such as foreign-key enforcement and a deliberate busy timeout. Connection pragmas **SHOULD** be chosen intentionally and **MUST** be tested on every supported target.
+
+#### 6.5.1 Migration files and version numbering
+
+This repository keeps one ordered migration list in `src/data/migrations.rs`
+([`MIGRATIONS`](src/data/migrations.rs)) and one checked-in SQL file per
+entry under `src/data/migrations/`.
+
+- **File name.** Every migration file **MUST** be named
+  `00NN_snake_case_description.sql`, counting from `0001`. `NN` is the
+  migration's 1-based position in [`MIGRATIONS`](src/data/migrations.rs) and is
+  also the `PRAGMA user_version` it stamps. The highest number is always the
+  latest migration, so the newest change is the last file in the directory and
+  the last entry of the list.
+- **One source of truth for the order.** The array order and the numeric
+  prefix **MUST** agree: entry *i* (0-based) is version `i + 1`. A test
+  (`migration_names_are_numbered_from_one`) fails when a prefix and its
+  position disagree, so a new migration **MUST** be appended with the next
+  free number and **MUST NOT** be renumbered later.
+- **One schema file and at most one data file per table.**
+  `00NN_<table>.sql` creates one table with its final columns, indexes, and
+  triggers; `00NN_<table>_data.sql` inserts the reference rows owned by that
+  table. A fresh database therefore never replays an `ALTER TABLE` sequence.
+  Files use `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`,
+  `CREATE TRIGGER IF NOT EXISTS`, `INSERT OR IGNORE`, or `WHERE NOT EXISTS`, so
+  re-running a file is a no-op and never overwrites user edits.
+- **Rust seed migrations.** Migrations that import a large bundled dataset
+  (`0015_historical_prices_data`, `0019_addresses_data`) live in
+  `src/data/seeds.rs` as `Migration::Seed` entries. They consume their ordinal
+  but have no SQL file. Seeds run only for on-disk databases; in-memory
+  databases advance past the version without importing, so both kinds of
+  database follow the same linear `user_version` sequence.
+- **Transactions.** The runner opens one `IMMEDIATE` transaction per entry,
+  executes the SQL or seed, updates `user_version`, and commits. A failing
+  migration rolls back its own step and aborts startup; a migration **MUST NOT**
+  swallow errors to appear successful.
+
+#### 6.5.2 Upgrading existing databases
+
+- **Resuming an older database.** The runner applies every entry above the
+  stored `user_version` and leaves the rows already present untouched. Every
+  schema and data file is idempotent, so a step that runs again never
+  duplicates rows or overwrites user edits.
+- **Newer databases** (`user_version > CURRENT_SCHEMA_VERSION`), for example a
+  development database left over from a newer checkout, **MUST** fail loudly
+  instead of being downgraded.
+- **`hello_world` leftovers.** The smoke-test table was removed from the
+  migrations. A database created before its removal may still contain it; it is
+  unused and **MUST NOT** be dropped by a migration.
+- When a new backfill is needed for rows that already exist (seed data that was
+  added after a table shipped), add a **new numbered SQL migration** that
+  updates only the unset values (`WHERE brand_color IS NULL OR
+  trim(brand_color) = ''`). Never edit the seed file alone and assume existing
+  databases will pick the change up.
+
+#### 6.5.3 Adding a migration
+
+1. Take the next free number (`CURRENT_SCHEMA_VERSION + 1`) and add
+   `src/data/migrations/00NN_<name>.sql`.
+2. Append the matching `("00NN_<name>", Migration::Sql(include_str!(...)))`
+   entry to `MIGRATIONS`; never insert or reorder an entry.
+3. Keep the SQL idempotent and transactional, and never overwrite user data
+   that the migration does not own.
+4. For a new table, add the schema file and, when the table owns reference
+   rows, its `_data` file immediately after it.
+5. Add or update tests: fresh database, upgrade from an older version, and
+   assertions that existing rows survive.
+6. Update Section 12 of this guide with the schema change.
+
+#### 6.5.4 File and version summary
+
+| Version | File | Kind |
+| --- | --- | --- |
+| 1 | `0001_setting.sql` | schema |
+| 2–3 | `0002_exchange_categories.sql`, `0003_exchange_categories_data.sql` | schema + data |
+| 4–5 | `0004_wallet_categories.sql`, `0005_wallet_categories_data.sql` | schema + data |
+| 6–7 | `0006_exchanges_types.sql`, `0007_exchanges_types_data.sql` | schema + data |
+| 8–9 | `0008_wallets_types.sql`, `0009_wallets_types_data.sql` | schema + data |
+| 10 | `0010_addresses.sql` | schema |
+| 11–13 | `0011_transactions.sql`, `0012_transaction_inputs.sql`, `0013_transaction_outputs.sql` | schema |
+| 14–15 | `0014_historical_prices.sql` (file), `0015_historical_prices_data` (Rust seed) | schema + data |
+| 16–18 | `0016_exchange_accounts.sql`, `0017_exchange_transactions.sql`, `0018_fiat_exchange_rates.sql` | schema |
+| 19 | `0019_addresses_data` (Rust seed) | data |
+| 20 | `0020_provider_brand_colors.sql` | data backfill |
+
+The current `CURRENT_SCHEMA_VERSION` is `20`.
 
 ## 7. Single Responsibility Principle and module design
 
@@ -698,14 +795,263 @@ Before requesting review, contributors **MUST**:
 - [ ] Format Rust and RSX code.
 - [ ] Run compilation, tests, and Clippy for the affected workspace.
 - [ ] Add or update tests and documentation where needed.
-- [ ] Include a migration for database schema changes.
+- [ ] Include a migration for database schema changes, named with the next `00NN_` version (Section 6.5), and update the schema reference in Section 12.
 - [ ] Verify every new or changed fiat display and conversion uses the `FiatCurrency` context and the default currency, without hardcoded USD assumptions (Section 3.1).
 - [ ] Check that no secrets, local database files, build artifacts, or unrelated formatting changes are included.
 - [ ] Describe any validation that could not be performed.
 
 Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, respect for the layer boundaries in Section 7, currency handling (Section 3.1), and platform compatibility—not only whether the code compiles.
 
-## 12. References
+## 12. Current database schema
+
+A database at `CURRENT_SCHEMA_VERSION = 20` has the tables, indexes, and
+triggers below. The statements are the consolidated migration files applied in
+version order; `src/data/migrations/` is authoritative and this section **MUST**
+be updated in the same change as a migration.
+
+**Reference data** inserted by the `_data` and seed migrations:
+
+| Table | Rows seeded | Rows are user-owned |
+| --- | --- | --- |
+| `exchange_categories` | 8 | yes |
+| `wallet_categories` | 9 | yes |
+| `exchanges_types` | 16 | yes, including the badged `brand_color` |
+| `wallets_types` | 18 | yes, including the badged `brand_color` |
+| `addresses` | the bundled CSV bundle and researched catalog (`0019_addresses_data`) | yes; existing addresses keep their description and owner |
+| `historical_prices` | the packed BTC/USD series (`0015_historical_prices_data`) | yes; other symbols are materialized at read time |
+
+`setting` starts empty and falls back to the documented defaults; the exchange
+ledger tables start empty and hold imported user data.
+
+```sql
+CREATE TABLE setting (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE exchange_categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE
+);
+CREATE TABLE wallet_categories (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE
+);
+CREATE TABLE exchanges_types (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    slug TEXT NOT NULL DEFAULT '',
+    category_id INTEGER REFERENCES exchange_categories(id) ON DELETE SET NULL,
+    custody_model TEXT
+        CHECK (custody_model IS NULL OR custody_model IN ('self_custody', 'custodial')),
+    brand_color TEXT
+);
+CREATE UNIQUE INDEX idx_exchanges_types_slug
+    ON exchanges_types(slug);
+CREATE UNIQUE INDEX idx_exchanges_types_name_nocase
+    ON exchanges_types(name COLLATE NOCASE);
+CREATE INDEX idx_exchanges_types_category
+    ON exchanges_types(category_id);
+CREATE TABLE wallets_types (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    slug TEXT NOT NULL DEFAULT '',
+    category_id INTEGER REFERENCES wallet_categories(id) ON DELETE SET NULL,
+    custody_model TEXT
+        CHECK (custody_model IS NULL OR custody_model IN ('self_custody', 'custodial')),
+    platform TEXT
+        CHECK (platform IS NULL OR platform IN ('hardware', 'software')),
+    brand_color TEXT
+);
+CREATE UNIQUE INDEX idx_wallets_types_slug
+    ON wallets_types(slug);
+CREATE UNIQUE INDEX idx_wallets_types_name_nocase
+    ON wallets_types(name COLLATE NOCASE);
+CREATE INDEX idx_wallets_types_category
+    ON wallets_types(category_id);
+CREATE TABLE addresses (
+    address TEXT PRIMARY KEY,
+    chain_funded_txo_count INTEGER NOT NULL,
+    chain_funded_txo_sum INTEGER NOT NULL,
+    chain_spent_txo_count INTEGER NOT NULL,
+    chain_spent_txo_sum INTEGER NOT NULL,
+    chain_tx_count INTEGER NOT NULL,
+    mempool_funded_txo_count INTEGER NOT NULL,
+    mempool_funded_txo_sum INTEGER NOT NULL,
+    mempool_spent_txo_count INTEGER NOT NULL,
+    mempool_spent_txo_sum INTEGER NOT NULL,
+    mempool_tx_count INTEGER NOT NULL,
+    description TEXT,
+    exchange_id INTEGER REFERENCES exchanges_types(id),
+    wallet_id INTEGER REFERENCES wallets_types(id),
+    tx_index_rate_limited INTEGER NOT NULL DEFAULT 0,
+    exchange_balance_sats INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_addresses_exchange
+    ON addresses(exchange_id);
+CREATE INDEX idx_addresses_wallet
+    ON addresses(wallet_id);
+CREATE TRIGGER addresses_owner_either_insert
+BEFORE INSERT ON addresses
+WHEN NEW.exchange_id IS NOT NULL AND NEW.wallet_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'addresses.exchange_id and addresses.wallet_id cannot both be set');
+END;
+CREATE TRIGGER addresses_owner_either_update
+BEFORE UPDATE OF exchange_id, wallet_id ON addresses
+WHEN NEW.exchange_id IS NOT NULL AND NEW.wallet_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'addresses.exchange_id and addresses.wallet_id cannot both be set');
+END;
+CREATE TABLE transactions (
+    id INTEGER PRIMARY KEY,
+    address TEXT NOT NULL,
+    txid TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    locktime INTEGER NOT NULL,
+    size INTEGER NOT NULL,
+    weight INTEGER NOT NULL,
+    fee INTEGER NOT NULL,
+    confirmed INTEGER NOT NULL CHECK (confirmed IN (0, 1)),
+    block_height INTEGER,
+    block_hash TEXT,
+    block_time INTEGER,
+    synced_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (address, txid),
+    FOREIGN KEY (address) REFERENCES addresses(address) ON DELETE CASCADE
+);
+CREATE INDEX idx_transactions_address ON transactions(address);
+CREATE INDEX idx_transactions_txid ON transactions(txid);
+CREATE TABLE transaction_inputs (
+    id INTEGER PRIMARY KEY,
+    transaction_id INTEGER NOT NULL,
+    input_index INTEGER NOT NULL,
+    prev_txid TEXT NOT NULL,
+    prev_vout INTEGER NOT NULL,
+    prevout_scriptpubkey TEXT,
+    prevout_scriptpubkey_asm TEXT,
+    prevout_scriptpubkey_type TEXT,
+    prevout_scriptpubkey_address TEXT,
+    prevout_value INTEGER,
+    scriptsig TEXT NOT NULL,
+    scriptsig_asm TEXT NOT NULL,
+    is_coinbase INTEGER NOT NULL CHECK (is_coinbase IN (0, 1)),
+    sequence INTEGER NOT NULL,
+    UNIQUE (transaction_id, input_index),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_transaction_inputs_transaction
+    ON transaction_inputs(transaction_id);
+CREATE INDEX idx_transaction_inputs_prevout_scriptpubkey_address
+    ON transaction_inputs(prevout_scriptpubkey_address);
+CREATE TABLE transaction_outputs (
+    id INTEGER PRIMARY KEY,
+    transaction_id INTEGER NOT NULL,
+    output_index INTEGER NOT NULL,
+    scriptpubkey TEXT NOT NULL,
+    scriptpubkey_asm TEXT NOT NULL,
+    scriptpubkey_type TEXT NOT NULL,
+    scriptpubkey_address TEXT,
+    value INTEGER NOT NULL,
+    UNIQUE (transaction_id, output_index),
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_transaction_outputs_transaction
+    ON transaction_outputs(transaction_id);
+CREATE INDEX idx_transaction_outputs_scriptpubkey_address
+    ON transaction_outputs(scriptpubkey_address);
+CREATE TABLE historical_prices (
+    close_time INTEGER NOT NULL,
+    close REAL NOT NULL,
+    symbol TEXT NOT NULL,
+    PRIMARY KEY (symbol, close_time)
+) WITHOUT ROWID;
+CREATE INDEX idx_historical_prices_close_time
+    ON historical_prices(close_time);
+CREATE TABLE exchange_accounts (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+    provider_id INTEGER REFERENCES exchanges_types(id) ON DELETE SET NULL,
+    created_at INTEGER NOT NULL,
+    last_imported_at INTEGER,
+    last_modified_at INTEGER NOT NULL
+);
+CREATE INDEX idx_exchange_accounts_provider
+    ON exchange_accounts(provider_id);
+CREATE TABLE exchange_transactions (
+    id INTEGER PRIMARY KEY,
+    exchange_id INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    tx_type TEXT NOT NULL CHECK (
+        tx_type IN ('buy', 'sell', 'reward', 'withdrawal', 'deposit', 'unknown')
+    ),
+    amount_sats INTEGER NOT NULL,
+    currency TEXT NOT NULL CHECK (currency IN ('BTC', 'XBT')),
+    fiat_amount REAL,
+    fiat_currency TEXT,
+    fee REAL,
+    fee_currency TEXT,
+    tx_hash TEXT,
+    description TEXT,
+    raw_data TEXT NOT NULL,
+    match_state TEXT NOT NULL CHECK (
+        match_state IN ('hash_match', 'amount_date_match', 'manual_match', 'unmatched')
+    ),
+    matched_tx_id TEXT,
+    on_chain_txid TEXT,
+    on_chain_source TEXT CHECK (
+        on_chain_source IS NULL OR on_chain_source IN ('hash', 'amount_date', 'manual')
+    ),
+    on_chain_linked_at INTEGER,
+    on_chain_local_addresses TEXT,
+    is_manually_edited INTEGER NOT NULL DEFAULT 0 CHECK (is_manually_edited IN (0, 1)),
+    is_intentional_duplicate INTEGER NOT NULL DEFAULT 0
+        CHECK (is_intentional_duplicate IN (0, 1)),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (exchange_id) REFERENCES exchange_accounts(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_exchange_transactions_account_fingerprint
+    ON exchange_transactions(exchange_id, fingerprint);
+CREATE INDEX idx_exchange_transactions_account_timestamp
+    ON exchange_transactions(exchange_id, timestamp);
+CREATE INDEX idx_exchange_transactions_matched_txid
+    ON exchange_transactions(matched_tx_id);
+CREATE TABLE fiat_exchange_rates (
+    base TEXT NOT NULL,
+    quote TEXT NOT NULL,
+    rate_date TEXT NOT NULL,
+    rate REAL NOT NULL CHECK (rate > 0),
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (base, quote, rate_date)
+);
+```
+
+Notes that are easy to miss when reading the schema:
+
+- `historical_prices` is `WITHOUT ROWID`; its primary key leads with `symbol`
+  and a secondary index serves the per-close-time reads.
+- `addresses.exchange_id` and `addresses.wallet_id` are mutually exclusive.
+  SQLite cannot express that cross-column rule in `CREATE TABLE`, so the two
+  triggers enforce it on insert and on owner updates; the address repository
+  checks it again before writing.
+- `addresses.exchange_balance_sats` and `addresses.tx_index_rate_limited` are
+  derived state maintained by the exchange and address repositories.
+- Foreign-key enforcement is a connection pragma (`PRAGMA foreign_keys = ON` in
+  `src/data/database.rs`), not a schema property, so it must stay enabled on
+  every connection.
+- The `hello_world` smoke-test table is no longer created. A database created
+  before its removal may still contain it; it is unused and **MUST NOT** be
+  dropped by a migration.
+
+To inspect the live schema of a development database:
+
+```sh
+sqlite3 target/db/app.db ".schema"
+sqlite3 target/db/app.db "PRAGMA user_version;"
+```
+
+## 13. References
 
 Contributors **MUST** use documentation matching the versions pinned by the repository.
 

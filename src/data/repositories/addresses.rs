@@ -103,6 +103,8 @@ pub struct AddressOverviewRow {
     pub entity: AddressEntity,
     pub exchange_name: Option<String>,
     pub wallet_name: Option<String>,
+    pub exchange_color: Option<String>,
+    pub wallet_color: Option<String>,
     pub confirmed_tx_count: i64,
     pub first_tx_time: Option<i64>,
     pub last_tx_time: Option<i64>,
@@ -140,7 +142,7 @@ pub fn list_overview_rows(
                 a.mempool_funded_txo_count, a.mempool_funded_txo_sum,
                 a.mempool_spent_txo_count, a.mempool_spent_txo_sum, a.mempool_tx_count,
                 a.description, a.exchange_id, a.wallet_id, a.tx_index_rate_limited,
-                e.name, w.name,
+                e.name, w.name, e.brand_color, w.brand_color,
                 COALESCE(s.confirmed_tx_count, 0) AS confirmed_tx_count,
                 s.first_tx_time, s.last_tx_time,
                 {SPENDABLE_BALANCE_SATS} AS spendable_balance_sats
@@ -162,10 +164,12 @@ pub fn list_overview_rows(
             entity: entity_from_row(0, 11, row)?,
             exchange_name: row.get(15)?,
             wallet_name: row.get(16)?,
-            confirmed_tx_count: row.get(17)?,
-            first_tx_time: row.get(18)?,
-            last_tx_time: row.get(19)?,
-            spendable_balance_sats: row.get(20)?,
+            exchange_color: row.get(17)?,
+            wallet_color: row.get(18)?,
+            confirmed_tx_count: row.get(19)?,
+            first_tx_time: row.get(20)?,
+            last_tx_time: row.get(21)?,
+            spendable_balance_sats: row.get(22)?,
         })
     })?;
     let mut values = Vec::new();

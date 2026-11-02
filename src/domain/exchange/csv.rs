@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 
 use super::{ExchangeTxType, ImportDataMapping};
+#[allow(unused_imports)]
+pub use crate::domain::csv::{parse_csv_text, CsvDocument};
 
 const SATOSHIS_PER_BTC: f64 = 100_000_000.0;
 
@@ -31,13 +33,6 @@ pub struct ParsedExchangeTx {
     pub tx_hash: Option<String>,
     pub description: Option<String>,
     pub raw_data: BTreeMap<String, String>,
-}
-
-/// Parsed CSV document.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CsvDocument {
-    pub headers: Vec<String>,
-    pub rows: Vec<BTreeMap<String, String>>,
 }
 
 /// Stable parser identity shown by the import dialog.
@@ -151,91 +146,6 @@ pub fn build_fingerprint(
         currency.trim().to_ascii_uppercase(),
         tx_type.as_str()
     )
-}
-
-/// Parse RFC 4180-style CSV text with quoted fields, escaped quotes, CRLF,
-/// and newlines inside quoted fields.
-pub fn parse_csv_text(text: &str) -> Result<CsvDocument, String> {
-    let text = text.trim_start_matches('\u{feff}').trim_end();
-    if text.is_empty() {
-        return Err("The selected file is empty.".to_string());
-    }
-    let lines = split_csv_lines(text);
-    let Some(header_line) = lines.first() else {
-        return Err("The selected file has no header row.".to_string());
-    };
-    let headers = parse_csv_line(header_line);
-    if headers.iter().all(|header| header.trim().is_empty()) {
-        return Err("The selected file has no header row.".to_string());
-    }
-    let mut rows = Vec::new();
-    for line in lines.iter().skip(1) {
-        let values = parse_csv_line(line);
-        if values.iter().all(|value| value.is_empty()) {
-            continue;
-        }
-        let mut row = BTreeMap::new();
-        for (index, header) in headers.iter().enumerate() {
-            row.insert(
-                header.clone(),
-                values.get(index).cloned().unwrap_or_default(),
-            );
-        }
-        rows.push(row);
-    }
-    Ok(CsvDocument { headers, rows })
-}
-
-fn split_csv_lines(text: &str) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut in_quotes = false;
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' if in_quotes && chars.peek() == Some(&'"') => {
-                current.push('"');
-                current.push('"');
-                chars.next();
-            }
-            '"' => {
-                current.push(ch);
-                in_quotes = !in_quotes;
-            }
-            '\r' if !in_quotes => {
-                if chars.peek() == Some(&'\n') {
-                    chars.next();
-                }
-                lines.push(std::mem::take(&mut current));
-            }
-            '\n' if !in_quotes => lines.push(std::mem::take(&mut current)),
-            other => current.push(other),
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-    lines
-}
-
-fn parse_csv_line(line: &str) -> Vec<String> {
-    let mut fields = Vec::new();
-    let mut current = String::new();
-    let mut in_quotes = false;
-    let mut chars = line.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' if in_quotes && chars.peek() == Some(&'"') => {
-                current.push('"');
-                chars.next();
-            }
-            '"' => in_quotes = !in_quotes,
-            ',' if !in_quotes => fields.push(std::mem::take(&mut current)),
-            other => current.push(other),
-        }
-    }
-    fields.push(current);
-    fields
 }
 
 fn has_headers(headers: &[String], required: &[&str]) -> bool {
@@ -1038,17 +948,6 @@ mod tests {
 
     fn headers(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
-    }
-
-    #[test]
-    fn csv_tokenizer_handles_quotes_crlf_and_embedded_newlines() {
-        let text = "A,B\r\n\"x,1\",\"hello\r\nworld\"\r\n\"a\"\"b\",plain\r\n";
-        let document = parse_csv_text(text).unwrap();
-        assert_eq!(document.headers, ["A", "B"]);
-        assert_eq!(document.rows.len(), 2);
-        assert_eq!(document.rows[0]["A"], "x,1");
-        assert_eq!(document.rows[0]["B"], "hello\r\nworld");
-        assert_eq!(document.rows[1]["A"], "a\"b");
     }
 
     #[test]

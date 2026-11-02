@@ -1,9 +1,29 @@
-//! Ordered schema migrations and the data-migration runner.
+//! Ordered schema and data migrations and the migration runner.
 //!
-//! Schema changes are versioned with SQLite's `PRAGMA user_version`, updated
-//! in the same transaction as the schema change. New migrations MUST be
-//! appended to [`MIGRATIONS`]; a migration that has shipped MUST NOT be
-//! edited in place (Section 6.5 of CONTRIBUTING.md).
+//! Migrations are consolidated per table: `migrations/<ordinal>_<table>.sql`
+//! creates one table with its final columns, indexes, and triggers, and
+//! `migrations/<ordinal>_<table>_data.sql` inserts the reference rows owned by
+//! that table. There is exactly one schema file and at most one data file per
+//! table, so a fresh database never replays the historical `ALTER TABLE`
+//! sequence. Migration order is the order of [`MIGRATIONS`].
+//!
+//! Every file name starts with the four-digit ordinal the entry occupies in
+//! [`MIGRATIONS`], beginning at `0001`, so the highest-numbered file is always
+//! the latest migration. The ordinal is also the `user_version` the migration
+//! stamps. Rust seed migrations have no SQL file but still consume their
+//! ordinal (`0015_historical_prices_data`, `0019_addresses_data`).
+//!
+//! Progress is versioned with SQLite's `PRAGMA user_version`. Schema and SQL
+//! data migrations run on every database, including the in-memory databases
+//! used by tests. Seed migrations import reference datasets from files on
+//! disk, so they run only for on-disk databases; on in-memory databases the
+//! version still advances past them, keeping the linear `user_version`
+//! sequence identical on both kinds of databases.
+//!
+//! New migrations MUST be appended with a new ordinal and name; a migration
+//! that has shipped MUST NOT be edited in place, and entries MUST NOT be
+//! reordered, because a shipped database tracks progress through a single
+//! `user_version` counter (Section 6.5 of CONTRIBUTING.md).
 
 use rusqlite::{Connection, Transaction};
 
@@ -14,93 +34,132 @@ use super::DatabaseError;
 type MigrationSeed = fn(&Connection) -> Result<(), DatabaseError>;
 
 /// One ordered migration step.
-///
-/// Schema migrations run on every database, including the in-memory
-/// databases used by tests. Seed migrations import reference datasets from
-/// files on disk, so they run only for on-disk databases; on in-memory
-/// databases the version still advances past them, keeping the linear
-/// `user_version` sequence identical on both kinds of databases.
 pub(crate) enum Migration {
-    Schema(&'static str),
+    /// A checked-in SQL file, applied with `execute_batch`.
+    Sql(&'static str),
+    /// A Rust seed importing an on-disk reference dataset.
     Seed(MigrationSeed),
 }
 
-/// All migrations, schema and data, in one linear order. The `user_version`
-/// of an entry is its 1-based position. New migrations MUST be appended; a
-/// migration that has shipped MUST NOT be edited in place, and entries MUST
-/// NOT be reordered: shipped databases track progress through a single
-/// `user_version` counter, so any reordering or insertion would skip or
-/// re-run migrations (Section 6.5 of CONTRIBUTING.md).
+/// All migrations in one linear order, consolidated per table. The
+/// `user_version` of an entry is its 1-based position in this list, and every
+/// name repeats that position as a four-digit prefix starting at `0001`, so
+/// the highest-numbered file is always the latest migration.
 ///
-/// `0009` re-runs the same import as `0008` after the source switched from
-/// the kline CSV export to the packed pricing file (`assets/pricing/README.md`).
-/// The import is idempotent (`INSERT OR IGNORE`), so on fresh databases it is
-/// a no-op, while databases that applied `0008` from the CSV export pick up
-/// the 2013-2017 daily closes the CSV did not cover.
+/// Data files are named `<ordinal>_<table>_data`; they insert the reference
+/// rows of the table created by `<ordinal>_<table>` and are idempotent, so a
+/// re-run never duplicates or overwrites user edits.
+///
+/// The prefix of every entry MUST equal its position; the tests enforce it.
 pub(crate) const MIGRATIONS: &[(&str, Migration)] = &[
     (
-        "0001_hello_world",
-        Migration::Schema(include_str!("migrations/0001_hello_world.sql")),
+        "0001_setting",
+        Migration::Sql(include_str!("migrations/0001_setting.sql")),
     ),
     (
-        "0002_addresses",
-        Migration::Schema(include_str!("migrations/0002_addresses.sql")),
+        "0002_exchange_categories",
+        Migration::Sql(include_str!("migrations/0002_exchange_categories.sql")),
     ),
     (
-        "0003_settings",
-        Migration::Schema(include_str!("migrations/0003_settings.sql")),
+        "0003_exchange_categories_data",
+        Migration::Sql(include_str!("migrations/0003_exchange_categories_data.sql")),
     ),
     (
-        "0004_transactions",
-        Migration::Schema(include_str!("migrations/0004_transactions.sql")),
+        "0004_wallet_categories",
+        Migration::Sql(include_str!("migrations/0004_wallet_categories.sql")),
     ),
     (
-        "0005_exchange_wallet_types",
-        Migration::Schema(include_str!("migrations/0005_exchange_wallet_types.sql")),
+        "0005_wallet_categories_data",
+        Migration::Sql(include_str!("migrations/0005_wallet_categories_data.sql")),
     ),
     (
-        "0006_address_owner",
-        Migration::Schema(include_str!("migrations/0006_address_owner.sql")),
+        "0006_exchanges_types",
+        Migration::Sql(include_str!("migrations/0006_exchanges_types.sql")),
     ),
     (
-        "0007_historical_prices",
-        Migration::Schema(include_str!("migrations/0007_historical_prices.sql")),
+        "0007_exchanges_types_data",
+        Migration::Sql(include_str!("migrations/0007_exchanges_types_data.sql")),
     ),
     (
-        "0008_historical_prices_import",
+        "0008_wallets_types",
+        Migration::Sql(include_str!("migrations/0008_wallets_types.sql")),
+    ),
+    (
+        "0009_wallets_types_data",
+        Migration::Sql(include_str!("migrations/0009_wallets_types_data.sql")),
+    ),
+    (
+        "0010_addresses",
+        Migration::Sql(include_str!("migrations/0010_addresses.sql")),
+    ),
+    (
+        "0011_transactions",
+        Migration::Sql(include_str!("migrations/0011_transactions.sql")),
+    ),
+    (
+        "0012_transaction_inputs",
+        Migration::Sql(include_str!("migrations/0012_transaction_inputs.sql")),
+    ),
+    (
+        "0013_transaction_outputs",
+        Migration::Sql(include_str!("migrations/0013_transaction_outputs.sql")),
+    ),
+    (
+        "0014_historical_prices",
+        Migration::Sql(include_str!("migrations/0014_historical_prices.sql")),
+    ),
+    (
+        "0015_historical_prices_data",
         Migration::Seed(seeds::historical_prices),
     ),
     (
-        "0009_historical_prices_packed_backfill",
-        Migration::Seed(seeds::historical_prices),
+        "0016_exchange_accounts",
+        Migration::Sql(include_str!("migrations/0016_exchange_accounts.sql")),
     ),
     (
-        "0010_tx_index_rate_limited",
-        Migration::Schema(include_str!("migrations/0010_tx_index_rate_limited.sql")),
+        "0017_exchange_transactions",
+        Migration::Sql(include_str!("migrations/0017_exchange_transactions.sql")),
     ),
     (
-        "0011_historical_prices_close_time_index",
-        Migration::Schema(include_str!(
-            "migrations/0011_historical_prices_close_time_index.sql"
-        )),
+        "0018_fiat_exchange_rates",
+        Migration::Sql(include_str!("migrations/0018_fiat_exchange_rates.sql")),
     ),
+    // The address catalog runs after the exchange tables because importing it
+    // refreshes every provider's ledger balance anchor.
+    ("0019_addresses_data", Migration::Seed(seeds::addresses)),
+    // Backfills provider brand colors for databases seeded before the colors
+    // were added; see the file header.
     (
-        "0012_exchanges",
-        Migration::Schema(include_str!("migrations/0012_exchanges.sql")),
-    ),
-    (
-        "0013_exchange_addresses",
-        Migration::Seed(seeds::exchange_addresses),
-    ),
-    (
-        "0014_exchange_addresses",
-        Migration::Seed(seeds::exchange_address_catalog),
+        "0020_provider_brand_colors",
+        Migration::Sql(include_str!("migrations/0020_provider_brand_colors.sql")),
     ),
 ];
 
-/// Apply pending migrations in order. `include_seeds` is set for on-disk
-/// databases; in-memory test databases skip the seed imports but still
-/// advance `user_version` past them.
+/// `user_version` of a database with every migration applied.
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
+
+/// Logical name of a migration, without its `00NN_` version prefix.
+#[cfg(test)]
+pub(crate) fn logical_name(name: &str) -> &str {
+    name.split_once('_').map_or(name, |(_, rest)| rest)
+}
+
+/// SQL file of a table's schema migration, without its `00NN_` prefix. Used by
+/// tests and seed tests that build one table in isolation.
+#[cfg(test)]
+pub(crate) fn schema_sql(table: &str) -> Option<&'static str> {
+    MIGRATIONS
+        .iter()
+        .find_map(|(name, migration)| match migration {
+            Migration::Sql(sql) if logical_name(name) == table => Some(*sql),
+            _ => None,
+        })
+}
+
+/// Apply pending migrations in order.
+///
+/// `include_seeds` is set for on-disk databases; in-memory test databases skip
+/// the seed imports but still advance `user_version` past them.
 pub(crate) fn run_migrations(
     connection: &mut Connection,
     include_seeds: bool,
@@ -109,8 +168,15 @@ pub(crate) fn run_migrations(
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(DatabaseError::from)?;
 
+    if current_version > CURRENT_SCHEMA_VERSION {
+        return Err(DatabaseError::new(format!(
+            "database schema version {current_version} is newer than this build supports \
+             ({CURRENT_SCHEMA_VERSION})"
+        )));
+    }
+
     for (index, (_name, migration)) in MIGRATIONS.iter().enumerate() {
-        let version = (index + 1) as i32;
+        let version = index as i32 + 1;
         if current_version >= version {
             continue;
         }
@@ -119,7 +185,7 @@ pub(crate) fn run_migrations(
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DatabaseError::from)?;
         match migration {
-            Migration::Schema(sql) => transaction
+            Migration::Sql(sql) => transaction
                 .execute_batch(sql)
                 .map_err(DatabaseError::from)?,
             Migration::Seed(seed) => {
@@ -142,34 +208,137 @@ mod tests {
     use super::*;
     use crate::data::Database;
 
-    /// SQL of a schema migration; the upgrade tests only apply schema
-    /// entries, never the on-disk seed imports.
-    fn schema_sql(entry: &Migration) -> &'static str {
-        match entry {
-            Migration::Schema(sql) => sql,
-            Migration::Seed(_) => panic!("expected a schema migration"),
+    /// SQL of a named migration; the upgrade tests only apply SQL entries,
+    /// never the on-disk seed imports.
+    fn sql_of(table: &str) -> &'static str {
+        schema_sql(table).unwrap_or_else(|| panic!("missing SQL migration for {table}"))
+    }
+
+    /// Apply every SQL entry (skipping the Rust seeds) in order, without
+    /// touching `user_version`. Used to simulate a fully migrated database.
+    fn apply_sql(connection: &Connection) {
+        for (_, migration) in MIGRATIONS {
+            if let Migration::Sql(sql) = migration {
+                connection.execute_batch(sql).unwrap();
+            }
         }
     }
 
-    /// Apply the schema entries `..through` (exclusive) in the raw
-    /// connection and stamp the matching `user_version`.
-    fn apply_schema_through(connection: &mut Connection, through: usize) {
-        for (_, migration) in &MIGRATIONS[..through] {
-            connection.execute_batch(schema_sql(migration)).unwrap();
-        }
+    /// Stamp the version of a database built by [`apply_sql`].
+    fn stamp(connection: &Connection, version: i32) {
         connection
-            .pragma_update(None, "user_version", through as i32)
+            .pragma_update(None, "user_version", version)
             .unwrap();
+    }
+
+    fn user_version(connection: &Connection) -> i32 {
+        connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap()
+    }
+
+    fn table_names(connection: &Connection) -> Vec<String> {
+        connection
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+
+    fn column_names(connection: &Connection, table: &str) -> Vec<String> {
+        connection
+            .prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")
+            .unwrap()
+            .query_map([table], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
     }
 
     #[test]
-    fn hello_world_migration_runs() {
+    fn fresh_database_applies_every_migration() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-        let count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM hello_world", [], |row| row.get(0))
+
+        assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
+
+        let tables = table_names(&connection);
+        for table in [
+            "addresses",
+            "exchange_accounts",
+            "exchange_categories",
+            "exchange_transactions",
+            "exchanges_types",
+            "fiat_exchange_rates",
+            "historical_prices",
+            "setting",
+            "transaction_inputs",
+            "transaction_outputs",
+            "transactions",
+            "wallet_categories",
+            "wallets_types",
+        ] {
+            assert!(
+                tables.iter().any(|name| name == table),
+                "missing table {table}"
+            );
+        }
+
+        // The smoke-test table was removed; a fresh database never creates it.
+        assert!(!tables.iter().any(|name| name == "hello_world"));
+    }
+
+    #[test]
+    fn migration_names_are_numbered_from_one() {
+        let mut names = std::collections::BTreeSet::new();
+        for (index, (name, _)) in MIGRATIONS.iter().enumerate() {
+            assert!(names.insert(*name), "duplicate migration name {name}");
+
+            let position = index as i32 + 1;
+            let prefix = name.split_once('_').map(|(prefix, _)| prefix).unwrap();
+            assert_eq!(prefix.len(), 4, "migration {name} needs a 00NN_ prefix");
+            assert_eq!(
+                prefix.parse::<i32>().ok(),
+                Some(position),
+                "migration {name} must be prefixed with its position {position:04}"
+            );
+
+            let logical = logical_name(name);
+            if let Some(table) = logical.strip_suffix("_data") {
+                assert!(
+                    MIGRATIONS
+                        .iter()
+                        .any(|(other, _)| logical_name(other) == table),
+                    "migration {name} does not name a consolidated table migration"
+                );
+            }
+        }
+        assert_eq!(names.len(), MIGRATIONS.len());
+        assert_eq!(MIGRATIONS[0].0, "0001_setting");
+        assert_eq!(
+            MIGRATIONS[MIGRATIONS.len() - 1].0,
+            "0020_provider_brand_colors"
+        );
+        assert_eq!(CURRENT_SCHEMA_VERSION, MIGRATIONS.len() as i32);
+    }
+
+    #[test]
+    fn consolidated_sql_is_repeatable() {
+        let connection = Connection::open_in_memory().unwrap();
+        apply_sql(&connection);
+        apply_sql(&connection);
+
+        let exchange_rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM exchanges_types", [], |row| row.get(0))
             .unwrap();
-        assert!(count >= 1);
+        assert_eq!(exchange_rows, 16);
+
+        let wallet_rows: i64 = connection
+            .query_row("SELECT COUNT(*) FROM wallets_types", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(wallet_rows, 18);
     }
 
     #[test]
@@ -177,19 +346,20 @@ mod tests {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
 
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
+        assert_eq!(
+            column_names(&connection, "historical_prices"),
+            ["close_time", "close", "symbol"]
+        );
 
-        let columns: Vec<String> = connection
-            .prepare("SELECT name FROM pragma_table_info('historical_prices') ORDER BY name")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
+        let index_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'index' AND name = 'idx_historical_prices_close_time'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
-        assert_eq!(columns, ["close", "close_time", "symbol"]);
+        assert_eq!(index_count, 1);
     }
 
     #[test]
@@ -197,95 +367,82 @@ mod tests {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
 
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
-        let table_count: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'setting'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(table_count, 1);
-    }
-
-    #[test]
-    fn setting_migration_upgrades_version_two_database() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        apply_schema_through(&mut connection, 2);
-
-        run_migrations(&mut connection, false).unwrap();
-
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
         let setting_rows: i64 = connection
             .query_row("SELECT COUNT(*) FROM setting", [], |row| row.get(0))
             .unwrap();
         assert_eq!(setting_rows, 0);
-
-        // Upgrading must not disturb data created by earlier migrations.
-        let hello_rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM hello_world", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(hello_rows, 1);
     }
 
     #[test]
-    fn transaction_migration_creates_tables() {
+    fn transaction_migration_creates_tables_and_address_lookup_indexes() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
 
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
-        for table in ["transactions", "transaction_inputs", "transaction_outputs"] {
-            let table_count: i64 = connection
+        for index in [
+            "idx_transaction_inputs_prevout_scriptpubkey_address",
+            "idx_transaction_outputs_scriptpubkey_address",
+        ] {
+            let count: i64 = connection
                 .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-                    [table],
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                    [index],
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(table_count, 1, "missing table {table}");
+            assert_eq!(count, 1, "missing index {index}");
         }
     }
 
     #[test]
-    fn transaction_migration_upgrades_version_three_database() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        apply_schema_through(&mut connection, 3);
-        connection
-            .execute(
-                "INSERT INTO addresses (
-                    address,
-                    chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-                    chain_spent_txo_sum, chain_tx_count,
-                    mempool_funded_txo_count, mempool_funded_txo_sum, mempool_spent_txo_count,
-                    mempool_spent_txo_sum, mempool_tx_count
-                 ) VALUES ('bc1qexisting', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)",
-                [],
-            )
-            .unwrap();
+    fn addresses_schema_keeps_the_existing_column_order() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
 
-        run_migrations(&mut connection, false).unwrap();
+        assert_eq!(
+            column_names(&connection, "addresses"),
+            [
+                "address",
+                "chain_funded_txo_count",
+                "chain_funded_txo_sum",
+                "chain_spent_txo_count",
+                "chain_spent_txo_sum",
+                "chain_tx_count",
+                "mempool_funded_txo_count",
+                "mempool_funded_txo_sum",
+                "mempool_spent_txo_count",
+                "mempool_spent_txo_sum",
+                "mempool_tx_count",
+                "description",
+                "exchange_id",
+                "wallet_id",
+                "tx_index_rate_limited",
+                "exchange_balance_sats",
+            ]
+        );
 
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
-        let address_rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM addresses", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(address_rows, 1);
+        assert_eq!(
+            column_names(&connection, "exchanges_types"),
+            [
+                "id",
+                "name",
+                "slug",
+                "category_id",
+                "custody_model",
+                "brand_color"
+            ]
+        );
+        assert_eq!(
+            column_names(&connection, "wallets_types"),
+            [
+                "id",
+                "name",
+                "slug",
+                "category_id",
+                "custody_model",
+                "platform",
+                "brand_color",
+            ]
+        );
     }
 
     #[test]
@@ -355,87 +512,39 @@ mod tests {
     }
 
     #[test]
-    fn exchange_and_wallet_type_migration_upgrades_version_four_database() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        apply_schema_through(&mut connection, 4);
-        connection
-            .execute(
-                "INSERT INTO addresses (
-                    address,
-                    chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-                    chain_spent_txo_sum, chain_tx_count,
-                    mempool_funded_txo_count, mempool_funded_txo_sum, mempool_spent_txo_count,
-                    mempool_spent_txo_sum, mempool_tx_count
-                 ) VALUES ('bc1qexisting', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)",
-                [],
-            )
-            .unwrap();
+    fn seeded_providers_carry_a_hex_brand_color() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
 
-        run_migrations(&mut connection, false).unwrap();
-        run_migrations(&mut connection, false).unwrap();
+        let colors = |sql: &str| -> Vec<String> {
+            connection
+                .prepare(sql)
+                .unwrap()
+                .query_map([], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
 
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
+        let exchange_colors = colors("SELECT brand_color FROM exchanges_types ORDER BY id");
+        let wallet_colors = colors("SELECT brand_color FROM wallets_types ORDER BY id");
 
-        let address_rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM addresses", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(address_rows, 1);
+        assert_eq!(exchange_colors.len(), 16);
+        assert_eq!(wallet_colors.len(), 18);
 
-        let exchange_rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM exchanges_types", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(exchange_rows, 16);
-
-        let wallet_rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM wallets_types", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(wallet_rows, 18);
-    }
-
-    #[test]
-    fn address_owner_migration_extends_and_keeps_addresses() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        apply_schema_through(&mut connection, 5);
-        connection
-            .execute(
-                "INSERT INTO addresses (
-                    address,
-                    chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-                    chain_spent_txo_sum, chain_tx_count,
-                    mempool_funded_txo_count, mempool_funded_txo_sum, mempool_spent_txo_count,
-                    mempool_spent_txo_sum, mempool_tx_count
-                 ) VALUES ('bc1qexisting', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)",
-                [],
-            )
-            .unwrap();
-
-        run_migrations(&mut connection, false).unwrap();
-
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
-        let columns: Vec<String> = connection
-            .prepare(
-                "SELECT name FROM pragma_table_info('addresses') WHERE name IN
-                 ('description', 'exchange_id', 'wallet_id') ORDER BY name",
-            )
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap();
-        assert_eq!(columns, ["description", "exchange_id", "wallet_id"]);
-
-        // Data written before the migration survives the schema change.
-        let address_rows: i64 = connection
-            .query_row("SELECT COUNT(*) FROM addresses", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(address_rows, 1);
+        for color in exchange_colors.iter().chain(wallet_colors.iter()) {
+            assert_eq!(color.len(), 7, "unexpected brand color {color}");
+            assert!(color.starts_with('#'), "unexpected brand color {color}");
+            assert!(
+                color[1..].chars().all(|c| c.is_ascii_hexdigit()),
+                "unexpected brand color {color}"
+            );
+            assert_eq!(
+                color,
+                &color.to_uppercase(),
+                "brand color {color} is lowercase"
+            );
+        }
     }
 
     #[test]
@@ -474,62 +583,9 @@ mod tests {
     }
 
     #[test]
-    fn rate_limited_migration_extends_version_nine_databases() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        apply_schema_through(&mut connection, 7);
-        connection
-            .execute(
-                "INSERT INTO addresses (
-                    address,
-                    chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-                    chain_spent_txo_sum, chain_tx_count,
-                    mempool_funded_txo_count, mempool_funded_txo_sum, mempool_spent_txo_count,
-                    mempool_spent_txo_sum, mempool_tx_count
-                 ) VALUES ('bc1qexisting', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)",
-                [],
-            )
-            .unwrap();
-        // On-disk databases applied both seed imports after the schema
-        // migrations, so they sit at version 9. Skipping the seed versions
-        // must not skip the schema migration that follows them.
-        connection.pragma_update(None, "user_version", 9).unwrap();
-
-        run_migrations(&mut connection, false).unwrap();
-
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
-        let rate_limited: i64 = connection
-            .query_row(
-                "SELECT tx_index_rate_limited FROM addresses WHERE address = 'bc1qexisting'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(rate_limited, 0);
-    }
-
-    #[test]
     fn exchange_migration_creates_tables_and_address_balance_column() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
-        for table in [
-            "exchange_accounts",
-            "exchange_transactions",
-            "fiat_exchange_rates",
-        ] {
-            let count: i64 = connection
-                .query_row(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-                    [table],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert_eq!(count, 1, "missing table {table}");
-        }
 
         connection
             .execute(
@@ -553,143 +609,241 @@ mod tests {
     }
 
     #[test]
-    fn exchange_migration_upgrades_the_previous_database_without_losing_addresses() {
+    fn catalog_taxonomy_data_classifies_seeded_rows() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
+
+        let exchange_categories: i64 = connection
+            .query_row("SELECT COUNT(*) FROM exchange_categories", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(exchange_categories, 8);
+        let wallet_categories: i64 = connection
+            .query_row("SELECT COUNT(*) FROM wallet_categories", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(wallet_categories, 9);
+
+        let (slug, category, custody): (String, String, String) = connection
+            .query_row(
+                "SELECT t.slug, c.name, t.custody_model
+                 FROM exchanges_types t
+                 JOIN exchange_categories c ON c.id = t.category_id
+                 WHERE t.name = 'Binance'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(slug, "binance");
+        assert_eq!(category, "Centralized exchange");
+        assert_eq!(custody, "custodial");
+
+        let (slug, category, custody, platform): (String, String, String, String) = connection
+            .query_row(
+                "SELECT t.slug, c.name, t.custody_model, t.platform
+                 FROM wallets_types t
+                 JOIN wallet_categories c ON c.id = t.category_id
+                 WHERE t.name = 'Ledger'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(slug, "ledger");
+        assert_eq!(category, "Hardware wallet");
+        assert_eq!(custody, "self_custody");
+        assert_eq!(platform, "hardware");
+
+        let duplicate_slugs: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM (
+                     SELECT slug FROM exchanges_types GROUP BY slug HAVING COUNT(*) > 1
+                     UNION ALL
+                     SELECT slug FROM wallets_types GROUP BY slug HAVING COUNT(*) > 1
+                 )",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(duplicate_slugs, 0);
+    }
+
+    #[test]
+    fn complete_seed_sequence_runs_on_a_fresh_database() {
         let mut connection = Connection::open_in_memory().unwrap();
-        for (_, migration) in &MIGRATIONS[..11] {
-            if let Migration::Schema(sql) = migration {
-                connection.execute_batch(sql).unwrap();
-            }
-        }
-        connection.pragma_update(None, "user_version", 11).unwrap();
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap();
+
+        run_migrations(&mut connection, true).unwrap();
+
+        assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
+
+        // The address catalog refreshes provider balances, which reads the
+        // exchange tables, so its position in the sequence matters.
+        let exchange_addresses: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(exchange_addresses, 296);
+
+        let prices: i64 = connection
+            .query_row("SELECT COUNT(*) FROM historical_prices", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert!(
+            prices > 290_000,
+            "unexpectedly few imported prices: {prices}"
+        );
+    }
+
+    #[test]
+    fn partially_migrated_database_resumes_without_losing_data() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply_sql(&connection);
+        stamp(&connection, 15);
+
         connection
             .execute(
                 "INSERT INTO addresses (
-                    address, chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-                    chain_spent_txo_sum, chain_tx_count, mempool_funded_txo_count,
-                    mempool_funded_txo_sum, mempool_spent_txo_count, mempool_spent_txo_sum,
-                    mempool_tx_count
-                 ) VALUES ('bc1qexisting12', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10)",
+                    address,
+                    chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
+                    chain_spent_txo_sum, chain_tx_count,
+                    mempool_funded_txo_count, mempool_funded_txo_sum, mempool_spent_txo_count,
+                    mempool_spent_txo_sum, mempool_tx_count, description
+                 ) VALUES ('bc1qexisting', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 'My wallet')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO setting (key, value) VALUES ('default_fiat_currency', 'EUR')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO historical_prices (close_time, close, symbol)
+                 VALUES (1, 42000.0, 'USD')",
+                [],
+            )
+            .unwrap();
+
+        run_migrations(&mut connection, true).unwrap();
+
+        assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
+
+        // Only the entries above the stored version run, so user rows and user
+        // edits survive untouched.
+        let (description, exchange_balance): (String, i64) = connection
+            .query_row(
+                "SELECT description, exchange_balance_sats FROM addresses
+                 WHERE address = 'bc1qexisting'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(description, "My wallet");
+        assert_eq!(exchange_balance, 0);
+
+        let setting: String = connection
+            .query_row(
+                "SELECT value FROM setting WHERE key = 'default_fiat_currency'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(setting, "EUR");
+
+        // The price seed is already applied and must not re-run.
+        let prices: i64 = connection
+            .query_row("SELECT COUNT(*) FROM historical_prices", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(prices, 1);
+
+        // The address seed is newer than the stored version, so it runs and
+        // stays idempotent.
+        let seeded_addresses: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            seeded_addresses > 0,
+            "the address seed should run above the stored version"
+        );
+    }
+
+    #[test]
+    fn provider_brand_colors_are_backfilled_for_existing_rows() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        apply_sql(&connection);
+        stamp(&connection, 19);
+
+        // Simulate a catalog seeded before the brand colors existed and a
+        // color the user chose themselves.
+        connection
+            .execute("UPDATE exchanges_types SET brand_color = NULL", [])
+            .unwrap();
+        connection
+            .execute("UPDATE wallets_types SET brand_color = NULL", [])
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE wallets_types SET brand_color = '#123456' WHERE slug = 'ledger'",
                 [],
             )
             .unwrap();
 
         run_migrations(&mut connection, false).unwrap();
 
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-        let balance: i64 = connection
+        assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
+
+        let (binance, kraken): (String, String) = connection
             .query_row(
-                "SELECT exchange_balance_sats FROM addresses WHERE address = 'bc1qexisting12'",
+                "SELECT
+                     (SELECT brand_color FROM exchanges_types WHERE slug = 'binance'),
+                     (SELECT brand_color FROM exchanges_types WHERE slug = 'kraken')",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(balance, 0);
-        let address_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM addresses", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(address_count, 1);
-    }
-    #[test]
-    fn exchange_addresses_seed_upgrades_a_version_twelve_database() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        for (_, migration) in &MIGRATIONS[..12] {
-            if let Migration::Schema(sql) = migration {
-                connection.execute_batch(sql).unwrap();
-            }
-        }
-        connection.pragma_update(None, "user_version", 12).unwrap();
-        connection
-            .execute(
-                "INSERT INTO addresses (
-                    address, chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-                    chain_spent_txo_sum, chain_tx_count, mempool_funded_txo_count,
-                    mempool_funded_txo_sum, mempool_spent_txo_count, mempool_spent_txo_sum,
-                    mempool_tx_count, description
-                 ) VALUES ('bc1qexisting13', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 'My wallet')",
-                [],
-            )
-            .unwrap();
+        assert_eq!(binance, "#F0B90B");
+        assert_eq!(kraken, "#5741D9");
 
-        run_migrations(&mut connection, true).unwrap();
-
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
-        // The user's own row survives untouched.
-        let description: String = connection
+        let (ledger, metamask): (String, String) = connection
             .query_row(
-                "SELECT description FROM addresses WHERE address = 'bc1qexisting13'",
+                "SELECT
+                     (SELECT brand_color FROM wallets_types WHERE slug = 'ledger'),
+                     (SELECT brand_color FROM wallets_types WHERE slug = 'metamask')",
                 [],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        assert_eq!(description, "My wallet");
-
-        // Both seed migrations run: the initial 0013 subset and the complete
-        // 0014 catalog, without duplicating any address.
-        let exchange_addresses: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(exchange_addresses, 296);
+        assert_eq!(ledger, "#123456", "a user color must be preserved");
+        assert_eq!(metamask, "#F6851B");
     }
 
     #[test]
-    fn exchange_address_catalog_upgrades_a_version_thirteen_database() {
+    fn newer_database_fails_loudly() {
         let mut connection = Connection::open_in_memory().unwrap();
-        for (_, migration) in &MIGRATIONS[..12] {
-            if let Migration::Schema(sql) = migration {
-                connection.execute_batch(sql).unwrap();
-            }
-        }
-        // Reproduce the on-disk state after 0013: eight seeded wallets plus a
-        // user-owned address.
-        seeds::exchange_addresses(&connection).unwrap();
-        connection.pragma_update(None, "user_version", 13).unwrap();
-        connection
-            .execute(
-                "INSERT INTO addresses (
-                    address, chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-                    chain_spent_txo_sum, chain_tx_count, mempool_funded_txo_count,
-                    mempool_funded_txo_sum, mempool_spent_txo_count, mempool_spent_txo_sum,
-                    mempool_tx_count, description
-                 ) VALUES ('bc1quserowned14', 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 'User wallet')",
-                [],
-            )
-            .unwrap();
+        apply_sql(&connection);
+        stamp(&connection, CURRENT_SCHEMA_VERSION + 1);
 
-        run_migrations(&mut connection, true).unwrap();
-
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
-
-        let exchange_addresses: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(exchange_addresses, 296);
-
-        let user_description: String = connection
-            .query_row(
-                "SELECT description FROM addresses WHERE address = 'bc1quserowned14'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert_eq!(user_description, "User wallet");
+        let error = run_migrations(&mut connection, false).unwrap_err();
+        assert!(
+            error.to_string().contains("newer than this build"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]
@@ -697,18 +851,33 @@ mod tests {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
 
-        let version: i32 = connection
-            .pragma_query_value(None, "user_version", |row| row.get(0))
-            .unwrap();
-        assert_eq!(version, MIGRATIONS.len() as i32);
+        assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
+        assert!(column_names(&connection, "addresses")
+            .iter()
+            .any(|column| column == "tx_index_rate_limited"));
 
-        let columns: Vec<String> = connection
-            .prepare("SELECT name FROM pragma_table_info('addresses') ORDER BY name")
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .collect::<Result<_, _>>()
+        // Seed imports are skipped in memory, but their versions advanced.
+        let prices: i64 = connection
+            .query_row("SELECT COUNT(*) FROM historical_prices", [], |row| {
+                row.get(0)
+            })
             .unwrap();
-        assert!(columns.contains(&"tx_index_rate_limited".to_string()));
+        assert_eq!(prices, 0);
+        let seeded_addresses: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(seeded_addresses, 0);
+    }
+
+    #[test]
+    fn sql_migration_lookup_returns_the_table_file() {
+        assert!(sql_of("addresses").contains("CREATE TABLE IF NOT EXISTS addresses"));
+        assert!(
+            sql_of("historical_prices").contains("CREATE TABLE IF NOT EXISTS historical_prices")
+        );
     }
 }

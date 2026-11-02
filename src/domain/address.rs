@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 /// `exchange_id` and `wallet_id` are optional foreign keys into the
 /// `exchanges_types` and `wallets_types` catalogs. At most one of them is set:
 /// an address is unclassified, owned by a wallet, or owned by an exchange
-/// (see `application::addresses` and the triggers added by migration 0006).
+/// (see `application::addresses` and the triggers defined by
+/// `src/data/migrations/0010_addresses.sql`).
 /// Exchange addresses are exempt from full transaction indexing and sync via
 /// the reverse search in `application::transactions` instead.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -78,35 +79,48 @@ pub enum AddressScope {
     /// Not classified.
     Unassigned,
     /// Owned by a wallet.
-    Wallet { id: i64, name: Option<String> },
+    Wallet {
+        id: i64,
+        name: Option<String>,
+        brand_color: Option<String>,
+    },
     /// Owned by an exchange; such addresses sync through the reverse search
     /// instead of a full history walk.
-    Exchange { id: i64, name: Option<String> },
+    Exchange {
+        id: i64,
+        name: Option<String>,
+        brand_color: Option<String>,
+    },
 }
 
 impl AddressScope {
-    /// Build the scope from the stored owner ids and resolved catalog names.
-    /// The either-or invariant is enforced behind this boundary, so a
-    /// (contradicting) pair of ids resolves to the exchange, matching the
-    /// sync behavior keyed on `exchange_id`. Server-side: the mapping of
-    /// stored rows to scopes happens in the service layer.
+    /// Build the scope from the stored owner ids, the resolved catalog names,
+    /// and their optional brand colors. The either-or invariant is enforced
+    /// behind this boundary, so a (contradicting) pair of ids resolves to the
+    /// exchange, matching the sync behavior keyed on `exchange_id`.
+    /// Server-side: the mapping of stored rows to scopes happens in the
+    /// service layer.
     #[cfg(feature = "server")]
     pub fn new(
         exchange_id: Option<i64>,
         wallet_id: Option<i64>,
         exchange_name: Option<String>,
         wallet_name: Option<String>,
+        exchange_color: Option<String>,
+        wallet_color: Option<String>,
     ) -> Self {
         if let Some(id) = exchange_id {
             return Self::Exchange {
                 id,
                 name: exchange_name,
+                brand_color: exchange_color,
             };
         }
         if let Some(id) = wallet_id {
             return Self::Wallet {
                 id,
                 name: wallet_name,
+                brand_color: wallet_color,
             };
         }
         Self::Unassigned

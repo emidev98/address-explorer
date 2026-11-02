@@ -9,8 +9,8 @@ use crate::api::transactions::sync_address_transactions_api;
 use crate::components::format::{format_address, format_btc, format_fiat};
 use crate::components::{
     read_clipboard_text, use_fiat_currency, use_toast, write_clipboard_text, AddressEditData,
-    ConfirmDialog, HoldingSlice, HoldingsDistributionChart, ImportAddressDialog,
-    ImportAddressDialogMode, Kpi, SortableHeader, Toast, ToastKind,
+    BadgeSize, ConfirmDialog, HoldingSlice, HoldingsDistributionChart, ImportAddressDialog,
+    ImportAddressDialogMode, Kpi, ProviderBadge, SortableHeader, Toast, ToastKind,
 };
 use crate::domain::address::{
     AddressEntity, AddressImportResult, AddressOverview, AddressOverviewItem, AddressOverviewQuery,
@@ -248,7 +248,6 @@ pub fn Addresses() -> Element {
                                     } else {
                                         "Sync transactions"
                                     };
-                                    let scope_label = scope_label(&row.scope);
                                     rsx! {
                                         tr {
                                             td {
@@ -326,7 +325,7 @@ pub fn Addresses() -> Element {
                                                 }
                                             }
                                             td { "{label}" }
-                                            td { "{scope_label}" }
+                                            td { {scope_cell(&row.scope)} }
                                             td { "{row.confirmed_tx_count}" }
                                             td { "{format_btc(row.spendable_balance_sats)}" }
                                             td { "{current_value}" }
@@ -512,19 +511,39 @@ fn is_listed(item: &AddressOverviewItem) -> bool {
     !item.scope.is_exchange() || item.spendable_balance_sats != 0
 }
 
-/// Display label of the Scope column: the owner kind with its catalog name,
+/// Scope cell: the provider's brand badge, its kind, and its catalog name,
 /// or `-` for unclassified addresses.
-fn scope_label(scope: &AddressScope) -> String {
-    match scope {
-        AddressScope::Exchange { name, .. } => match name {
-            Some(name) => format!("Exchange · {name}"),
-            None => "Exchange".to_string(),
+fn scope_cell(scope: &AddressScope) -> Element {
+    let (kind, name, color) = match scope {
+        AddressScope::Exchange {
+            name, brand_color, ..
+        } => ("Exchange", name.clone(), brand_color.clone()),
+        AddressScope::Wallet {
+            name, brand_color, ..
+        } => ("Wallet", name.clone(), brand_color.clone()),
+        AddressScope::Unassigned => return rsx! { "-" },
+    };
+    match name {
+        Some(label) => rsx! {
+            span { class: "md3-scope-cell",
+                ProviderBadge {
+                    name: label.clone(),
+                    color,
+                    size: BadgeSize::Compact,
+                }
+                span { "{kind} · {label}" }
+            }
         },
-        AddressScope::Wallet { name, .. } => match name {
-            Some(name) => format!("Wallet · {name}"),
-            None => "Wallet".to_string(),
+        None => rsx! {
+            span { class: "md3-scope-cell",
+                ProviderBadge {
+                    name: kind.to_string(),
+                    color,
+                    size: BadgeSize::Compact,
+                }
+                span { "{kind}" }
+            }
         },
-        AddressScope::Unassigned => "-".to_string(),
     }
 }
 
@@ -732,7 +751,11 @@ mod tests {
     }
 
     fn exchange() -> AddressScope {
-        AddressScope::Exchange { id: 1, name: None }
+        AddressScope::Exchange {
+            id: 1,
+            name: None,
+            brand_color: None,
+        }
     }
 
     #[test]
@@ -744,7 +767,11 @@ mod tests {
 
     #[test]
     fn wallet_and_unassigned_addresses_are_listed_at_any_balance() {
-        let wallet = AddressScope::Wallet { id: 1, name: None };
+        let wallet = AddressScope::Wallet {
+            id: 1,
+            name: None,
+            brand_color: None,
+        };
 
         assert!(is_listed(&item(wallet, 0)));
         assert!(is_listed(&item(AddressScope::Unassigned, 0)));

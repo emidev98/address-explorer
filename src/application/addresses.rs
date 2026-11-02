@@ -244,6 +244,8 @@ fn overview_item(row: &address_repository::AddressOverviewRow) -> AddressOvervie
             entity.wallet_id,
             row.exchange_name.clone(),
             row.wallet_name.clone(),
+            row.exchange_color.clone(),
+            row.wallet_color.clone(),
         ),
         tx_index_rate_limited: entity.tx_index_rate_limited,
     }
@@ -277,7 +279,7 @@ fn entity_from_mempool(value: MempoolAddress) -> AddressEntity {
 ///
 /// An address belongs to at most one owner (`exchange_id`, `wallet_id`), both
 /// ids must reference existing catalog rows, and no id means "unclassified".
-/// The database foreign keys and the migration 0006 triggers enforce the same
+/// The database foreign keys and the `addresses` triggers enforce the same
 /// invariants behind this boundary.
 fn validate_owner(
     database: &Database,
@@ -328,6 +330,8 @@ mod tests {
             entity,
             exchange_name: None,
             wallet_name: Some("Ledger".to_string()),
+            exchange_color: None,
+            wallet_color: Some("#1D1D1B".to_string()),
             confirmed_tx_count: 3,
             first_tx_time: Some(1_600_000_000),
             last_tx_time: Some(1_700_000_000),
@@ -348,7 +352,8 @@ mod tests {
             item.scope,
             AddressScope::Wallet {
                 id: 1,
-                name: Some("Ledger".to_string())
+                name: Some("Ledger".to_string()),
+                brand_color: Some("#1D1D1B".to_string()),
             }
         );
         assert!(!item.scope.is_exchange());
@@ -360,7 +365,14 @@ mod tests {
         // The either-or invariant is enforced behind this boundary, but a
         // contradicting pair must still resolve deterministically — matching
         // the sync behavior keyed on `exchange_id`.
-        let scope = AddressScope::new(Some(1), Some(2), Some("Binance".to_string()), None);
+        let scope = AddressScope::new(
+            Some(1),
+            Some(2),
+            Some("Binance".to_string()),
+            None,
+            Some("#F0B90B".to_string()),
+            None,
+        );
 
         assert!(scope.is_exchange());
     }
@@ -379,6 +391,8 @@ mod tests {
             entity,
             exchange_name: Some("Binance".to_string()),
             wallet_name: None,
+            exchange_color: Some("#F0B90B".to_string()),
+            wallet_color: None,
             confirmed_tx_count: 4,
             first_tx_time: None,
             last_tx_time: None,

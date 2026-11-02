@@ -56,9 +56,9 @@
 -- Tagging: the exchange catalog id is resolved by name, so the rows do not
 -- depend on hard-coded `exchanges_types` ids. `wallet_id` stays NULL, the
 -- mempool statistics start at zero, and existing rows are preserved so a user
--- label or classification is never overwritten. The 0014 seed migration
--- refreshes the provider balance anchor for every exchange after running this
--- file; running the file manually only inserts the address rows.
+-- label or classification is never overwritten. The `addresses_data` seed
+-- migration refreshes the provider balance anchor for every exchange after
+-- running this file; running the file manually only inserts the address rows.
 
 WITH seed(exchange_name, address, description, source) AS (
     VALUES
