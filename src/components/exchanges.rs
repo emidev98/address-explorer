@@ -10,7 +10,7 @@ use crate::api::exchanges::{
     link_exchange_transaction_api, preview_import_data_api, save_exchange_transaction_api,
 };
 use crate::components::format::{format_address, format_btc, format_fiat};
-use crate::components::{use_toast, ConfirmDialog};
+use crate::components::{use_fiat_currency, use_toast, ConfirmDialog};
 use crate::domain::civil_time;
 use crate::domain::exchange::{
     ExchangeAccount, ExchangeDuplicateChoice, ExchangeDuplicateInfo, ExchangeLinkOutcome,
@@ -757,6 +757,7 @@ pub fn ExchangeInspector(
     on_saved: EventHandler<ExchangeTransaction>,
 ) -> Element {
     let mut toast = use_toast();
+    let default_currency = use_fiat_currency();
     let mut timestamp = use_signal(|| {
         transaction
             .as_ref()
@@ -786,7 +787,7 @@ pub fn ExchangeInspector(
         transaction
             .as_ref()
             .and_then(|row| row.fiat_currency.clone())
-            .unwrap_or_else(|| "USD".to_string())
+            .unwrap_or_else(|| default_currency.code())
     });
     let mut fee = use_signal(|| {
         transaction
@@ -836,6 +837,10 @@ pub fn ExchangeInspector(
     let converted = transaction.as_ref().and_then(|row| {
         row.converted_fiat_amount
             .map(|amount| (amount, row.converted_fiat_currency.clone()))
+    });
+    let converted_fee = transaction.as_ref().and_then(|row| {
+        row.converted_fee_amount
+            .zip(row.converted_fee_currency.clone())
     });
     let match_state = transaction.as_ref().map(|row| row.match_state);
 
@@ -942,6 +947,12 @@ pub fn ExchangeInspector(
                     span { class: "text-body-medium text-on-surface",
                         "{format_fiat(amount, currency.as_deref().unwrap_or(\"\"))}"
                     }
+                }
+            }
+            if let Some((amount, currency)) = converted_fee.clone() {
+                div { class: "md3-exchange-inspector-state",
+                    span { class: "text-body-small text-on-surface-variant", "Converted fee" }
+                    span { class: "text-body-medium text-on-surface", "{format_fiat(amount, &currency)}" }
                 }
             }
             div { class: "md3-exchange-inspector-form",

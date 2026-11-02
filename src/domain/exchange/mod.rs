@@ -158,6 +158,10 @@ pub struct ExchangeTransaction {
     /// default currency. Never stored.
     pub converted_fiat_amount: Option<f64>,
     pub converted_fiat_currency: Option<String>,
+    /// Derived at read time from a fiat-denominated fee and the current
+    /// default currency. Never stored; BTC/XBT fees keep their BTC amount.
+    pub converted_fee_amount: Option<f64>,
+    pub converted_fee_currency: Option<String>,
     pub fee: Option<f64>,
     pub fee_currency: Option<String>,
     pub tx_hash: Option<String>,

@@ -39,6 +39,14 @@ const DAY_SECONDS: i64 = 24 * 60 * 60;
 /// the live sources publish daily data.
 pub const CSV_COVERAGE_END: i64 = civil_time::epoch_seconds(2026, 6, 15, 23, 29, 59);
 
+/// Convert a satoshi balance into its fiat value at `btc_price`.
+///
+/// `btc_price` is the BTC unit price in the target currency, so the result is
+/// quoted in that same currency.
+pub fn sats_to_fiat(satoshis: i64, btc_price: f64) -> f64 {
+    satoshis as f64 / 100_000_000.0 * btc_price
+}
+
 /// A BTC price in `symbol` at a point in time.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Price {
@@ -108,6 +116,25 @@ pub struct BulkSyncSummary {
     pub stored: u64,
     /// Source rows skipped because no FX rate was available for their day.
     pub skipped: u64,
+}
+
+/// Outcome of preparing the stored price history of the default currency.
+///
+/// The source is always the stored USD history. `stored` counts the missing
+/// `(symbol, close_time)` rows this run inserted; existing target rows, such
+/// as manually edited prices, are never overwritten.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CurrencyHistorySummary {
+    pub symbol: String,
+    /// USD source rows found in the range that needed conversion.
+    pub source_rows: u64,
+    /// Missing target rows actually inserted.
+    pub stored: u64,
+    /// Source rows skipped because no FX rate was available for their day.
+    pub skipped: u64,
+    /// Non-fatal problem (network failure, missing source history, skipped
+    /// rates); the preference stays saved and the operation can be retried.
+    pub warning: Option<String>,
 }
 
 /// Outcome of a "sync to today" run: BTC/USD daily closes fetched from Coin
@@ -255,6 +282,14 @@ mod tests {
         for code in FIAT_CURRENCIES {
             assert_eq!(normalize_symbol(code).unwrap(), *code);
         }
+    }
+
+    #[test]
+    fn satoshi_balances_convert_to_the_quoted_fiat_value() {
+        assert_eq!(sats_to_fiat(100_000_000, 66_000.0), 66_000.0);
+        assert_eq!(sats_to_fiat(1, 100_000_000.0), 1.0);
+        assert_eq!(sats_to_fiat(0, 66_000.0), 0.0);
+        assert!((sats_to_fiat(50_000, 0.5) - 0.00025).abs() < f64::EPSILON);
     }
 
     #[test]

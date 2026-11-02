@@ -5,7 +5,7 @@
 use crate::data::repositories::settings as settings_repository;
 use crate::data::{Database, DatabaseError};
 use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
-use crate::domain::price::{normalize_symbol, PriceError};
+use crate::domain::price::{normalize_symbol, PriceError, USD_SYMBOL};
 use crate::domain::theme::ThemePreference;
 
 /// Failures of the settings service: database access and invalid preference
@@ -29,8 +29,18 @@ pub fn save_theme(database: &Database, preference: &ThemePreference) -> Result<(
 }
 
 /// Read the persisted default fiat currency, USD when never configured.
+///
+/// The stored value is normalized here because the setting is displayed and
+/// passed to price services by several screens; a manually edited lowercase
+/// code must not leak into labels or currency formatting.
 pub fn load_default_fiat_currency(database: &Database) -> Result<String, DatabaseError> {
-    settings_repository::load_default_fiat_currency(database)
+    let symbol = settings_repository::load_default_fiat_currency(database)?;
+    let symbol = symbol.trim();
+    Ok(if symbol.is_empty() {
+        USD_SYMBOL.to_string()
+    } else {
+        symbol.to_ascii_uppercase()
+    })
 }
 
 /// Validate and persist the default fiat currency, returning the normalized
@@ -69,6 +79,16 @@ mod tests {
     #[test]
     fn default_fiat_currency_defaults_to_usd() {
         let database = Database::open_in_memory().unwrap();
+        assert_eq!(load_default_fiat_currency(&database).unwrap(), "USD");
+    }
+
+    #[test]
+    fn load_default_fiat_currency_normalizes_legacy_values() {
+        let database = Database::open_in_memory().unwrap();
+        settings_repository::save_default_fiat_currency(&database, " eur ").unwrap();
+        assert_eq!(load_default_fiat_currency(&database).unwrap(), "EUR");
+
+        settings_repository::save_default_fiat_currency(&database, "  ").unwrap();
         assert_eq!(load_default_fiat_currency(&database).unwrap(), "USD");
     }
 

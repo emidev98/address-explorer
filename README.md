@@ -7,6 +7,7 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
 - Track Bitcoin addresses, balances, and transaction history
 - Explore historical BTC prices and fiat conversions
 - Import exchange CSV ledgers, reconcile them with cached on-chain data, and review provider balances
+- Display fiat prices and balances in the default currency chosen in Settings
 - Switch between Material 3 color palettes and appearance modes in Settings
 
 ## Installation

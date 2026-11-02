@@ -2,9 +2,10 @@
 
 use dioxus::prelude::*;
 
-use crate::api::settings::get_theme_api;
+use crate::api::settings::{get_default_fiat_currency_api, get_theme_api};
 use crate::components::theme::{apply as apply_theme, attribute_script};
-use crate::components::{provide_toast, ToastHost, Topbar};
+use crate::components::{provide_toast, FiatCurrency, ToastHost, Topbar};
+use crate::domain::price::USD_SYMBOL;
 use crate::domain::theme::ThemePreference;
 use crate::screens::{Addresses, ExchangeDetail, Exchanges, Flow, Prices, Settings};
 
@@ -48,9 +49,24 @@ pub fn App() -> Element {
         None => ThemePreference::default(),
     };
 
+    // The default fiat currency is part of the shell state: screens read the
+    // same signal, so a change in Settings reaches every open surface without
+    // each screen loading the setting on its own.
+    let stored_currency = use_server_future(get_default_fiat_currency_api)?;
+    let initial_currency = match stored_currency() {
+        Some(Ok(symbol)) => symbol,
+        Some(Err(error)) => {
+            eprintln!("failed to load the default fiat currency: {error}");
+            USD_SYMBOL.to_string()
+        }
+        None => USD_SYMBOL.to_string(),
+    };
+
     let theme = use_signal(|| initial_theme);
     use_effect(move || apply_theme(theme()));
     use_context_provider(|| theme);
+    let fiat_currency = use_signal(|| initial_currency);
+    use_context_provider(|| FiatCurrency(fiat_currency));
     provide_toast();
 
     rsx! {

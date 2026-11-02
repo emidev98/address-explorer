@@ -631,6 +631,8 @@ mod tests {
             fiat_currency: None,
             converted_fiat_amount: None,
             converted_fiat_currency: None,
+            converted_fee_amount: None,
+            converted_fee_currency: None,
             fee: None,
             fee_currency: None,
             tx_hash: None,

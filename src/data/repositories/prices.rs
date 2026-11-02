@@ -251,6 +251,37 @@ pub fn price_series_range(
     Ok(first.zip(last))
 }
 
+/// Bounds of the source close times that are missing from `target_symbol`.
+///
+/// The operation behind the default-currency preparation: the preferred
+/// source is the stored USD history, and the target is whichever currency
+/// the user selected. Returns `None` when the target already covers every
+/// source close time in the range, so an up-to-date currency needs no network
+/// call.
+pub fn missing_price_range(
+    database: &Database,
+    source_symbol: &str,
+    target_symbol: &str,
+    from_time: i64,
+    to_time: i64,
+) -> Result<Option<(i64, i64)>, DatabaseError> {
+    let connection = database.connection()?;
+    let (first, last) = connection.query_row(
+        "SELECT MIN(source.close_time), MAX(source.close_time)
+         FROM historical_prices source
+         WHERE source.symbol = ?1
+           AND source.close_time >= ?2
+           AND source.close_time <= ?3
+           AND NOT EXISTS (
+               SELECT 1 FROM historical_prices target
+               WHERE target.symbol = ?4 AND target.close_time = source.close_time
+           )",
+        params![source_symbol, from_time, to_time, target_symbol],
+        |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
+    )?;
+    Ok(first.zip(last))
+}
+
 /// Bucketed average closes of `symbol` within `[from_time, to_time]`, oldest
 /// first. Rows are grouped into fixed-width time buckets of
 /// `bucket_width_seconds` (at least 1) and averaged, which bounds the number
@@ -599,6 +630,41 @@ mod tests {
         assert_eq!(
             price_series_range(&database, "USD").unwrap(),
             Some((200, 400))
+        );
+    }
+
+    #[test]
+    fn missing_price_range_reports_only_source_times_absent_from_the_target() {
+        let database = Database::open_in_memory().unwrap();
+        for (close_time, close) in [(100, 1.0), (200, 2.0), (300, 3.0)] {
+            store_price(&database, &store("USD", close_time, close)).unwrap();
+        }
+
+        // No target rows: the full source span is missing.
+        assert_eq!(
+            missing_price_range(&database, "USD", "EUR", 0, i64::MAX).unwrap(),
+            Some((100, 300))
+        );
+
+        // A partial target only reports the missing middle row.
+        store_price(&database, &store("EUR", 100, 0.9)).unwrap();
+        store_price(&database, &store("EUR", 300, 2.7)).unwrap();
+        assert_eq!(
+            missing_price_range(&database, "USD", "EUR", 0, i64::MAX).unwrap(),
+            Some((200, 200))
+        );
+
+        // A complete target needs no conversion.
+        store_price(&database, &store("EUR", 200, 1.8)).unwrap();
+        assert_eq!(
+            missing_price_range(&database, "USD", "EUR", 0, i64::MAX).unwrap(),
+            None
+        );
+
+        // The bounds narrow which source rows are considered.
+        assert_eq!(
+            missing_price_range(&database, "USD", "EUR", 250, i64::MAX).unwrap(),
+            None
         );
     }
 

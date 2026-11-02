@@ -3,12 +3,15 @@
 //!
 //! Resolution checks the database first, asks the external APIs exactly once
 //! per missing day, and stores every resolved price back into the table so
-//! the same lookup never touches the network twice. SQL stays in
+//! the same lookup never touches the network twice. The default-currency
+//! preparation reuses the bulk conversion to materialize the stored USD
+//! history in whichever currency Settings selects. SQL stays in
 //! `data::repositories::prices`; the external sources stay behind the
 //! `CoinMetrics` and `Frankfurter` clients.
 
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Duration;
 
 use crate::clients::coinmetrics::params::{Page, TimeRange};
 use crate::clients::coinmetrics::timeseries::AssetMetricsQuery;
@@ -21,8 +24,8 @@ use crate::data::{Database, DatabaseError};
 use crate::domain::civil_time;
 use crate::domain::price::{
     daily_close_time, fifteen_minute_close_time, normalize_symbol, validate_price_value,
-    BulkSyncSummary, FiatCurrency, Price, PriceConversion, PriceError, PricePage, PriceSeries,
-    SyncToTodaySummary, CSV_COVERAGE_END, USD_SYMBOL,
+    BulkSyncSummary, CurrencyHistorySummary, FiatCurrency, Price, PriceConversion, PriceError,
+    PricePage, PriceSeries, SyncToTodaySummary, CSV_COVERAGE_END, USD_SYMBOL,
 };
 use crate::domain::table::TableQuery;
 
@@ -304,6 +307,79 @@ pub async fn sync_prices_bulk(
     Ok(summary)
 }
 
+/// Ensure the stored USD price history also exists in `symbol`.
+///
+/// This is the automatic preparation behind the default fiat currency
+/// setting. It is idempotent: a currency that already covers every stored USD
+/// close time returns immediately without a network call, and existing target
+/// rows — including manually edited prices — are never overwritten.
+///
+/// Network and rate-source failures are reported through the summary warning
+/// instead of failing the caller: the preference is already saved and the
+/// operation can be retried later.
+pub async fn ensure_currency_history(
+    database: &Database,
+    symbol: &str,
+    fetch_fx_series: &(dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync),
+) -> Result<CurrencyHistorySummary, PriceServiceError> {
+    let symbol = normalize_symbol(symbol)?;
+    let mut summary = CurrencyHistorySummary {
+        symbol: symbol.clone(),
+        source_rows: 0,
+        stored: 0,
+        skipped: 0,
+        warning: None,
+    };
+    if symbol == USD_SYMBOL {
+        return Ok(summary);
+    }
+
+    let Some((source_first, source_last)) =
+        price_repository::price_series_range(database, USD_SYMBOL)?
+    else {
+        summary.warning = Some("There is no stored USD price history to convert.".to_string());
+        return Ok(summary);
+    };
+    let Some((missing_first, missing_last)) = price_repository::missing_price_range(
+        database,
+        USD_SYMBOL,
+        &symbol,
+        source_first,
+        source_last,
+    )?
+    else {
+        return Ok(summary);
+    };
+
+    match sync_prices_bulk(
+        database,
+        &symbol,
+        missing_first,
+        missing_last,
+        fetch_fx_series,
+    )
+    .await
+    {
+        Ok(bulk) => {
+            summary.source_rows = bulk.source_rows;
+            summary.stored = bulk.stored;
+            summary.skipped = bulk.skipped;
+            if bulk.skipped > 0 {
+                summary.warning = Some(format!(
+                    "{} source prices had no FX rate for their day and were skipped.",
+                    bulk.skipped
+                ));
+            }
+        }
+        Err(error @ PriceServiceError::Database(_)) => return Err(error),
+        Err(error) => {
+            summary.warning = Some(format!("Could not convert historical prices: {error}"));
+        }
+    }
+
+    Ok(summary)
+}
+
 /// Fetch BTC/USD daily closes from Coin Metrics from the latest stored USD
 /// close through the current day and persist them, in one transaction.
 ///
@@ -449,6 +525,11 @@ pub fn list_price_conversions(
 /// One day in seconds: the fallback distance of [`latest_price_at`].
 const LATEST_PRICE_FALLBACK_SECONDS: i64 = 86_400;
 
+/// Extra days fetched before a conversion range. The latest rate on or before
+/// a close time is used, so a range that starts on a weekend or holiday needs
+/// the preceding business day's rate from before the range boundary.
+const FX_RATE_LOOKBACK_DAYS: i64 = 7;
+
 /// Current UTC epoch seconds from the server clock.
 fn current_epoch_seconds() -> Result<i64, PriceServiceError> {
     std::time::SystemTime::now()
@@ -501,8 +582,14 @@ impl PriceService {
     pub fn connect(database: Database) -> Self {
         Self {
             database,
-            coinmetrics: CoinMetrics::new(CoinMetricsConfig::default()),
-            frankfurter: Frankfurter::new(FrankfurterConfig::default()),
+            coinmetrics: CoinMetrics::new(CoinMetricsConfig {
+                timeout: Some(Duration::from_secs(20)),
+                ..CoinMetricsConfig::default()
+            }),
+            frankfurter: Frankfurter::new(FrankfurterConfig {
+                timeout: Some(Duration::from_secs(20)),
+                ..FrankfurterConfig::default()
+            }),
         }
     }
 
@@ -583,6 +670,24 @@ impl PriceService {
             Box::pin(async move { fetch_usd_fx_series(&rates, &from_date, &to_date, &quote).await })
         };
         sync_prices_bulk(&self.database, symbol, from_time, to_time, &fetch_fx_series).await
+    }
+
+    /// Prepare the stored USD history in the currently selected currency;
+    /// see [`ensure_currency_history`]. The automatic preparation behind the
+    /// default fiat currency setting reuses the same conversion path as
+    /// [`Self::sync_prices`].
+    pub async fn ensure_currency_history(
+        &self,
+        symbol: &str,
+    ) -> Result<CurrencyHistorySummary, PriceServiceError> {
+        let symbol = normalize_symbol(symbol)?;
+        let quote = symbol.clone();
+        let fetch_fx_series = |from_date: String, to_date: String| -> FetchSeriesFuture {
+            let rates = self.frankfurter.rates.clone();
+            let quote = quote.clone();
+            Box::pin(async move { fetch_usd_fx_series(&rates, &from_date, &to_date, &quote).await })
+        };
+        ensure_currency_history(&self.database, &symbol, &fetch_fx_series).await
     }
 
     /// Fetch the BTC/USD daily closes from the latest stored close through
@@ -738,6 +843,14 @@ async fn fetch_usd_fx_rate(
     Ok(rate.rate)
 }
 
+/// Start date of an FX series request, padded so a range beginning on a
+/// weekend or holiday can use the preceding business day's rate.
+fn fx_series_start_date(from_date: &str) -> String {
+    civil_time::parse_date(from_date)
+        .map(|day| civil_time::format_date(day - FX_RATE_LOOKBACK_DAYS * 86_400))
+        .unwrap_or_else(|| from_date.to_string())
+}
+
 /// Fetch the `USD → quote` blended rate series of `[from_date, to_date]`
 /// (ISO `YYYY-MM-DD`) from Frankfurter, as `(date, rate)` pairs.
 async fn fetch_usd_fx_series(
@@ -746,8 +859,11 @@ async fn fetch_usd_fx_series(
     to_date: &str,
     quote: &str,
 ) -> Result<Vec<(String, f64)>, PriceServiceError> {
+    // A range starting on a weekend has no rate of its own. Fetch a short
+    // lookback so the conversion can use the prior business day's rate.
+    let from_date = fx_series_start_date(from_date);
     let query = RatesQuery {
-        from: Some(from_date.to_string()),
+        from: Some(from_date),
         to: Some(to_date.to_string()),
         base: Some(USD_SYMBOL.to_string()),
         quotes: vec![quote.to_string()],
@@ -1341,6 +1457,154 @@ mod tests {
             price_repository::find_price(&database, "EUR", before_coverage).unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn fx_series_start_date_pads_the_range_for_prior_business_days() {
+        assert_eq!(fx_series_start_date("2020-01-04"), "2019-12-28");
+        // An unparseable value is passed through instead of panicking.
+        assert_eq!(fx_series_start_date("not-a-date"), "not-a-date");
+    }
+
+    #[test]
+    fn ensure_currency_history_converts_the_full_stored_history_once() {
+        let database = Database::open_in_memory().unwrap();
+        let first = civil_time::epoch_seconds(2020, 1, 1, 12, 0, 0);
+        let second = civil_time::epoch_seconds(2020, 1, 2, 12, 0, 0);
+        for (close_time, close) in [(first, 100.0), (second, 200.0)] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time,
+                    close,
+                },
+            )
+            .unwrap();
+        }
+        let (calls, fetch) = stub_fx_series(vec![
+            ("2020-01-01".to_string(), 0.5),
+            ("2020-01-02".to_string(), 0.4),
+        ]);
+
+        let summary = block_on(ensure_currency_history(&database, "eur", &fetch)).unwrap();
+
+        assert_eq!(summary.symbol, "EUR");
+        assert_eq!(summary.source_rows, 2);
+        assert_eq!(summary.stored, 2);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(summary.warning, None);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            price_repository::find_price(&database, "EUR", first)
+                .unwrap()
+                .map(|price| price.close),
+            Some(50.0)
+        );
+        assert_eq!(
+            price_repository::find_price(&database, "EUR", second)
+                .unwrap()
+                .map(|price| price.close),
+            Some(80.0)
+        );
+
+        // An already prepared currency is a pure database check.
+        let second_run = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
+        assert_eq!(second_run.source_rows, 0);
+        assert_eq!(second_run.stored, 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn ensure_currency_history_fills_gaps_without_overwriting_existing_rows() {
+        let database = Database::open_in_memory().unwrap();
+        let first = civil_time::epoch_seconds(2020, 1, 1, 12, 0, 0);
+        let second = civil_time::epoch_seconds(2020, 1, 2, 12, 0, 0);
+        for close_time in [first, second] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time,
+                    close: 100.0,
+                },
+            )
+            .unwrap();
+        }
+        // A manually edited target row must survive the automatic pass.
+        price_repository::store_price(
+            &database,
+            &Price {
+                symbol: "EUR".to_string(),
+                close_time: first,
+                close: 999.0,
+            },
+        )
+        .unwrap();
+        let (calls, fetch) = stub_fx_series(vec![("2020-01-02".to_string(), 0.4)]);
+
+        let summary = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
+
+        assert_eq!(summary.source_rows, 1);
+        assert_eq!(summary.stored, 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            price_repository::find_price(&database, "EUR", first)
+                .unwrap()
+                .map(|price| price.close),
+            Some(999.0)
+        );
+        assert_eq!(
+            price_repository::find_price(&database, "EUR", second)
+                .unwrap()
+                .map(|price| price.close),
+            Some(40.0)
+        );
+    }
+
+    #[test]
+    fn ensure_currency_history_noops_for_usd_and_without_source_rows() {
+        let database = Database::open_in_memory().unwrap();
+        let (calls, fetch) = stub_fx_series(vec![("2020-01-01".to_string(), 0.5)]);
+
+        let usd = block_on(ensure_currency_history(&database, "usd", &fetch)).unwrap();
+        assert_eq!(usd.stored, 0);
+        assert_eq!(usd.warning, None);
+
+        let empty = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
+        assert_eq!(empty.stored, 0);
+        assert!(empty.warning.is_some());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn ensure_currency_history_reports_network_failures_as_warnings() {
+        let database = Database::open_in_memory().unwrap();
+        let close_time = civil_time::epoch_seconds(2020, 1, 1, 12, 0, 0);
+        price_repository::store_price(
+            &database,
+            &Price {
+                symbol: USD_SYMBOL.to_string(),
+                close_time,
+                close: 100.0,
+            },
+        )
+        .unwrap();
+        let fetch = |_from: String, _to: String| -> FetchSeriesFuture {
+            Box::pin(async move {
+                Err(PriceServiceError::Price(PriceError::InvalidData(
+                    "fx offline".to_string(),
+                )))
+            })
+        };
+
+        let summary = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
+
+        assert_eq!(summary.stored, 0);
+        assert!(summary
+            .warning
+            .as_deref()
+            .is_some_and(|warning| warning.contains("fx offline")));
     }
 
     #[test]

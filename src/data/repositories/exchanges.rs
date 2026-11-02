@@ -474,6 +474,8 @@ fn transaction_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExchangeTra
         fiat_currency: row.get(8)?,
         converted_fiat_amount: None,
         converted_fiat_currency: None,
+        converted_fee_amount: None,
+        converted_fee_currency: None,
         fee: row.get(9)?,
         fee_currency: row.get(10)?,
         tx_hash: row.get(11)?,

@@ -11,8 +11,8 @@ use crate::api::settings::get_exchange_settings_api;
 use crate::app::Route;
 use crate::components::format::{format_btc, format_fiat};
 use crate::components::{
-    use_toast, ConfirmDialog, ExchangeInspector, ExchangeLinkDialog, ImportDataDialog, Kpi,
-    SortableHeader, TablePagination, Toast,
+    use_fiat_currency, use_toast, ConfirmDialog, ExchangeInspector, ExchangeLinkDialog,
+    ImportDataDialog, Kpi, SortableHeader, TablePagination, Toast,
 };
 use crate::domain::civil_time;
 use crate::domain::exchange::csv::is_bitcoin_currency;
@@ -30,6 +30,7 @@ pub fn ExchangeDetail(
     #[props(default)] transaction_id: Option<String>,
 ) -> Element {
     let mut toast = use_toast();
+    let fiat = use_fiat_currency();
     let navigator = use_navigator();
     let mut page = use_signal(|| 0_u32);
     let sort_by = use_signal(|| Option::<String>::None);
@@ -50,12 +51,18 @@ pub fn ExchangeDetail(
         }
     });
 
-    let mut detail = use_resource(move || async move {
-        get_exchange_api(exchange_id)
-            .await
-            .map_err(|error| error.to_string())
+    let mut detail = use_resource(move || {
+        // The server derives the fiat values from the saved setting; reading
+        // the shared signal keeps the screen reactive to a currency change.
+        let _currency = fiat.code();
+        async move {
+            get_exchange_api(exchange_id)
+                .await
+                .map_err(|error| error.to_string())
+        }
     });
     let mut transactions = use_resource(move || {
+        let _currency = fiat.code();
         let current_page = page();
         let sort_key = sort_by();
         let direction = sort_dir();
@@ -120,6 +127,10 @@ pub fn ExchangeDetail(
         Some(Ok(detail)) => Some(detail.kpis.clone()),
         _ => None,
     };
+    let table_currency = kpis
+        .as_ref()
+        .map(|kpi| kpi.fiat_currency.clone())
+        .unwrap_or_else(|| fiat.code());
     let conversion_warning = state
         .as_ref()
         .and_then(|result| result.as_ref().ok())
@@ -162,38 +173,59 @@ pub fn ExchangeDetail(
                             SortableHeader {
                                 label: "Date".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("date")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "Type".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("type")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "type", SortDirection::Asc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "type", SortDirection::Asc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "Amount".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("amount")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "amount", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "amount", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
-                            th { "Fiat" }
+                            th { "Fiat ({table_currency})" }
                             SortableHeader {
                                 label: "Fee".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("fee")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "fee", SortDirection::Desc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "fee", SortDirection::Desc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "On-chain".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("on_chain")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "on_chain", SortDirection::Asc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "on_chain", SortDirection::Asc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "Exchange TX Hash".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("tx_hash")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "tx_hash", SortDirection::Asc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "tx_hash", SortDirection::Asc);
+                                    page.set(0);
+                                },
                             }
                             SortableHeader {
                                 label: "Description".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("description")).then_some(sort_dir()),
-                                on_sort: move |_| { toggle_sort(sort_by, sort_dir, "description", SortDirection::Asc); page.set(0); },
+                                on_sort: move |_| {
+                                    toggle_sort(sort_by, sort_dir, "description", SortDirection::Asc);
+                                    page.set(0);
+                                },
                             }
                         }
                     }
@@ -217,6 +249,12 @@ pub fn ExchangeDetail(
                                     .as_ref()
                                     .map(|link| link.txid.clone())
                                     .or_else(|| row.matched_tx_id.clone());
+                                let fee = format_fee(
+                                    row.fee,
+                                    row.fee_currency.as_deref(),
+                                    row.converted_fee_amount
+                                        .zip(row.converted_fee_currency.as_deref()),
+                                );
                                 rsx! {
                                     tr {
                                         class: if selected { "md3-exchange-selected-row" } else { "" },
@@ -298,7 +336,7 @@ pub fn ExchangeDetail(
                                                 "-"
                                             }
                                         }
-                                        td { "{format_fee(row.fee, row.fee_currency.as_deref())}" }
+                                        td { "{fee}" }
                                         td { "{on_chain.as_deref().map(format_tx_hash).unwrap_or_else(|| \"-\".to_string())}" }
                                         td { "{row.tx_hash.as_deref().map(format_tx_hash).unwrap_or_else(|| \"-\".to_string())}" }
                                         td { "{row.description.as_deref().unwrap_or(\"-\")}" }
@@ -489,23 +527,23 @@ pub fn ExchangeDetail(
             {
                 let linked_id = transaction.id;
                 rsx! {
-            ExchangeLinkDialog {
-                key: "{transaction.id}",
-                transaction,
-                on_close: move |_| link_target.set(None),
-                on_changed: move |_| {
-                    if editor_transaction()
-                        .as_ref()
-                        .is_some_and(|row| row.id == linked_id)
-                    {
-                        close_editor.call(());
+                    ExchangeLinkDialog {
+                        key: "{transaction.id}",
+                        transaction,
+                        on_close: move |_| link_target.set(None),
+                        on_changed: move |_| {
+                            if editor_transaction()
+                                .as_ref()
+                                .is_some_and(|row| row.id == linked_id)
+                            {
+                                close_editor.call(());
+                            }
+                            link_target.set(None);
+                            toast.success("On-chain link updated.");
+                            detail.restart();
+                            transactions.restart();
+                        },
                     }
-                    link_target.set(None);
-                    toast.success("On-chain link updated.");
-                    detail.restart();
-                    transactions.restart();
-                },
-            }
                 }
             }
         }
@@ -582,14 +620,19 @@ fn remove_transaction(
     });
 }
 
-fn format_fee(fee: Option<f64>, currency: Option<&str>) -> String {
-    match (fee, currency) {
-        (Some(fee), Some(currency)) if is_bitcoin_currency(currency) => {
-            format_btc(fee.round() as i64)
-        }
-        (Some(fee), Some(currency)) => format!("{fee} {currency}"),
-        (Some(fee), None) => format!("{fee}"),
-        _ => "-".to_string(),
+fn format_fee(fee: Option<f64>, currency: Option<&str>, converted: Option<(f64, &str)>) -> String {
+    let Some(fee) = fee else {
+        return "-".to_string();
+    };
+    let Some(currency) = currency else {
+        return format!("{fee}");
+    };
+    if is_bitcoin_currency(currency) {
+        return format_btc(fee.round() as i64);
+    }
+    match converted {
+        Some((amount, target)) => format_fiat(amount, target),
+        None => format_fiat(fee, currency),
     }
 }
 
@@ -638,5 +681,24 @@ fn icon(path: &str) -> Element {
             fill: "currentColor",
             path { d: "{path}" }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_fee;
+
+    #[test]
+    fn fiat_fees_prefer_the_converted_value_and_btc_fees_stay_btc() {
+        assert_eq!(
+            format_fee(Some(10.0), Some("EUR"), Some((12.0, "USD"))),
+            "$12.00"
+        );
+        assert_eq!(format_fee(Some(10.0), Some("EUR"), None), "10.00 EUR");
+        assert_eq!(
+            format_fee(Some(10_000.0), Some("BTC"), Some((1.0, "USD"))),
+            "0.0001 ₿"
+        );
+        assert_eq!(format_fee(None, Some("EUR"), None), "-");
     }
 }

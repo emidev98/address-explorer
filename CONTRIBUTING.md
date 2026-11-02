@@ -27,10 +27,42 @@ When sources disagree, contributors **MUST** prioritize project configuration an
 - **Charts:** Apache ECharts, vendored in `assets/vendor/echarts/`, is the default and only charting library. Section 5.10 describes the required chart component boundaries.
 - **Persistence:** SQLite through `rusqlite` for native application builds. Browser/WASM builds **MUST NOT** assume that a native `rusqlite` persistence implementation can be reused unchanged; a browser target requires an explicitly supported storage adapter.
 - **Targets:** Linux, macOS, and Android. Platform-specific APIs **SHOULD** be isolated behind narrow modules or target-specific compilation.
+- **Currency:** Bitcoin is the base and accounting currency; fiat values are a derived display layer governed by the default-fiat rules in Section 3.1.
 
 Contributors **MUST NOT** upgrade Dioxus, `rusqlite`, SQLite features, or other major dependencies as an incidental part of an unrelated change. Dependency changes **SHOULD** state the reason, compatibility impact, and tests performed. For an application, `Cargo.lock` **MUST** be committed so dependency resolution is reviewed and reproducible.
 
-### Suggested project layout
+### 3.1 Currency model and default-fiat conversion
+
+Bitcoin is the application's base and accounting currency. BTC balances, on-chain movements, ledger BTC amounts, and BTC fees **MUST** remain stored and handled in BTC or satoshis. Fiat values are derived presentation values; a fiat amount **MUST NOT** become the source of truth for a BTC balance. BTC-denominated columns, charts, and KPIs **MAY** continue to display BTC; any fiat equivalent shown alongside them **MUST** use the default currency described below.
+
+The persisted `default_fiat_currency` setting (the SQLite `setting` table) is the single source of truth for every displayed or derived fiat value. It **MUST** fall back to USD when it has never been configured or is empty, and it **MUST** be normalized to an uppercase ISO code at the application boundary before it is displayed or passed to a price service. Contributors **MUST NOT** hardcode USD — or any other fiat code — into a display, label, conversion, or service when the default currency is available.
+
+**Client rules**
+
+- The root component loads the persisted currency once and provides it through the `FiatCurrency` context in `src/components/fiat_currency.rs`.
+- Screens and components **MUST** read it with `use_fiat_currency()` and react to changes. They **MUST NOT** fetch the setting independently or keep a second independently mutable copy.
+- Fiat values **MUST** be formatted with `format_fiat(amount, symbol)` from `src/components/format.rs`. USD-specific formatting is only an internal branch of that function, not a reason to call `format_usd` directly in a view.
+- Labels that name a currency — KPI titles, table headers, inspector fields, chart titles, and status messages — **MUST** use the selected currency code.
+- A BTC balance converted to fiat **MUST** use the latest BTC price resolved in the selected currency (`latest_price_api` / `PriceService`) together with `sats_to_fiat` from `src/domain/price.rs`. A balance **MUST NOT** be converted with a hardcoded USD price.
+
+**Server and application rules**
+
+- Exchange-ledger original fiat amounts and fees **MAY** be retained for provenance, but every default-currency display **MUST** use the derived read-time `converted_*` fields populated by `ExchangeFiatService` (`src/application/exchange_fiat.rs`). Converted values **MUST NOT** be written back as if they were the imported source amounts. BTC/XBT fees remain BTC.
+- Historical fiat prices use the stored USD series as the canonical source. When the default currency changes, contributors **MUST** materialize the selected currency's history through `ensure_currency_history` / `ensure_currency_history_api` (`src/application/prices.rs`, `src/api/prices.rs`) or extend that workflow. That workflow:
+  - reuses `sync_prices_bulk` rather than introducing a second conversion algorithm;
+  - finds the missing target close times through the prices repository;
+  - persists one target row per stored USD close time at full granularity;
+  - never overwrites existing target rows, including manual edits;
+  - is idempotent and retryable, and reports non-fatal failures as warnings.
+- A new feature that needs historical prices in the default currency **MUST** use this preparation path, not ad-hoc conversion in a screen or repository.
+- Saving the preference and preparing its history are separate concerns: the preference **MUST** be persisted first. If preparation fails, the saved preference **MUST** remain, the failure **MUST** be visible to the user, and a retry path **MUST** exist (opening Historical Prices or using Sync Prices). A conversion failure **MUST NOT** silently roll back the preference or be presented as success.
+
+**Data and external sources**
+
+- `historical_prices` is a multi-symbol table. USD remains the reference series imported by the data migrations; Frankfurter supplies USD → fiat rates and Coin Metrics supplies BTC/USD prices.
+- Fiat symbols **MUST** be derived from those sources through the existing clients. No SQL query, domain type, or view may assume that USD is the only display currency; the USD constant is reserved for the reference/source series and the documented fallback.
+
+### 3.2 Suggested project layout
 
 The layout example **SHOULD** be adapted to the repository as it exists. Contributors **MUST NOT** reorganize the project solely to match this example.
 
@@ -635,6 +667,7 @@ Coverage expectations by change type:
 - **Migrations:** fresh-database migration, migration from supported prior schema versions, and assertions that existing data remains correct.
 - **Concurrency:** tests or a documented verification plan for cancellation, worker shutdown, ordering, and race-prone behavior where relevant.
 - **UI behavior:** verification of loading, success, empty, and failure states when applicable.
+- **Currency and fiat conversion:** tests for default-currency propagation, BTC-to-fiat calculations, conversion idempotency, preservation of existing/manual prices, and non-fatal failure warnings where applicable.
 - **Platform-specific code:** build or execute checks on the affected platform; mock the OS boundary when practical.
 
 Tests **MUST NOT** depend on a developer's real database, home directory, network connection, or manually prepared application state. Tests **SHOULD** be deterministic and clean up temporary files they create.
@@ -666,10 +699,11 @@ Before requesting review, contributors **MUST**:
 - [ ] Run compilation, tests, and Clippy for the affected workspace.
 - [ ] Add or update tests and documentation where needed.
 - [ ] Include a migration for database schema changes.
+- [ ] Verify every new or changed fiat display and conversion uses the `FiatCurrency` context and the default currency, without hardcoded USD assumptions (Section 3.1).
 - [ ] Check that no secrets, local database files, build artifacts, or unrelated formatting changes are included.
 - [ ] Describe any validation that could not be performed.
 
-Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, respect for the layer boundaries in Section 7, and platform compatibility—not only whether the code compiles.
+Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, respect for the layer boundaries in Section 7, currency handling (Section 3.1), and platform compatibility—not only whether the code compiles.
 
 ## 12. References
 
@@ -684,6 +718,8 @@ Contributors **MUST** use documentation matching the versions pinned by the repo
 - [Dioxus desktop/mobile bundling](https://dioxuslabs.com/learn/0.7/tutorial/bundle/)
 - [Apache ECharts documentation](https://echarts.apache.org/en/index.html)
 - [Apache ECharts option reference](https://echarts.apache.org/en/option.html)
+- [Frankfurter API documentation](https://frankfurter.dev/)
+- [Coin Metrics API documentation](https://docs.coinmetrics.io/)
 - [`rusqlite` documentation](https://docs.rs/rusqlite/latest/rusqlite/)
 - [`rusqlite::Connection`](https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html)
 - [`rusqlite::Transaction`](https://docs.rs/rusqlite/latest/rusqlite/struct.Transaction.html)

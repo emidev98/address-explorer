@@ -271,6 +271,8 @@ impl ExchangeService {
                 fiat_currency: parsed.fiat_currency.clone(),
                 converted_fiat_amount: None,
                 converted_fiat_currency: None,
+                converted_fee_amount: None,
+                converted_fee_currency: None,
                 fee: parsed.fee,
                 fee_currency: parsed.fee_currency.clone(),
                 tx_hash: parsed.tx_hash.clone(),

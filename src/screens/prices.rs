@@ -2,15 +2,18 @@ use std::collections::BTreeMap;
 
 use dioxus::prelude::*;
 
-use crate::api::prices::{list_prices_api, price_conversions_api, price_series_api};
-use crate::api::settings::get_default_fiat_currency_api;
+use crate::api::prices::{
+    ensure_currency_history_api, list_prices_api, price_conversions_api, price_series_api,
+};
 use crate::components::format::format_fiat;
 use crate::components::{
-    use_toast, DatePicker, EditPriceDialog, PriceTrendChart, SortableHeader, SyncPricesDialog,
-    TablePagination, Toast,
+    use_fiat_currency, use_toast, DatePicker, EditPriceDialog, PriceTrendChart, SortableHeader,
+    SyncPricesDialog, TablePagination, Toast,
 };
 use crate::domain::civil_time::{format_date, format_datetime, parse_date};
-use crate::domain::price::{Price, PriceSeries, PriceSyncOutcome, PriceTableQuery, USD_SYMBOL};
+use crate::domain::price::{
+    CurrencyHistorySummary, Price, PriceSeries, PriceSyncOutcome, PriceTableQuery, USD_SYMBOL,
+};
 use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
 
 /// Rows per page of the historical prices table.
@@ -64,7 +67,8 @@ enum ConversionState {
 /// Historical Prices screen: the zoomable trend chart of the stored history
 /// at the top, and below it the paginated content of the `historical_prices`
 /// table for the default fiat currency configured in Settings (USD until
-/// changed).
+/// changed). Opening the screen prepares the stored USD history in that
+/// currency first, so the table and chart show the same default everywhere.
 ///
 /// The table follows the shared pattern of Section 5.11 of CONTRIBUTING.md:
 /// backend-driven pagination with an editable page index and backend sorting
@@ -78,10 +82,27 @@ enum ConversionState {
 #[component]
 pub fn Prices() -> Element {
     let mut toast = use_toast();
-    let currency = use_resource(move || async move {
-        get_default_fiat_currency_api()
-            .await
-            .map_err(|error| error.to_string())
+    let fiat = use_fiat_currency();
+
+    // The table and chart only ever show stored rows. Before querying them,
+    // make sure the selected currency has been prepared from the stored USD
+    // history; the server call is a cheap no-op once that has happened.
+    let mut prepared = use_resource(move || {
+        let symbol = fiat.code();
+        async move {
+            if symbol == USD_SYMBOL {
+                return Ok(CurrencyHistorySummary {
+                    symbol,
+                    source_rows: 0,
+                    stored: 0,
+                    skipped: 0,
+                    warning: None,
+                });
+            }
+            ensure_currency_history_api(symbol)
+                .await
+                .map_err(|error| error.to_string())
+        }
     });
 
     let mut page = use_signal(|| 0_u32);
@@ -123,18 +144,17 @@ pub fn Prices() -> Element {
 
     let mut prices = use_resource(move || {
         // Read the reactive inputs synchronously so the resource tracks them.
-        let currency_state = currency();
+        let ready = prepared().is_some();
+        let symbol = fiat.code();
         let current_page = page();
         let from = from_time();
         let to = to_time();
         let sort_key = sort_by();
         let direction = sort_dir();
         async move {
-            let symbol = match currency_state {
-                Some(Ok(symbol)) => symbol,
-                Some(Err(error)) => return Err(error),
-                None => return Ok(None),
-            };
+            if !ready {
+                return Ok(None);
+            }
             let query = PriceTableQuery {
                 table: TableQuery {
                     page: current_page,
@@ -154,14 +174,14 @@ pub fn Prices() -> Element {
     });
 
     let mut series = use_resource(move || {
-        let currency_state = currency();
+        let ready = prepared().is_some();
+        let symbol = fiat.code();
         let window = chart_window();
         async move {
-            let symbol = match currency_state {
-                Some(Ok(symbol)) => symbol,
-                Some(Err(error)) => return Err(error),
-                None => return Ok(None),
-            };
+            if !ready {
+                zoom_in_flight.set(false);
+                return Ok(None);
+            }
             let result = price_series_api(symbol, window.0, window.1)
                 .await
                 .map_err(|error| error.to_string());
@@ -214,10 +234,17 @@ pub fn Prices() -> Element {
         page.set(0);
     });
 
-    let symbol = match currency() {
-        Some(Ok(symbol)) => symbol,
-        _ => USD_SYMBOL.to_string(),
+    let symbol = fiat.code();
+    let preparation = prepared();
+    let preparing = preparation.is_none();
+    let preparation_warning = match &preparation {
+        Some(Ok(summary)) => summary.warning.clone(),
+        Some(Err(error)) => Some(format!(
+            "Could not prepare {symbol} price history: {error}. Stored prices are shown; use Sync Prices to retry."
+        )),
+        None => None,
     };
+    let sort_direction_for = |key: &str| (sort_by().as_deref() == Some(key)).then_some(sort_dir());
 
     rsx! {
         section { id: "prices", class: "md3-screen",
@@ -274,6 +301,18 @@ pub fn Prices() -> Element {
                 }
             }
 
+            if preparing {
+                p {
+                    class: "text-body-small text-on-surface-variant",
+                    role: "status",
+                    aria_live: "polite",
+                    "Preparing {symbol} price history..."
+                }
+            }
+            if let Some(warning) = preparation_warning {
+                p { class: "text-body-small md3-exchange-warning", "{warning}" }
+            }
+
             section { class: "md3-chart-card",
                 div { class: "md3-chart-header",
                     h3 { class: "text-title-medium leading-title-medium text-on-surface",
@@ -323,17 +362,15 @@ pub fn Prices() -> Element {
                                     th {}
                                     SortableHeader {
                                         label: "Date".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("date"))
-                                                                                    .then_some(sort_dir()),
+                                        active_direction: sort_direction_for("date"),
                                         on_sort: move |_| {
                                             toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
                                             page.set(0);
                                         },
                                     }
                                     SortableHeader {
-                                        label: "Price".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("price"))
-                                                                                    .then_some(sort_dir()),
+                                        label: format!("Price ({symbol})"),
+                                        active_direction: sort_direction_for("price"),
                                         on_sort: move |_| {
                                             toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
                                             page.set(0);
@@ -450,6 +487,7 @@ pub fn Prices() -> Element {
                                     );
                             }
                         }
+                        prepared.restart();
                         prices.restart();
                         series.restart();
                     },

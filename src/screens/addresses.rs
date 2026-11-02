@@ -6,17 +6,18 @@ use crate::api::addresses::{addresses_overview_api, delete_address_api, validate
 use crate::api::prices::latest_price_api;
 use crate::api::settings::get_exchange_settings_api;
 use crate::api::transactions::sync_address_transactions_api;
-use crate::components::format::{format_address, format_btc, format_usd};
+use crate::components::format::{format_address, format_btc, format_fiat};
 use crate::components::{
-    read_clipboard_text, use_toast, write_clipboard_text, AddressEditData, ConfirmDialog,
-    HoldingSlice, HoldingsDistributionChart, ImportAddressDialog, ImportAddressDialogMode, Kpi,
-    SortableHeader, Toast, ToastKind,
+    read_clipboard_text, use_fiat_currency, use_toast, write_clipboard_text, AddressEditData,
+    ConfirmDialog, HoldingSlice, HoldingsDistributionChart, ImportAddressDialog,
+    ImportAddressDialogMode, Kpi, SortableHeader, Toast, ToastKind,
 };
 use crate::domain::address::{
     AddressEntity, AddressImportResult, AddressOverview, AddressOverviewItem, AddressOverviewQuery,
     AddressScope, AddressScopeFilter,
 };
 use crate::domain::civil_time::format_datetime;
+use crate::domain::price::sats_to_fiat;
 use crate::domain::table::SortDirection;
 use crate::domain::transaction::TransactionSyncSummary;
 
@@ -45,6 +46,7 @@ pub fn Addresses() -> Element {
     let sort_dir = use_signal(SortDirection::default);
     let mut scope_filter = use_signal(AddressScopeFilter::default);
     let mut confirm_destructive = use_signal(|| true);
+    let fiat = use_fiat_currency();
 
     let mut overview = use_resource(move || async move {
         addresses_overview_api(AddressOverviewQuery {
@@ -61,17 +63,16 @@ pub fn Addresses() -> Element {
             confirm_destructive.set(settings.confirm_destructive_actions);
         }
     });
-    let latest_price = use_resource(move || async move {
-        latest_price_api("USD".to_string())
-            .await
-            .ok()
-            .map(|price| price.close)
+    let latest_price = use_resource(move || {
+        let symbol = fiat.code();
+        async move { latest_price_api(symbol).await.ok().map(|price| price.close) }
     });
 
     let overview_state = overview();
     let loading = overview_state.is_none();
     let overview_ready = matches!(&overview_state, Some(Ok(_)));
-    let latest_usd = latest_price().flatten();
+    let symbol = fiat.code();
+    let latest_value = latest_price().flatten();
     let empty_message = format!("No {} balances", scope_filter().empty_noun());
 
     // `address_count` is the global count of the listed population; the
@@ -81,7 +82,9 @@ pub fn Addresses() -> Element {
             Some(data.address_count.to_string()),
             Some(data.confirmed_tx_count.to_string()),
             Some(format_btc(data.spendable_balance_sats)),
-            latest_usd.map(|price| format_usd(data.spendable_balance_sats as f64 / 1e8 * price)),
+            latest_value.map(|price| {
+                format_fiat(sats_to_fiat(data.spendable_balance_sats, price), &symbol)
+            }),
         ],
         _ => [None, None, None, None],
     };
@@ -112,6 +115,8 @@ pub fn Addresses() -> Element {
         })
         .collect();
 
+    let sort_direction_for = |key: &str| (sort_by().as_deref() == Some(key)).then_some(sort_dir());
+
     let table_content = match &overview_state {
         Some(Ok(_)) => rsx! {
             div { class: "md3-table-container",
@@ -121,16 +126,14 @@ pub fn Addresses() -> Element {
                             th {}
                             SortableHeader {
                                 label: "Address".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("address"))
-                                                                                                                                                                            .then_some(sort_dir()),
+                                active_direction: sort_direction_for("address"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "address", SortDirection::Asc);
                                 },
                             }
                             SortableHeader {
                                 label: "Label".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("label"))
-                                                                                                                                                                            .then_some(sort_dir()),
+                                active_direction: sort_direction_for("label"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "label", SortDirection::Asc);
                                 },
@@ -161,40 +164,35 @@ pub fn Addresses() -> Element {
                             }
                             SortableHeader {
                                 label: "Txs".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("txs"))
-                                                                                                                                                                            .then_some(sort_dir()),
+                                active_direction: sort_direction_for("txs"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc);
                                 },
                             }
                             SortableHeader {
                                 label: "Spendable Balance".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("balance"))
-                                                                                                                                                                            .then_some(sort_dir()),
+                                active_direction: sort_direction_for("balance"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "balance", SortDirection::Desc);
                                 },
                             }
                             SortableHeader {
-                                label: "Current Price".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("price"))
-                                                                                                                                                                            .then_some(sort_dir()),
+                                label: format!("Current Value ({symbol})"),
+                                active_direction: sort_direction_for("price"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
                                 },
                             }
                             SortableHeader {
                                 label: "First tx received".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("first_tx"))
-                                                                                                                                                                            .then_some(sort_dir()),
+                                active_direction: sort_direction_for("first_tx"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc);
                                 },
                             }
                             SortableHeader {
                                 label: "Last tx sent".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("last_tx"))
-                                                                                                                                                                            .then_some(sort_dir()),
+                                active_direction: sort_direction_for("last_tx"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc);
                                 },
@@ -222,8 +220,10 @@ pub fn Addresses() -> Element {
                                         .description
                                         .clone()
                                         .unwrap_or_else(|| "-".to_string());
-                                    let current_price = latest_usd
-                                        .map(|price| { format_usd(row.spendable_balance_sats as f64 / 1e8 * price) })
+                                    let current_value = latest_value
+                                        .map(|price| {
+                                            format_fiat(sats_to_fiat(row.spendable_balance_sats, price), &symbol)
+                                        })
                                         .unwrap_or_else(|| "-".to_string());
                                     let first_tx = row
                                         .first_tx_time
@@ -329,7 +329,7 @@ pub fn Addresses() -> Element {
                                             td { "{scope_label}" }
                                             td { "{row.confirmed_tx_count}" }
                                             td { "{format_btc(row.spendable_balance_sats)}" }
-                                            td { "{current_price}" }
+                                            td { "{current_value}" }
                                             td { "{first_tx}" }
                                             td { "{last_tx}" }
                                         }
@@ -406,7 +406,7 @@ pub fn Addresses() -> Element {
                     loading,
                 }
                 Kpi {
-                    title: "USD Balance".to_string(),
+                    title: format!("{symbol} Balance"),
                     value: kpi_values[3].clone(),
                     loading,
                 }

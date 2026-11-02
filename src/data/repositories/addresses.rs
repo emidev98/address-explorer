@@ -22,10 +22,10 @@ pub enum AddressSortColumn {
     ConfirmedTxCount,
     /// Spendable balance in satoshis, API key `balance`.
     SpendableBalance,
-    /// Balance in the latest fiat price, API key `price`. The displayed USD
-    /// value is the spendable balance times one latest price shared by all
-    /// rows, so ordering by the balance orders by the price exactly (a
-    /// constant positive multiplier preserves order).
+    /// Balance value in the latest default-currency price, API key `price`.
+    /// The displayed value is the spendable balance times one latest price
+    /// shared by all rows, so ordering by the balance orders by the value
+    /// exactly (a constant positive multiplier preserves order).
     CurrentPrice,
     /// Oldest stored confirmed transaction time, API key `first_tx`.
     FirstTxTime,

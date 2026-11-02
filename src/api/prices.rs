@@ -3,8 +3,8 @@
 use dioxus::prelude::*;
 
 use crate::domain::price::{
-    BulkSyncSummary, FiatCurrency, Price, PriceConversion, PricePage, PriceSeries, PriceTableQuery,
-    SyncToTodaySummary,
+    BulkSyncSummary, CurrencyHistorySummary, FiatCurrency, Price, PriceConversion, PricePage,
+    PriceSeries, PriceTableQuery, SyncToTodaySummary,
 };
 
 #[cfg(feature = "server")]
@@ -79,6 +79,23 @@ pub async fn sync_prices_api(
 ) -> Result<BulkSyncSummary, ServerFnError> {
     PriceService::connect(open_database()?)
         .sync_prices(&symbol, from_time, to_time)
+        .await
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+/// Prepare the stored USD price history in `symbol`.
+///
+/// This is idempotent: an already prepared currency returns immediately
+/// without a network call. Existing target rows, including manually edited
+/// prices, are never overwritten. Non-fatal conversion problems are reported
+/// in the summary warning so the saved preference is not rolled back.
+#[server]
+#[post("/api/prices/ensure-currency-history")]
+pub async fn ensure_currency_history_api(
+    symbol: String,
+) -> Result<CurrencyHistorySummary, ServerFnError> {
+    PriceService::connect(open_database()?)
+        .ensure_currency_history(&symbol)
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

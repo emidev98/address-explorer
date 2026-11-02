@@ -12,7 +12,7 @@ use crate::clients::frankfurter::{Frankfurter, FrankfurterConfig, RatesQuery};
 use crate::data::repositories::{fiat_rates as rate_repository, settings as settings_repository};
 use crate::data::{Database, DatabaseError};
 use crate::domain::civil_time;
-use crate::domain::exchange::ExchangeTransaction;
+use crate::domain::exchange::{csv, ExchangeTransaction};
 use crate::domain::price::USD_SYMBOL;
 
 const MAX_RANGE_DAYS: i64 = 366;
@@ -23,6 +23,13 @@ pub struct FiatValue {
     pub timestamp: i64,
     pub amount: f64,
     pub currency: String,
+}
+
+/// Which derived field of one transaction a conversion result belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FiatField {
+    Amount,
+    Fee,
 }
 
 /// Conversion service for exchange rows and CSV previews.
@@ -224,39 +231,65 @@ impl ExchangeFiatService {
         Ok(())
     }
 
-    /// Convert every row in place and return the warning, if any.
+    /// Convert every fiat amount and fiat fee in place and return the warning,
+    /// if any. BTC/XBT fees are left untouched: the table renders them as
+    /// BTC, not as a fiat conversion.
     pub async fn convert_transactions(
         &self,
         transactions: &mut [ExchangeTransaction],
     ) -> Option<String> {
         let target = self.target_currency().ok()?;
-        let values = transactions
-            .iter()
-            .filter_map(|transaction| {
-                Some(FiatValue {
+        for transaction in transactions.iter_mut() {
+            transaction.converted_fiat_amount = None;
+            transaction.converted_fiat_currency = None;
+            transaction.converted_fee_amount = None;
+            transaction.converted_fee_currency = None;
+        }
+
+        let mut values = Vec::new();
+        let mut assignments = Vec::new();
+        for (index, transaction) in transactions.iter().enumerate() {
+            if let (Some(amount), Some(currency)) = (
+                transaction.fiat_amount,
+                transaction.fiat_currency.as_deref(),
+            ) {
+                values.push(FiatValue {
                     timestamp: transaction.timestamp,
-                    amount: transaction.fiat_amount?,
-                    currency: transaction.fiat_currency.clone().unwrap_or_default(),
-                })
-            })
-            .collect::<Vec<_>>();
-        if values.is_empty() {
-            for transaction in transactions {
-                transaction.converted_fiat_amount = None;
-                transaction.converted_fiat_currency = None;
+                    amount,
+                    currency: currency.to_string(),
+                });
+                assignments.push((index, FiatField::Amount));
             }
+            if let (Some(fee), Some(currency)) =
+                (transaction.fee, transaction.fee_currency.as_deref())
+            {
+                if !csv::is_bitcoin_currency(currency) {
+                    values.push(FiatValue {
+                        timestamp: transaction.timestamp,
+                        amount: fee,
+                        currency: currency.to_string(),
+                    });
+                    assignments.push((index, FiatField::Fee));
+                }
+            }
+        }
+        if values.is_empty() {
             return None;
         }
+
         let (converted, warning) = self.convert_values(&target, &values).await;
-        let mut converted_iter = converted.into_iter();
-        for transaction in transactions {
-            if transaction.fiat_amount.is_some() {
-                if let Some(value) = converted_iter.next().flatten() {
-                    transaction.converted_fiat_amount = Some(value);
-                    transaction.converted_fiat_currency = Some(target.clone());
-                } else {
-                    transaction.converted_fiat_amount = None;
-                    transaction.converted_fiat_currency = None;
+        for ((index, field), value) in assignments.into_iter().zip(converted) {
+            let Some(value) = value else {
+                continue;
+            };
+            match field {
+                FiatField::Amount => {
+                    transactions[index].converted_fiat_amount = Some(value);
+                    transactions[index].converted_fiat_currency = Some(target.clone());
+                }
+                FiatField::Fee => {
+                    transactions[index].converted_fee_amount = Some(value);
+                    transactions[index].converted_fee_currency = Some(target.clone());
                 }
             }
         }
@@ -269,4 +302,108 @@ fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::data::repositories::fiat_rates as rate_repository;
+    use crate::data::repositories::settings as settings_repository;
+    use crate::domain::exchange::{ExchangeTxType, MatchState};
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        use std::task::{Context, RawWaker, RawWakerVTable, Waker};
+
+        fn raw_waker() -> RawWaker {
+            fn clone(_: *const ()) -> RawWaker {
+                raw_waker()
+            }
+            fn noop(_: *const ()) {}
+            // SAFETY: the vtable never dereferences the null data pointer.
+            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+
+        // SAFETY: `raw_waker` builds a `RawWaker` whose vtable upholds the
+        // contract documented above; the data pointer is never dereferenced.
+        let waker = unsafe { Waker::from_raw(raw_waker()) };
+        let mut context = Context::from_waker(&waker);
+        let mut future = std::pin::pin!(future);
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(output) => output,
+            std::task::Poll::Pending => panic!("test future must not pend"),
+        }
+    }
+
+    fn transaction(
+        timestamp: i64,
+        fiat_amount: Option<f64>,
+        fiat_currency: Option<&str>,
+        fee: Option<f64>,
+        fee_currency: Option<&str>,
+    ) -> ExchangeTransaction {
+        ExchangeTransaction {
+            id: 1,
+            exchange_id: 1,
+            fingerprint: "fingerprint".into(),
+            timestamp,
+            tx_type: ExchangeTxType::Buy,
+            amount_sats: 100_000_000,
+            currency: "BTC".into(),
+            fiat_amount,
+            fiat_currency: fiat_currency.map(str::to_string),
+            converted_fiat_amount: None,
+            converted_fiat_currency: None,
+            converted_fee_amount: None,
+            converted_fee_currency: None,
+            fee,
+            fee_currency: fee_currency.map(str::to_string),
+            tx_hash: None,
+            description: None,
+            raw_data: BTreeMap::new(),
+            match_state: MatchState::Unmatched,
+            matched_tx_id: None,
+            on_chain_link: None,
+            is_manually_edited: false,
+            is_intentional_duplicate: false,
+        }
+    }
+
+    #[test]
+    fn converts_fiat_amounts_and_fiat_fees_to_the_default_currency() {
+        let database = Database::open_in_memory().unwrap();
+        settings_repository::save_default_fiat_currency(&database, "USD").unwrap();
+        let timestamp = civil_time::epoch_seconds(2026, 3, 25, 12, 0, 0);
+        let date = civil_time::format_date(timestamp);
+        rate_repository::upsert_rate(&database, "EUR", "USD", &date, 1.1, 0).unwrap();
+
+        let service = ExchangeFiatService::connect(database);
+        let mut transaction =
+            transaction(timestamp, Some(100.0), Some("EUR"), Some(2.0), Some("EUR"));
+
+        let warning =
+            block_on(service.convert_transactions(std::slice::from_mut(&mut transaction)));
+
+        assert_eq!(warning, None);
+        assert!((transaction.converted_fiat_amount.unwrap() - 110.0).abs() < 1e-9);
+        assert_eq!(transaction.converted_fiat_currency.as_deref(), Some("USD"));
+        assert!((transaction.converted_fee_amount.unwrap() - 2.2).abs() < 1e-9);
+        assert_eq!(transaction.converted_fee_currency.as_deref(), Some("USD"));
+    }
+
+    #[test]
+    fn leaves_btc_fees_in_btc() {
+        let database = Database::open_in_memory().unwrap();
+        let service = ExchangeFiatService::connect(database);
+        let mut transaction = transaction(1_000, None, None, Some(5_000.0), Some("BTC"));
+
+        let warning =
+            block_on(service.convert_transactions(std::slice::from_mut(&mut transaction)));
+
+        assert_eq!(warning, None);
+        assert_eq!(transaction.converted_fee_amount, None);
+        assert_eq!(transaction.converted_fee_currency, None);
+    }
 }

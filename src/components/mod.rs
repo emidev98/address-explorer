@@ -4,6 +4,7 @@ mod confirm_dialog;
 mod date_picker;
 mod edit_price_dialog;
 mod exchanges;
+mod fiat_currency;
 pub mod format;
 mod import_address_dialog;
 mod kpi;
@@ -23,6 +24,7 @@ pub use edit_price_dialog::EditPriceDialog;
 pub use exchanges::{
     ExchangeAccountDialog, ExchangeInspector, ExchangeLinkDialog, ImportDataDialog,
 };
+pub use fiat_currency::{use_fiat_currency, FiatCurrency};
 pub use import_address_dialog::{AddressEditData, ImportAddressDialog, ImportAddressDialogMode};
 pub use kpi::Kpi;
 pub use sync_prices_dialog::SyncPricesDialog;
