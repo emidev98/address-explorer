@@ -351,6 +351,9 @@
   .contents {
     display: contents;
   }
+  .flex {
+    display: flex;
+  }
   .grid {
     display: grid;
   }
@@ -363,11 +366,23 @@
   .table {
     display: table;
   }
+  .flex-shrink {
+    flex-shrink: 1;
+  }
+  .shrink {
+    flex-shrink: 1;
+  }
+  .border-collapse {
+    border-collapse: collapse;
+  }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
   }
   .resize {
     resize: both;
+  }
+  .flex-wrap {
+    flex-wrap: wrap;
   }
   .truncate {
     overflow: hidden;
@@ -376,6 +391,10 @@
   }
   .rounded-md3-md {
     border-radius: var(--radius-md3-md);
+  }
+  .border {
+    border-style: var(--tw-border-style);
+    border-width: 1px;
   }
   .bg-primary {
     background-color: var(--color-primary);
@@ -457,6 +476,9 @@
     --tw-ordinal: ordinal;
     font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
   }
+  .underline {
+    text-decoration-line: underline;
+  }
   .shadow {
     --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
@@ -468,6 +490,10 @@
   .ring {
     --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
+  .outline {
+    outline-style: var(--tw-outline-style);
+    outline-width: 1px;
   }
   .blur {
     --tw-blur: blur(8px);
@@ -1283,7 +1309,7 @@
     background-color: var(--md-sys-color-surface-container);
   }
   .md3-table th {
-    padding: 0.875rem 1rem;
+    padding: .7rem .8rem;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     color: var(--md-sys-color-on-surface-variant);
     font-weight: 500;
@@ -1295,7 +1321,7 @@
     font-weight: var(--tw-font-weight, var(--text-title-small--font-weight));
   }
   .md3-table td {
-    padding: 0.875rem 1rem;
+    padding: .7rem .8rem;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     vertical-align: middle;
     text-align: start;
@@ -1779,6 +1805,11 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-border-style {
+  syntax: "*";
+  inherits: false;
+  initial-value: solid;
+}
 @property --tw-leading {
   syntax: "*";
   inherits: false;
@@ -1868,6 +1899,11 @@
   inherits: false;
   initial-value: 0 0 #0000;
 }
+@property --tw-outline-style {
+  syntax: "*";
+  inherits: false;
+  initial-value: solid;
+}
 @property --tw-blur {
   syntax: "*";
   inherits: false;
@@ -1933,6 +1969,7 @@
       --tw-rotate-z: initial;
       --tw-skew-x: initial;
       --tw-skew-y: initial;
+      --tw-border-style: solid;
       --tw-leading: initial;
       --tw-ordinal: initial;
       --tw-slashed-zero: initial;
@@ -1953,6 +1990,7 @@
       --tw-ring-offset-width: 0px;
       --tw-ring-offset-color: #fff;
       --tw-ring-offset-shadow: 0 0 #0000;
+      --tw-outline-style: solid;
       --tw-blur: initial;
       --tw-brightness: initial;
       --tw-contrast: initial;

@@ -21,17 +21,6 @@
     min-height: 16rem;
 }
 
-/* Wide flow charts stay legible on narrow screens by scrolling horizontally
-   instead of shrinking their nodes below a useful size. */
-.md3-chart-scroll {
-    width: 100%;
-    overflow-x: auto;
-}
-
-.md3-chart-scroll .md3-chart {
-    min-width: 48rem;
-}
-
 .md3-chart-card {
     display: flex;
     flex-direction: column;
@@ -586,13 +575,6 @@ select.md3-input option {
 
 .md3-exchange-name-link strong {
     font-weight: 600;
-}
-
-.md3-exchange-name-cell {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    align-items: flex-start;
 }
 
 .md3-exchange-provider {

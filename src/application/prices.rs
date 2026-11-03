@@ -380,14 +380,34 @@ pub async fn ensure_currency_history(
     Ok(summary)
 }
 
-/// Fetch BTC/USD daily closes from Coin Metrics from the latest stored USD
-/// close through the current day and persist them, in one transaction.
+/// One range the "sync to today" run fills: a gap between two stored closes,
+/// or the days between the latest stored close and the current day.
+struct SyncWindow {
+    /// Last stored close before the range; rows at or before it are skipped.
+    after: i64,
+    /// Inclusive upper bound of the rows kept from the source.
+    fetch_through: i64,
+    /// Upper bound used when counting the daily closes the range is missing.
+    /// It excludes the in-progress day for the tail, whose close is not
+    /// published while the day is still running.
+    counted_through: i64,
+}
+
+/// Recover the BTC/USD daily closes missing from the stored series.
 ///
-/// The daily series supplies the granularity of the table beyond the imported
-/// history. Coin Metrics timestamps a daily row at the start of its interval,
-/// so every row is stored at the matching candle close time (`23:59:59`). Only
-/// days after the latest stored close are inserted; existing rows are left
-/// untouched, so re-running the sync only fills gaps.
+/// Two kinds of ranges are filled:
+///
+/// - **gaps of more than one day** between consecutive stored closes, oldest
+///   first (the imported history has maintenance outages);
+/// - the **tail** from the latest stored close through the current day.
+///
+/// Coin Metrics timestamps a daily row at the start of its interval, so every
+/// row is stored at the matching daily close time (`23:59:59`). Only missing
+/// days are inserted and existing rows are left untouched, so re-running the
+/// sync is safe and only fills what is still absent. Days the source has no
+/// price for are counted as unavailable instead of failing the run. A range
+/// whose request fails is reported in the summary warning as long as another
+/// range succeeded; when every range fails the first error is returned.
 pub async fn sync_prices_to_today(
     database: &Database,
     now: i64,
@@ -403,20 +423,93 @@ pub async fn sync_prices_to_today(
         .into());
     };
 
-    let mut summary = SyncToTodaySummary {
-        from_time: latest,
-        to_time: now,
-        fetched: 0,
-        stored: 0,
-    };
-    if latest >= now {
-        return Ok(summary);
+    let gaps = price_repository::price_gaps(database, USD_SYMBOL, DAY_SECONDS)?;
+    let mut windows: Vec<SyncWindow> = gaps
+        .iter()
+        .map(|&(after, before)| SyncWindow {
+            after,
+            // The pair's next close is stored, so it is excluded.
+            fetch_through: before - 1,
+            counted_through: before - 1,
+        })
+        .collect();
+    if latest < now {
+        let current_day_close = daily_close_time(now);
+        windows.push(SyncWindow {
+            after: latest,
+            fetch_through: current_day_close,
+            // The current day has no close yet while it is still running.
+            counted_through: now,
+        });
     }
 
-    let mut prices = fetch_daily(latest, now).await?;
-    // The source starts at the day containing the latest stored close; the
-    // range filter drops that overlapping day when it is already stored.
-    prices.retain(|price| price.close_time > latest && price.close_time <= daily_close_time(now));
+    let mut summary = SyncToTodaySummary {
+        from_time: windows.first().map(|window| window.after).unwrap_or(latest),
+        to_time: now,
+        gaps_found: gaps.len() as u64,
+        missing_days: 0,
+        fetched: 0,
+        stored: 0,
+        unavailable_days: 0,
+        warning: None,
+    };
+
+    let mut succeeded = 0_u64;
+    let mut failed = 0_u64;
+    let mut first_failure = None;
+    // Missing days of the ranges the source actually answered. Days in a
+    // failed range are unknown, not unavailable, so they stay out of it.
+    let mut reachable_missing = 0_u64;
+    for window in &windows {
+        let expected = count_daily_closes(window.after, window.counted_through);
+        summary.missing_days += expected;
+        match fetch_daily_window(database, fetch_daily, window).await {
+            Ok((fetched, stored)) => {
+                succeeded += 1;
+                reachable_missing += expected;
+                summary.fetched += fetched;
+                summary.stored += stored;
+            }
+            // A source that cannot be reached leaves the other ranges
+            // recoverable; the run reports them and stays re-runnable.
+            Err(error @ PriceServiceError::CoinMetrics(_)) => {
+                failed += 1;
+                if first_failure.is_none() {
+                    first_failure = Some(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    summary.unavailable_days = reachable_missing.saturating_sub(summary.fetched);
+    if failed > 0 {
+        if succeeded == 0 {
+            return Err(first_failure.expect("a failed window recorded its error"));
+        }
+        let reason = first_failure
+            .map(|error| error.to_string())
+            .unwrap_or_default();
+        summary.warning = Some(format!(
+            "{failed} of {} price ranges could not be fetched ({reason}); sync again to retry them.",
+            failed + succeeded
+        ));
+    }
+
+    Ok(summary)
+}
+
+/// Fetch one sync window and store the daily closes it is missing. Returns
+/// `(rows returned by the source, rows inserted)`.
+async fn fetch_daily_window(
+    database: &Database,
+    fetch_daily: &(dyn Fn(i64, i64) -> FetchDailyFuture + Send + Sync),
+    window: &SyncWindow,
+) -> Result<(u64, u64), PriceServiceError> {
+    let mut prices = fetch_daily(window.after, window.fetch_through).await?;
+    prices.retain(|price| {
+        price.close_time > window.after && price.close_time <= window.fetch_through
+    });
     prices.sort_by_key(|price| price.close_time);
     prices.dedup_by_key(|price| price.close_time);
     for price in &mut prices {
@@ -424,9 +517,24 @@ pub async fn sync_prices_to_today(
         price.close = validate_price_value(price.close, USD_SYMBOL, "Coin Metrics PriceUSD 1d")?;
     }
 
-    summary.fetched = prices.len() as u64;
-    summary.stored = price_repository::store_prices_bulk(database, &prices)?;
-    Ok(summary)
+    let fetched = prices.len() as u64;
+    let stored = price_repository::store_prices_bulk(database, &prices)?;
+    Ok((fetched, stored))
+}
+
+/// Number of daily close times (`23:59:59` UTC) strictly after `after` and at
+/// or before `up_to`.
+fn count_daily_closes(after: i64, up_to: i64) -> u64 {
+    let day_close = daily_close_time(after);
+    let first = if day_close > after {
+        day_close
+    } else {
+        day_close + DAY_SECONDS
+    };
+    if first > up_to {
+        return 0;
+    }
+    ((up_to - first) / DAY_SECONDS + 1) as u64
 }
 
 /// Number of time buckets a series request is downsampled into at most, so a
@@ -521,6 +629,9 @@ pub fn list_price_conversions(
         database, close_time, &symbol,
     )?)
 }
+
+/// One day in seconds: the spacing of the daily price series.
+const DAY_SECONDS: i64 = 86_400;
 
 /// One day in seconds: the fallback distance of [`latest_price_at`].
 const LATEST_PRICE_FALLBACK_SECONDS: i64 = 86_400;
@@ -1825,8 +1936,12 @@ mod tests {
 
         assert_eq!(summary.from_time, latest);
         assert_eq!(summary.to_time, now);
+        assert_eq!(summary.gaps_found, 0);
+        assert_eq!(summary.missing_days, 3);
         assert_eq!(summary.fetched, 4);
         assert_eq!(summary.stored, 4);
+        assert_eq!(summary.unavailable_days, 0);
+        assert_eq!(summary.warning, None);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         for index in 0..4 {
             let close_time = daily_close_time(first_day + index * 86_400);
@@ -1856,9 +1971,184 @@ mod tests {
 
         // A re-run after the current day's close is stored has nothing to do.
         let second = block_on(sync_prices_to_today(&database, now, &fetch)).unwrap();
+        assert_eq!(second.missing_days, 0);
         assert_eq!(second.fetched, 0);
         assert_eq!(second.stored, 0);
+        assert_eq!(second.unavailable_days, 0);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn sync_prices_to_today_refills_gaps_of_more_than_one_day() {
+        let database = Database::open_in_memory().unwrap();
+        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
+        for day in [1, 2, 5, 6] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: day_close(day),
+                    close: 100.0 + day as f64,
+                },
+            )
+            .unwrap();
+        }
+
+        // The source knows every day, including the two whose rows are
+        // missing from the stored series.
+        let source = (1..=6)
+            .map(|day| Price {
+                symbol: USD_SYMBOL.to_string(),
+                close_time: day_close(day),
+                close: 200.0 + day as f64,
+            })
+            .collect();
+        let (calls, fetch) = stub_daily(source);
+
+        let summary = block_on(sync_prices_to_today(&database, day_close(6), &fetch)).unwrap();
+
+        assert_eq!(summary.gaps_found, 1);
+        assert_eq!(summary.missing_days, 2);
+        assert_eq!(summary.fetched, 2);
+        assert_eq!(summary.stored, 2);
+        assert_eq!(summary.unavailable_days, 0);
+        assert_eq!(summary.warning, None);
+        assert_eq!(summary.from_time, day_close(2));
+        assert_eq!(summary.to_time, day_close(6));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // The gap days are filled; the rows around the gap keep their values.
+        for (day, close) in [(3, 203.0), (4, 204.0)] {
+            assert_eq!(
+                price_repository::find_price(&database, USD_SYMBOL, day_close(day))
+                    .unwrap()
+                    .map(|price| price.close),
+                Some(close)
+            );
+        }
+        assert_eq!(
+            price_repository::find_price(&database, USD_SYMBOL, day_close(1))
+                .unwrap()
+                .map(|price| price.close),
+            Some(101.0)
+        );
+    }
+
+    #[test]
+    fn sync_prices_to_today_counts_days_the_source_does_not_have() {
+        let database = Database::open_in_memory().unwrap();
+        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
+        for day in [1, 5] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: day_close(day),
+                    close: 100.0,
+                },
+            )
+            .unwrap();
+        }
+
+        // Days 2 and 4 are missing from the source too; only day 3 exists.
+        let (_, fetch) = stub_daily(vec![Price {
+            symbol: USD_SYMBOL.to_string(),
+            close_time: day_close(3),
+            close: 190.0,
+        }]);
+
+        let summary = block_on(sync_prices_to_today(&database, day_close(5), &fetch)).unwrap();
+
+        assert_eq!(summary.gaps_found, 1);
+        assert_eq!(summary.missing_days, 3);
+        assert_eq!(summary.fetched, 1);
+        assert_eq!(summary.stored, 1);
+        assert_eq!(summary.unavailable_days, 2);
+        assert_eq!(summary.warning, None);
+    }
+
+    #[test]
+    fn sync_prices_to_today_reports_failed_ranges_and_keeps_the_others() {
+        let database = Database::open_in_memory().unwrap();
+        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
+        for day in [1, 2, 4, 5, 7] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: day_close(day),
+                    close: 100.0,
+                },
+            )
+            .unwrap();
+        }
+
+        // The first gap (day 3) cannot be fetched; the second (day 6) can.
+        let fetch = move |from: i64, _to: i64| -> FetchDailyFuture {
+            Box::pin(async move {
+                if from == day_close(2) {
+                    return Err(PriceServiceError::CoinMetrics(CoinMetricsError::Url(
+                        "offline".to_string(),
+                    )));
+                }
+                Ok(vec![Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: day_close(6),
+                    close: 160.0,
+                }])
+            })
+        };
+
+        let summary = block_on(sync_prices_to_today(&database, day_close(7), &fetch)).unwrap();
+
+        assert_eq!(summary.gaps_found, 2);
+        assert_eq!(summary.missing_days, 2);
+        assert_eq!(summary.fetched, 1);
+        assert_eq!(summary.stored, 1);
+        // The failed range's day is unknown, not unavailable.
+        assert_eq!(summary.unavailable_days, 0);
+        let warning = summary.warning.expect("failed range is reported");
+        assert!(warning.contains("1 of 2 price ranges could not be fetched"));
+        assert_eq!(
+            price_repository::find_price(&database, USD_SYMBOL, day_close(3)).unwrap(),
+            None
+        );
+        assert_eq!(
+            price_repository::find_price(&database, USD_SYMBOL, day_close(6))
+                .unwrap()
+                .map(|price| price.close),
+            Some(160.0)
+        );
+    }
+
+    #[test]
+    fn sync_prices_to_today_fails_when_every_range_fails() {
+        let database = Database::open_in_memory().unwrap();
+        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
+        for day in [1, 3] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: day_close(day),
+                    close: 100.0,
+                },
+            )
+            .unwrap();
+        }
+
+        let fetch = |_from: i64, _to: i64| -> FetchDailyFuture {
+            Box::pin(async move {
+                Err(PriceServiceError::CoinMetrics(CoinMetricsError::Url(
+                    "offline".to_string(),
+                )))
+            })
+        };
+
+        assert!(matches!(
+            block_on(sync_prices_to_today(&database, day_close(3), &fetch)),
+            Err(PriceServiceError::CoinMetrics(_))
+        ));
     }
 
     #[test]

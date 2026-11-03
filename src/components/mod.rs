@@ -23,9 +23,7 @@ pub use catalog::{
     CatalogImportDialog, CatalogTypeDialog,
 };
 pub use catalog_select::{CatalogOptionsSelect, CatalogSelect};
-pub use charts::{
-    FlowChart, FlowLink, FlowNode, HoldingSlice, HoldingsDistributionChart, PriceTrendChart,
-};
+pub use charts::{HoldingSlice, HoldingsDistributionChart, PriceTrendChart};
 pub use clipboard::{read_clipboard_text, write_clipboard_text};
 pub use confirm_dialog::ConfirmDialog;
 pub use date_picker::DatePicker;

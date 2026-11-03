@@ -13,7 +13,7 @@ const DAY_SECONDS: i64 = 86_400;
 enum SyncMode {
     /// Convert the stored USD history of a range into another currency.
     Historical,
-    /// Fetch BTC/USD daily closes from the latest stored point to today.
+    /// Recover BTC/USD daily closes through today, gaps included.
     ToToday,
 }
 
@@ -35,10 +35,11 @@ impl SyncMode {
 /// to close times that already exist in USD, so the result matches the
 /// granularity of the table.
 ///
-/// "Sync to today" fetches BTC/USD daily closes from Coin Metrics from the
-/// latest stored close through the current day. Coin Metrics timestamps each
-/// daily row at the start of its interval, so the rows are stored at the
-/// matching daily close time.
+/// "Sync to today" refills the BTC/USD daily closes: the gaps of more than
+/// one day in the stored history and the days between the latest stored close
+/// and the current day. Coin Metrics timestamps each daily row at the start of
+/// its interval, so the rows are stored at the matching daily close time; the
+/// earliest price the source serves is 2010-07-18.
 ///
 /// Both modes leave existing rows untouched, so the sync can be re-run to
 /// fill gaps. The dialog stays open after a successful sync so another mode,
@@ -52,7 +53,7 @@ pub fn SyncPricesDialog(
     on_close: EventHandler<()>,
     on_synced: EventHandler<PriceSyncOutcome>,
 ) -> Element {
-    let mut mode = use_signal(|| SyncMode::Historical);
+    let mut mode = use_signal(|| SyncMode::ToToday);
     let mut selected = use_signal(String::new);
     let mut from_input = use_signal(|| initial_from.clone());
     let mut to_input = use_signal(|| initial_to.clone());
@@ -74,6 +75,23 @@ pub fn SyncPricesDialog(
             return;
         }
         match mode() {
+            SyncMode::ToToday => {
+                loading.set(true);
+                status.set(None);
+                spawn(async move {
+                    match sync_prices_to_today_api().await {
+                        Ok(summary) => {
+                            loading.set(false);
+                            status.set(Some(today_status(&summary)));
+                            on_synced.call(PriceSyncOutcome::ToToday(summary));
+                        }
+                        Err(error) => {
+                            loading.set(false);
+                            status.set(Some(format!("Could not sync the prices: {error}")));
+                        }
+                    }
+                });
+            }
             SyncMode::Historical => {
                 let code = selected();
                 if code.is_empty() {
@@ -114,23 +132,6 @@ pub fn SyncPricesDialog(
                     }
                 });
             }
-            SyncMode::ToToday => {
-                loading.set(true);
-                status.set(None);
-                spawn(async move {
-                    match sync_prices_to_today_api().await {
-                        Ok(summary) => {
-                            loading.set(false);
-                            status.set(Some(today_status(&summary)));
-                            on_synced.call(PriceSyncOutcome::ToToday(summary));
-                        }
-                        Err(error) => {
-                            loading.set(false);
-                            status.set(Some(format!("Could not sync the prices: {error}")));
-                        }
-                    }
-                });
-            }
         }
     };
 
@@ -160,7 +161,7 @@ pub fn SyncPricesDialog(
                     class: "md3-chip-group",
                     role: "group",
                     aria_label: "Sync mode",
-                    for option in [SyncMode::Historical, SyncMode::ToToday] {
+                    for option in [SyncMode::ToToday, SyncMode::Historical] {
                         button {
                             r#type: "button",
                             class: if mode() == option { "md3-chip md3-chip-selected" } else { "md3-chip" },
@@ -179,7 +180,7 @@ pub fn SyncPricesDialog(
 
                 if mode() == SyncMode::Historical {
                     p { class: "text-body-medium text-on-surface-variant",
-                        "Convert the stored USD history of the range into another currency. Only close times that already exist in USD are populated, so the result matches the granularity of the table; the FX rates come from Frankfurter."
+                        "Convert the stored USD history of the range into another currency. Only times that already exist in USD are populated in the new currency; the FX rates come from Frankfurter."
                     }
 
                     label {
@@ -254,7 +255,7 @@ pub fn SyncPricesDialog(
                     }
                 } else {
                     p { class: "text-body-medium text-on-surface-variant",
-                        "Fetch BTC/USD daily prices from Coin Metrics, starting at the latest stored close time and continuing through the current day. Daily closes are stored, and existing rows are left untouched."
+                        "Fetch BTC/USD daily prices for the latest stored close through the current day, and refill any gap of more than one day in the stored history. Daily closes are stored and existing rows are left untouched. The earliest available price is 2010-07-18."
                     }
                 }
 
@@ -296,15 +297,39 @@ pub fn SyncPricesDialog(
 
 /// Status line of a successful "sync to today" run.
 fn today_status(summary: &SyncToTodaySummary) -> String {
-    if summary.fetched == 0 {
-        return "Sync complete: the stored daily BTC/USD history is already up to date."
+    if summary.missing_days == 0 && summary.stored == 0 {
+        return "Sync complete: the stored BTC/USD daily history is already up to date."
             .to_string();
     }
-    format!(
-        "Sync complete: {} daily BTC/USD prices fetched from {} through {}, {} stored. Existing rows were left untouched.",
-        summary.fetched,
-        format_date(summary.from_time),
-        format_date(summary.to_time),
-        summary.stored
-    )
+
+    let mut message = if summary.gaps_found == 0 {
+        format!(
+            "Sync complete: {} daily BTC/USD prices fetched from {} through {}, {} stored.",
+            summary.fetched,
+            format_date(summary.from_time),
+            format_date(summary.to_time),
+            summary.stored
+        )
+    } else {
+        format!(
+            "Sync complete: {} gap(s) of more than one day found ({} missing day(s)); {} daily BTC/USD prices fetched from {} through {}, {} stored.",
+            summary.gaps_found,
+            summary.missing_days,
+            summary.fetched,
+            format_date(summary.from_time),
+            format_date(summary.to_time),
+            summary.stored
+        )
+    };
+    if summary.unavailable_days > 0 {
+        message.push_str(&format!(
+            " {} day(s) have no available price and stay unfilled.",
+            summary.unavailable_days
+        ));
+    }
+    if let Some(warning) = &summary.warning {
+        message.push(' ');
+        message.push_str(warning);
+    }
+    message
 }

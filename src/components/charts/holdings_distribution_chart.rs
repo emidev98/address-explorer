@@ -148,6 +148,10 @@ fn build_option(entries: &[HoldingSlice]) -> Value {
                 "show": true,
                 "position": "inside",
                 "fontSize": 12,
+                // The treemap default line height equals the font size, which
+                // stacks the name and the amount on top of each other. A taller
+                // line box keeps a visible gap between the two lines.
+                "lineHeight": 20,
                 "overflow": "truncate",
             },
             "data": data,
@@ -250,6 +254,19 @@ mod tests {
         // The label uses the `on-*` color paired with the tile's fill.
         assert_eq!(data[0]["label"]["color"], theme::ON_PRIMARY);
         assert_eq!(data[1]["label"]["color"], theme::ON_PRIMARY_CONTAINER);
+    }
+
+    #[test]
+    fn tile_labels_keep_a_gap_between_the_name_and_the_amount() {
+        let entries = vec![slice("Wallet 3", 150_000_000)];
+
+        let option = build_option(&entries);
+
+        // ECharts sizes treemap labels with `lineHeight` = `fontSize` unless a
+        // line height is set, which draws the two formatter lines on top of
+        // each other.
+        assert_eq!(option["series"][0]["label"]["fontSize"], 12);
+        assert_eq!(option["series"][0]["label"]["lineHeight"], 20);
     }
 
     #[test]

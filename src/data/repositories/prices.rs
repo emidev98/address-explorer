@@ -251,6 +251,40 @@ pub fn price_series_range(
     Ok(first.zip(last))
 }
 
+/// Consecutive stored closes of `symbol` that are more than `min_gap_seconds`
+/// apart, as `(previous_close_time, next_close_time)` pairs, oldest first.
+///
+/// The imported USD history mixes daily and 15-minute rows, so a gap only
+/// identifies ranges where the series is missing entirely: no row exists
+/// between the pair, which is what the "sync to today" run refills.
+pub fn price_gaps(
+    database: &Database,
+    symbol: &str,
+    min_gap_seconds: i64,
+) -> Result<Vec<(i64, i64)>, DatabaseError> {
+    let connection = database.connection()?;
+    let mut statement = connection.prepare(
+        "SELECT previous_close_time, close_time
+         FROM (
+             SELECT close_time,
+                    LAG(close_time) OVER (ORDER BY close_time) AS previous_close_time
+             FROM historical_prices
+             WHERE symbol = ?1
+         )
+         WHERE previous_close_time IS NOT NULL
+           AND close_time - previous_close_time > ?2
+         ORDER BY close_time",
+    )?;
+    let rows = statement.query_map(params![symbol, min_gap_seconds], |row| {
+        Ok((row.get(0)?, row.get(1)?))
+    })?;
+    let mut gaps = Vec::new();
+    for row in rows {
+        gaps.push(row.map_err(|error| DatabaseError::new(error.to_string()))?);
+    }
+    Ok(gaps)
+}
+
 /// Bounds of the source close times that are missing from `target_symbol`.
 ///
 /// The operation behind the default-currency preparation: the preferred
@@ -368,6 +402,26 @@ mod tests {
             close_time,
             close,
         }
+    }
+
+    #[test]
+    fn price_gaps_lists_ranges_without_stored_rows() {
+        let database = Database::open_in_memory().unwrap();
+        let day_close = |day: i64| day * 86_400 + 86_399;
+        // Days 1-3 are consecutive; days 4-5 are missing.
+        for day in [1, 2, 3, 6, 7] {
+            store_price(&database, &store("USD", day_close(day), 100.0)).unwrap();
+        }
+        // Another symbol never contributes to the gap.
+        store_price(&database, &store("EUR", day_close(4), 90.0)).unwrap();
+
+        let gaps = price_gaps(&database, "USD", 86_400).unwrap();
+        assert_eq!(gaps, vec![(day_close(3), day_close(6))]);
+
+        // Closes exactly one day apart are not gaps.
+        assert!(price_gaps(&database, "USD", 3 * 86_400).unwrap().is_empty());
+        // Unknown symbols have no gaps.
+        assert!(price_gaps(&database, "GBP", 86_400).unwrap().is_empty());
     }
 
     fn row(symbol: &str, close_time: i64, close: f64, other_symbols: &[&str]) -> PriceRow {

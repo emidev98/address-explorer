@@ -11,14 +11,10 @@
 
 use serde_json::{json, Value};
 
-// Strong chromatic roles, always paired with their `on-*` content color so
-// fills and labels keep the contrast the palette guarantees.
+// Strong chromatic role, always paired with its `on-*` content color so fills
+// and labels keep the contrast the palette guarantees.
 pub const PRIMARY: &str = "var(--md-sys-color-primary)";
 pub const ON_PRIMARY: &str = "var(--md-sys-color-on-primary)";
-pub const SECONDARY: &str = "var(--md-sys-color-secondary)";
-pub const ON_SECONDARY: &str = "var(--md-sys-color-on-secondary)";
-pub const TERTIARY: &str = "var(--md-sys-color-tertiary)";
-pub const ON_TERTIARY: &str = "var(--md-sys-color-on-tertiary)";
 
 // Container roles for lower-emphasis fills, likewise paired.
 pub const PRIMARY_CONTAINER: &str = "var(--md-sys-color-primary-container)";
@@ -29,12 +25,10 @@ pub const TERTIARY_CONTAINER: &str = "var(--md-sys-color-tertiary-container)";
 pub const ON_TERTIARY_CONTAINER: &str = "var(--md-sys-color-on-tertiary-container)";
 
 // Neutral roles for text, axes, lines, and surfaces.
-pub const SURFACE: &str = "var(--md-sys-color-surface)";
 pub const SURFACE_CONTAINER: &str = "var(--md-sys-color-surface-container)";
 pub const SURFACE_CONTAINER_LOW: &str = "var(--md-sys-color-surface-container-low)";
 pub const ON_SURFACE: &str = "var(--md-sys-color-on-surface)";
 pub const ON_SURFACE_VARIANT: &str = "var(--md-sys-color-on-surface-variant)";
-pub const OUTLINE: &str = "var(--md-sys-color-outline)";
 pub const OUTLINE_VARIANT: &str = "var(--md-sys-color-outline-variant)";
 pub const INVERSE_SURFACE: &str = "var(--md-sys-color-inverse-surface)";
 pub const INVERSE_ON_SURFACE: &str = "var(--md-sys-color-inverse-on-surface)";

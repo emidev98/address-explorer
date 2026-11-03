@@ -101,7 +101,8 @@ pub async fn ensure_currency_history_api(
 }
 
 /// Fetch BTC/USD daily closes from the latest stored close through the
-/// current day and persist them. Existing rows are left untouched.
+/// current day, refilling the gaps of more than one day in the stored
+/// history. Existing rows are left untouched.
 #[server]
 #[post("/api/prices/sync-to-today")]
 pub async fn sync_prices_to_today_api() -> Result<SyncToTodaySummary, ServerFnError> {

@@ -179,25 +179,71 @@ pub fn list_overview_rows(
     Ok(values)
 }
 
-/// Global KPI totals of the addresses page: the stored address count, the
-/// confirmed transactions across all of them, and the total spendable
-/// balance in satoshis. The totals are unfiltered; the address count excludes
-/// exchange-scoped addresses without a stored ledger balance, matching the
-/// rows the overview lists, while their stored transactions still count.
-/// Exchange-scoped addresses contribute their stored ledger balance (see
-/// [`SPENDABLE_BALANCE_SATS`]). The cards therefore do not change when the
-/// table's scope filter changes.
-pub fn overview_totals(database: &Database) -> Result<(i64, i64, i64), DatabaseError> {
+/// KPI totals of the address population selected by `scope`: the listed
+/// address count, its transaction count, and its total spendable balance in
+/// satoshis.
+///
+/// The totals follow the same population as [`list_overview_rows`], so the
+/// cards track the table's scope filter. Address scopes count the confirmed
+/// on-chain transactions stored for the listed addresses; the exchange scope
+/// counts the imported ledger deposits and withdrawals of the exchanges those
+/// addresses belong to, because exchange balances come from the ledger rather
+/// than from on-chain indexing. The address count excludes exchange-scoped
+/// addresses without a stored ledger balance, which the overview never lists,
+/// so their stored transactions are not counted either. Exchange-scoped
+/// addresses contribute their stored ledger balance (see
+/// [`SPENDABLE_BALANCE_SATS`]).
+pub fn overview_totals(
+    database: &Database,
+    scope: AddressScopeFilter,
+) -> Result<(i64, i64, i64), DatabaseError> {
+    let where_scope = scope_fragment(scope);
     let sql = format!(
-        "SELECT (SELECT COUNT(*) FROM addresses a
-                 WHERE a.exchange_id IS NULL OR a.exchange_balance_sats <> 0),
-                (SELECT COUNT(*) FROM transactions WHERE confirmed = 1),
-                (SELECT COALESCE(SUM({SPENDABLE_BALANCE_SATS}), 0)
-                 FROM addresses a)"
+        "SELECT COUNT(*),
+                COALESCE(SUM(COALESCE(s.confirmed_tx_count, 0)), 0),
+                COALESCE(SUM({SPENDABLE_BALANCE_SATS}), 0)
+         FROM addresses a
+         LEFT JOIN (
+             SELECT address, COUNT(*) AS confirmed_tx_count
+             FROM transactions WHERE confirmed = 1 GROUP BY address
+         ) s ON s.address = a.address
+         WHERE (a.exchange_id IS NULL OR a.exchange_balance_sats <> 0)
+           AND ({where_scope})"
     );
     let connection = database.connection()?;
-    connection
+    let (address_count, confirmed_tx_count, spendable_balance_sats) = connection
         .query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .map_err(DatabaseError::from)?;
+
+    let tx_count = if scope == AddressScopeFilter::Exchanges {
+        exchange_ledger_operation_count(&connection)?
+    } else {
+        confirmed_tx_count
+    };
+
+    Ok((address_count, tx_count, spendable_balance_sats))
+}
+
+/// Deposits and withdrawals imported into the ledger accounts of the
+/// exchanges the overview lists: exchange-scoped addresses with a stored
+/// ledger balance. Ledger rows whose account is not assigned to a provider
+/// cannot be attributed to a listed exchange and are not counted.
+fn exchange_ledger_operation_count(
+    connection: &rusqlite::Connection,
+) -> Result<i64, DatabaseError> {
+    connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM exchange_transactions t
+             JOIN exchange_accounts acc ON acc.id = t.exchange_id
+             WHERE t.tx_type IN ('deposit', 'withdrawal')
+               AND acc.provider_id IN (
+                   SELECT a.exchange_id FROM addresses a
+                   WHERE a.exchange_id IS NOT NULL AND a.exchange_balance_sats <> 0
+               )",
+            [],
+            |row| row.get(0),
+        )
         .map_err(Into::into)
 }
 
@@ -703,12 +749,13 @@ mod tests {
     }
 
     #[test]
-    fn overview_rows_filter_by_scope_and_totals_stay_global() {
+    fn overview_rows_and_totals_follow_the_scope_filter() {
         let database = Database::open_in_memory().unwrap();
         overview_address(&database, "bc1qwallet", 100, None, None, Some(1));
         overview_address(&database, "bc1qexchange", 200, None, Some(1), None);
         overview_address(&database, "bc1qplain", 300, None, None, None);
         confirmed_tx(&database, "bc1qwallet", "tx-w1", 1_600_000_000);
+        confirmed_tx(&database, "bc1qexchange", "tx-e1", 1_600_000_000);
 
         let wallets = list_overview_rows(
             &database,
@@ -739,13 +786,92 @@ mod tests {
         assert_eq!(exchanges[0].spendable_balance_sats, 0);
         assert_eq!(exchanges[0].entity.chain_funded_txo_sum, 200);
 
-        // The KPI totals ignore the filter. The address count excludes the
-        // exchange address without a ledger balance (the overview does not
-        // list it); the balance total excludes exchange-scoped on-chain stats.
-        let (count, confirmed, balance) = overview_totals(&database).unwrap();
-        assert_eq!(count, 2);
-        assert_eq!(confirmed, 1);
-        assert_eq!(balance, 400);
+        // The KPI totals follow the filter and the listed population: the
+        // exchange address has no ledger balance, so neither it, nor the
+        // transactions stored for it, reach the "All" totals.
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::All).unwrap(),
+            (2, 1, 400)
+        );
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::Wallets).unwrap(),
+            (1, 1, 100)
+        );
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::Exchanges).unwrap(),
+            (0, 0, 0)
+        );
+    }
+
+    /// Insert one exchange ledger account assigned to a provider catalog row.
+    fn ledger_account(database: &Database, provider_id: i64, name: &str) -> i64 {
+        let connection = database.connection().unwrap();
+        connection
+            .execute(
+                "INSERT INTO exchange_accounts (name, provider_id, created_at, last_modified_at)
+                 VALUES (?1, ?2, 0, 0)",
+                params![name, provider_id],
+            )
+            .unwrap();
+        connection.last_insert_rowid()
+    }
+
+    /// Insert one ledger row of `tx_type` into an exchange account.
+    fn ledger_tx(database: &Database, account_id: i64, tx_type: &str, fingerprint: &str) {
+        let connection = database.connection().unwrap();
+        connection
+            .execute(
+                "INSERT INTO exchange_transactions (
+                    exchange_id, fingerprint, timestamp, tx_type, amount_sats, currency,
+                    raw_data, match_state, created_at, updated_at
+                 ) VALUES (?1, ?2, 1_700_000_000, ?3, 100, 'BTC', '{}', 'unmatched', 0, 0)",
+                params![account_id, fingerprint, tx_type],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn exchange_scope_counts_ledger_deposits_and_withdrawals() {
+        let database = Database::open_in_memory().unwrap();
+        overview_address(&database, "bc1qwallet", 100, None, None, Some(1));
+        overview_address(&database, "bc1qexchange", 200, None, Some(1), None);
+        confirmed_tx(&database, "bc1qwallet", "tx-w1", 1_600_000_000);
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE addresses SET exchange_balance_sats = 5000 \
+                 WHERE address = 'bc1qexchange'",
+                [],
+            )
+            .unwrap();
+
+        let account = ledger_account(&database, 1, "Binance");
+        ledger_tx(&database, account, "deposit", "deposit-1");
+        ledger_tx(&database, account, "withdrawal", "withdrawal-1");
+        ledger_tx(&database, account, "deposit", "deposit-2");
+        for (index, tx_type) in ["buy", "sell", "reward", "unknown"].iter().enumerate() {
+            ledger_tx(&database, account, tx_type, &format!("other-{index}"));
+        }
+        // A ledger account whose provider has no listed exchange address does
+        // not contribute to the exchange cards.
+        let other = ledger_account(&database, 2, "Revolut");
+        ledger_tx(&database, other, "deposit", "revolut-deposit");
+
+        // Exchanges: one listed address, its stored ledger balance, and the
+        // three deposit/withdrawal rows of its provider. The wallet's
+        // on-chain transaction and the buy/sell/reward/unknown rows are not
+        // part of this count.
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::Exchanges).unwrap(),
+            (1, 3, 5_000)
+        );
+
+        // The address scopes keep counting confirmed on-chain transactions.
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::All).unwrap(),
+            (2, 1, 5_100)
+        );
     }
 
     #[test]
@@ -765,11 +891,18 @@ mod tests {
             )
             .unwrap();
 
-        let (count, _, balance) = overview_totals(&database).unwrap();
+        let (count, _, balance) = overview_totals(&database, AddressScopeFilter::All).unwrap();
         // Wallet and unclassified addresses always count; an exchange
         // address counts once its ledger balance is non-zero.
         assert_eq!(count, 3);
         assert_eq!(balance, 400 + 5_000);
+
+        // The exchange scope only lists the exchange address with a ledger
+        // balance, so its card values are the ledger balance alone.
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::Exchanges).unwrap(),
+            (1, 0, 5_000)
+        );
     }
 
     #[test]
@@ -814,7 +947,7 @@ mod tests {
         // The real on-chain statistics are preserved separately.
         assert_eq!(rows[0].entity.chain_funded_txo_sum, 9_000);
 
-        let (_, _, balance) = overview_totals(&database).unwrap();
+        let (_, _, balance) = overview_totals(&database, AddressScopeFilter::All).unwrap();
         assert_eq!(balance, 5_100);
 
         let rows = list_overview_rows(&database, &AddressOverviewFilter::default()).unwrap();

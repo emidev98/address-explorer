@@ -74,13 +74,24 @@ pub fn Addresses() -> Element {
     let symbol = fiat.code();
     let latest_value = latest_price().flatten();
     let empty_message = format!("No {} balances", scope_filter().empty_noun());
+    // Exchange balances come from the imported ledger, so the second card
+    // counts ledger deposits and withdrawals instead of on-chain confirmed
+    // transactions while the exchange scope is selected.
+    let tx_kpi_title = if scope_filter() == AddressScopeFilter::Exchanges {
+        "Deposits & Withdrawals"
+    } else {
+        "Confirmed Tx"
+    };
 
-    // `address_count` is the global count of the listed population; the
-    // backend excludes exchange addresses without a ledger balance.
+    // The KPI values cover the same filtered population as the table and the
+    // treemap: the backend excludes exchange addresses without a ledger
+    // balance from the address count, the transaction count, and the balance.
+    // In the exchange scope the transaction count is the number of ledger
+    // deposits and withdrawals, not on-chain confirmed transactions.
     let kpi_values: [Option<String>; 4] = match &overview_state {
         Some(Ok(data)) => [
             Some(data.address_count.to_string()),
-            Some(data.confirmed_tx_count.to_string()),
+            Some(data.tx_count.to_string()),
             Some(format_btc(data.spendable_balance_sats)),
             latest_value.map(|price| {
                 format_fiat(sats_to_fiat(data.spendable_balance_sats, price), &symbol)
@@ -395,7 +406,7 @@ pub fn Addresses() -> Element {
                     loading,
                 }
                 Kpi {
-                    title: "Confirmed Tx".to_string(),
+                    title: tx_kpi_title.to_string(),
                     value: kpi_values[1].clone(),
                     loading,
                 }

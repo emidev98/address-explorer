@@ -64,8 +64,9 @@ impl AddressService {
     ///
     /// The rows are sorted and scope-filtered in the backend (Section 5.11
     /// of CONTRIBUTING.md); the sort key is validated against the
-    /// repository's allowlist before any SQL is built. The KPI totals are
-    /// global and ignore the filter. No network access.
+    /// repository's allowlist before any SQL is built. The KPI totals cover
+    /// the same filtered population, so the cards follow the scope filter.
+    /// No network access.
     pub fn addresses_overview(
         &self,
         query: &AddressOverviewQuery,
@@ -86,13 +87,13 @@ impl AddressService {
                 scope: query.scope,
             },
         )?;
-        let (address_count, confirmed_tx_count, spendable_balance_sats) =
-            address_repository::overview_totals(&self.database)?;
+        let (address_count, tx_count, spendable_balance_sats) =
+            address_repository::overview_totals(&self.database, query.scope)?;
 
         Ok(AddressOverview {
             items: rows.iter().map(overview_item).collect(),
             address_count,
-            confirmed_tx_count,
+            tx_count,
             spendable_balance_sats,
         })
     }

@@ -137,19 +137,31 @@ pub struct CurrencyHistorySummary {
     pub warning: Option<String>,
 }
 
-/// Outcome of a "sync to today" run: BTC/USD daily closes fetched from Coin
-/// Metrics between the latest stored close time and the current day.
+/// Outcome of a "sync to today" run: BTC/USD daily closes recovered from Coin
+/// Metrics for the gaps of the stored series and for the days between the
+/// latest stored close and the current day.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncToTodaySummary {
-    /// Latest stored BTC/USD close time when the sync started.
+    /// Start of the earliest range the sync tried to fill: the first gap when
+    /// one exists, otherwise the latest stored close when the sync started.
     pub from_time: i64,
     /// Current time the sync ran up to.
     pub to_time: i64,
-    /// Daily closes returned by Coin Metrics within the window.
+    /// Gaps of more than one day found between consecutive stored closes.
+    pub gaps_found: u64,
+    /// Daily closes missing from the stored series across those gaps and the
+    /// days since the latest stored close.
+    pub missing_days: u64,
+    /// Daily closes returned by Coin Metrics within the ranges.
     pub fetched: u64,
     /// Rows actually inserted; existing `close_time` rows are left untouched
     /// and do not count.
     pub stored: u64,
+    /// Missing days Coin Metrics had no price for, so they stay unfilled.
+    pub unavailable_days: u64,
+    /// Ranges whose request failed while another range succeeded. The run
+    /// stored what it could and can be re-run to retry the failed ranges.
+    pub warning: Option<String>,
 }
 
 /// Outcome of one run of the "Sync Prices" dialog, whichever mode was used.

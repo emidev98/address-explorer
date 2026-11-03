@@ -104,6 +104,7 @@ pub fn Exchanges() -> Element {
                                     page.set(0);
                                 },
                             }
+                            th { "Exchange" }
                             SortableHeader {
                                 label: "Txs".to_string(),
                                 active_direction: (sort_by().as_deref() == Some("txs")).then_some(sort_dir()),
@@ -231,19 +232,21 @@ pub fn Exchanges() -> Element {
                                                             transaction_id: None,
                                                         });
                                                 },
-                                                span { class: "md3-exchange-name-cell",
-                                                    strong { "{row.name}" }
-                                                    if let Some(provider) = &row.provider_name {
-                                                        span { class: "md3-exchange-provider md3-exchange-provider-badge",
-                                                            ProviderBadge {
-                                                                name: provider.clone(),
-                                                                color: row.provider_color.clone(),
-                                                                size: BadgeSize::Compact,
-                                                            }
-                                                            "{provider}"
-                                                        }
+                                                strong { "{row.name}" }
+                                            }
+                                        }
+                                        td {
+                                            if let Some(provider) = &row.provider_name {
+                                                span { class: "md3-exchange-provider md3-exchange-provider-badge",
+                                                    ProviderBadge {
+                                                        name: provider.clone(),
+                                                        color: row.provider_color.clone(),
+                                                        size: BadgeSize::Compact,
                                                     }
+                                                    "{provider}"
                                                 }
+                                            } else {
+                                                "-"
                                             }
                                         }
                                         td { "{row.tx_count}" }

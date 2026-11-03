@@ -52,6 +52,10 @@ pub(crate) fn EChartsHost(option: String, aria_label: String) -> Element {
             class: "md3-chart",
             role: "img",
             aria_label: "{aria_label}",
+            // ECharts replaces `aria-label` with its generated data
+            // description, so this attribute is the stable anchor the lookup
+            // uses after the first render.
+            "data-chart-label": "{aria_label}",
         }
     }
 }
@@ -70,6 +74,7 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
   if (!globalThis.__addressExplorerECharts) {{
     globalThis.__addressExplorerECharts = {{
       charts: Object.create(null),
+      elements: Object.create(null),
       observers: Object.create(null),
       timers: Object.create(null),
       options: Object.create(null),
@@ -78,6 +83,11 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
     }};
   }}
   const registry = globalThis.__addressExplorerECharts;
+
+  // Hot reloads can reuse a registry created by an older host script.
+  if (!registry.elements) {{
+    registry.elements = Object.create(null);
+  }}
 
   // Chart options reference app theme colors as `var(--md-sys-color-*)`
   // tokens with an optional `~alpha` suffix. Canvas fill styles cannot parse
@@ -195,15 +205,22 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
 
   // Hydration keeps SSR-rendered attributes, and the server-side chart id
   // counter runs ahead of the client-side one, so the element's DOM id may
-  // not match this client's id. The aria-label is identical in both
-  // renders, so it anchors the fallback lookup.
+  // not match this client's id. `data-chart-label` is identical in both
+  // renders and, unlike `aria-label`, is never rewritten by ECharts' own
+  // accessibility output, so it anchors the fallback lookup. The element
+  // found for a chart is also cached, which keeps later option updates
+  // (filter changes, refreshed data) bound to the same DOM node.
   const findElement = () => {{
+    const known = registry.elements[id];
+    if (known && known.isConnected) {{
+      return known;
+    }}
     const byId = document.getElementById(id);
-    if (byId && byId.getAttribute("aria-label") === label) {{
+    if (byId && byId.getAttribute("data-chart-label") === label) {{
       return byId;
     }}
     return Array.from(document.querySelectorAll("div.md3-chart"))
-      .find((candidate) => candidate.getAttribute("aria-label") === label) || null;
+      .find((candidate) => candidate.getAttribute("data-chart-label") === label) || null;
   }};
 
   const resize = () => {{
@@ -218,6 +235,7 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
     if (!element || typeof globalThis.echarts === "undefined") {{
       return false;
     }}
+    registry.elements[id] = element;
 
     let chart = registry.charts[id];
     if (!chart) {{
@@ -328,6 +346,10 @@ pub(crate) fn EChartsZoomHost(
             class: "md3-chart",
             role: "img",
             aria_label: "{aria_label}",
+            // ECharts replaces `aria-label` with its generated data
+            // description, so this attribute is the stable anchor the lookup
+            // uses after the first render.
+            "data-chart-label": "{aria_label}",
         }
     }
 }
@@ -449,6 +471,7 @@ fn dispose_script(chart_id: &str) -> String {
     delete registry.charts[id];
   }}
 
+  delete registry.elements[id];
   delete registry.options[id];
 }})();
 "#
@@ -461,28 +484,41 @@ mod tests {
 
     #[test]
     fn render_script_embeds_the_chart_id_and_option() {
-        let script = render_script("echarts-7", "Flow chart", r#"{"series":[]}"#);
+        let script = render_script("echarts-7", "Test chart", r#"{"series":[]}"#);
 
         assert!(script.contains(r#"const id = "echarts-7";"#));
-        assert!(script.contains(r#"const label = "Flow chart";"#));
+        assert!(script.contains(r#"const label = "Test chart";"#));
         assert!(script.contains(r#"const option = {"series":[]};"#));
         assert!(script.trim_start().starts_with("(() => {"));
         assert!(script.trim_end().ends_with("})();"));
     }
 
     #[test]
-    fn render_script_falls_back_to_the_aria_label_for_hydrated_elements() {
-        let script = render_script("echarts-7", "Flow chart", "{}");
+    fn render_script_anchors_the_lookup_on_the_stable_chart_label() {
+        let script = render_script("echarts-7", "Test chart", "{}");
 
         // Hydrated pages keep the SSR-rendered id, so the client-side id
-        // lookup may miss; the aria-label is stable across both renders.
+        // lookup may miss. `data-chart-label` is stable across both renders
+        // and, unlike `aria-label`, is not rewritten by ECharts' own
+        // accessibility output.
         assert!(script.contains("const findElement = () => {"));
-        assert!(script.contains("candidate.getAttribute(\"aria-label\") === label"));
+        assert!(script.contains("candidate.getAttribute(\"data-chart-label\") === label"));
+        assert!(!script.contains("getAttribute(\"aria-label\")"));
+    }
+
+    #[test]
+    fn render_script_caches_the_element_so_later_options_reach_the_chart() {
+        let script = render_script("echarts-7", "Test chart", "{}");
+
+        // Refreshed data must update the chart that already exists, so the
+        // element resolved for a chart is remembered between option updates.
+        assert!(script.contains("const known = registry.elements[id];"));
+        assert!(script.contains("registry.elements[id] = element;"));
     }
 
     #[test]
     fn render_script_resolves_theme_color_tokens_against_a_probe_element() {
-        let script = render_script("echarts-7", "Flow chart", "{}");
+        let script = render_script("echarts-7", "Test chart", "{}");
 
         // Tokens are `var(--md-sys-color-*)` strings with an optional
         // `~alpha` suffix, resolved through the computed `color` of a hidden
@@ -507,7 +543,7 @@ mod tests {
 
     #[test]
     fn render_script_reapplies_options_when_the_theme_changes() {
-        let script = render_script("echarts-7", "Flow chart", "{}");
+        let script = render_script("echarts-7", "Test chart", "{}");
 
         assert!(script.contains("new MutationObserver(reapplyTheme)"));
         assert!(script.contains("attributeFilter: [\"data-theme\", \"data-mode\"]"));
@@ -520,6 +556,7 @@ mod tests {
 
         assert!(script.contains(r#"const id = "echarts-7";"#));
         assert!(script.contains("chart.dispose();"));
+        assert!(script.contains("delete registry.elements[id];"));
     }
 
     #[test]
