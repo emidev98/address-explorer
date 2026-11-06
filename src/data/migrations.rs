@@ -133,6 +133,10 @@ pub(crate) const MIGRATIONS: &[(&str, Migration)] = &[
         "0020_provider_brand_colors",
         Migration::Sql(include_str!("migrations/0020_provider_brand_colors.sql")),
     ),
+    (
+        "0021_flow_indexes",
+        Migration::Sql(include_str!("migrations/0021_flow_indexes.sql")),
+    ),
 ];
 
 /// `user_version` of a database with every migration applied.
@@ -317,10 +321,7 @@ mod tests {
         }
         assert_eq!(names.len(), MIGRATIONS.len());
         assert_eq!(MIGRATIONS[0].0, "0001_setting");
-        assert_eq!(
-            MIGRATIONS[MIGRATIONS.len() - 1].0,
-            "0020_provider_brand_colors"
-        );
+        assert_eq!(MIGRATIONS[MIGRATIONS.len() - 1].0, "0021_flow_indexes");
         assert_eq!(CURRENT_SCHEMA_VERSION, MIGRATIONS.len() as i32);
     }
 
@@ -391,6 +392,31 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 1, "missing index {index}");
         }
+    }
+
+    #[test]
+    fn flow_indexes_are_present_and_idempotent() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
+        for index in [
+            "idx_transactions_block_time",
+            "idx_exchange_transactions_timestamp",
+            "idx_exchange_transactions_on_chain_txid",
+        ] {
+            let count: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+                    [index],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "missing index {index}");
+        }
+        // Every migration is idempotent; re-running the index file must not
+        // fail or duplicate the indexes.
+        connection
+            .execute_batch(include_str!("migrations/0021_flow_indexes.sql"))
+            .unwrap();
     }
 
     #[test]

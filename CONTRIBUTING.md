@@ -427,6 +427,13 @@ Every screen that lists rows in a table **MUST** use the shared backend-driven t
 - When a table's behavior changes, the change **MUST** extend the shared definitions rather than hand-rolling equivalents: a new sortable column goes to the repository's allowlist enum and gains a `SortableHeader`, and a new filter becomes a typed field of the endpoint's query struct. Screens **MUST NOT** implement their own pagination bar or sort headers.
 - A new table **MUST** be built from these pieces: a `TableQuery`-flattening endpoint, a service that validates the sort key and clamps the page size, repository `WHERE` fragments shared between the list and count queries, and the shared controls from `src/components/table_controls.rs`.
 
+**Multi-select and bulk actions.**
+
+- Multi-selection is opt-in per table. A table with a bulk action (currently deletion) uses `use_table_selection` and renders `TableSelectionHeader` as its first header cells and `TableSelectionCell` as the first body cell of every row. Tables without a bulk action **MUST NOT** render selection cells. Screens **MUST NOT** hand-roll checkboxes, select-all state, or selected-row classes.
+- `TableSelectionHeader` owns the select-all checkbox and the `th` directly next to it. Bulk action buttons (the delete action today, other actions later) **MUST** be passed as its children so they read as applying to the selection; row-level actions stay in the second body cell.
+- The selector `th`/`td` use `.md3-table-select-cell` and the bulk-action header uses `.md3-table-select-actions`; these cells shrink to their content. A row whose checkbox is checked carries `.md3-table-row-selected` so CSS can mark the whole row.
+- Selection **MUST** be cleared whenever the page, sort, or filter changes and after a successful bulk action. Bulk commands **MUST** call one batch endpoint that performs the change in a single transaction, reject an empty selection, deduplicate ids, and return the affected count.
+
 ### 5.12 Catalog settings (Wallet Types and Exchange Types)
 
 The Settings area has two provider-catalog sub-settings built on one generic pattern. Contributors **MUST** extend that pattern rather than hand-rolling a second catalog screen:
@@ -639,8 +646,9 @@ entry under `src/data/migrations/`.
 | 16–18 | `0016_exchange_accounts.sql`, `0017_exchange_transactions.sql`, `0018_fiat_exchange_rates.sql` | schema |
 | 19 | `0019_addresses_data` (Rust seed) | data |
 | 20 | `0020_provider_brand_colors.sql` | data backfill |
+| 21 | `0021_flow_indexes.sql` | read-path indexes |
 
-The current `CURRENT_SCHEMA_VERSION` is `20`.
+The current `CURRENT_SCHEMA_VERSION` is `21`.
 
 ## 7. Single Responsibility Principle and module design
 
@@ -804,7 +812,7 @@ Reviewers **SHOULD** evaluate correctness, readability, error handling, concurre
 
 ## 12. Current database schema
 
-A database at `CURRENT_SCHEMA_VERSION = 20` has the tables, indexes, and
+A database at `CURRENT_SCHEMA_VERSION = 21` has the tables, indexes, and
 triggers below. The statements are the consolidated migration files applied in
 version order; `src/data/migrations/` is authoritative and this section **MUST**
 be updated in the same change as a migration.
@@ -921,6 +929,7 @@ CREATE TABLE transactions (
 );
 CREATE INDEX idx_transactions_address ON transactions(address);
 CREATE INDEX idx_transactions_txid ON transactions(txid);
+CREATE INDEX idx_transactions_block_time ON transactions(block_time);
 CREATE TABLE transaction_inputs (
     id INTEGER PRIMARY KEY,
     transaction_id INTEGER NOT NULL,
@@ -1017,6 +1026,10 @@ CREATE INDEX idx_exchange_transactions_account_timestamp
     ON exchange_transactions(exchange_id, timestamp);
 CREATE INDEX idx_exchange_transactions_matched_txid
     ON exchange_transactions(matched_tx_id);
+CREATE INDEX idx_exchange_transactions_timestamp
+    ON exchange_transactions(timestamp);
+CREATE INDEX idx_exchange_transactions_on_chain_txid
+    ON exchange_transactions(on_chain_txid);
 CREATE TABLE fiat_exchange_rates (
     base TEXT NOT NULL,
     quote TEXT NOT NULL,

@@ -8,6 +8,7 @@ mod edit_price_dialog;
 mod exchanges;
 mod fiat_currency;
 mod file_dropzone;
+mod filter_multiselect;
 pub mod format;
 mod import_address_dialog;
 mod kpi;
@@ -23,7 +24,9 @@ pub use catalog::{
     CatalogImportDialog, CatalogTypeDialog,
 };
 pub use catalog_select::{CatalogOptionsSelect, CatalogSelect};
-pub use charts::{HoldingSlice, HoldingsDistributionChart, PriceTrendChart};
+pub use charts::{
+    FlowFiatContext, FundsFlowChart, HoldingSlice, HoldingsDistributionChart, PriceTrendChart,
+};
 pub use clipboard::{read_clipboard_text, write_clipboard_text};
 pub use confirm_dialog::ConfirmDialog;
 pub use date_picker::DatePicker;
@@ -33,10 +36,14 @@ pub use exchanges::{
 };
 pub use fiat_currency::{use_fiat_currency, FiatCurrency};
 pub use file_dropzone::CsvDropzone;
+pub use filter_multiselect::{MultiSelect, MultiSelectOption};
 pub use import_address_dialog::{AddressEditData, ImportAddressDialog, ImportAddressDialogMode};
 pub use kpi::Kpi;
 pub use provider_badge::{BadgeSize, ProviderBadge};
 pub use sync_prices_dialog::SyncPricesDialog;
-pub use table_controls::{SortableHeader, TablePagination};
+pub use table_controls::{
+    use_table_selection, SortableHeader, TablePagination, TableSelection, TableSelectionCell,
+    TableSelectionHeader,
+};
 pub use toast::{provide_toast, use_toast, Toast, ToastHost, ToastKind};
 pub use topbar::Topbar;

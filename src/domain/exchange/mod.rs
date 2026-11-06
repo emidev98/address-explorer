@@ -195,6 +195,17 @@ pub struct ExchangeAccountRow {
     pub last_modified_at: i64,
 }
 
+/// Aggregate ledger activity across every exchange account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ExchangeActivityTotals {
+    pub bought_sats: i64,
+    pub sold_sats: i64,
+    pub rewarded_sats: i64,
+    pub withdrawn_sats: i64,
+    pub deposited_sats: i64,
+    pub net_ledger_sats: i64,
+}
+
 /// Global KPI totals of the exchanges list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ExchangeOverviewTotals {
@@ -205,6 +216,8 @@ pub struct ExchangeOverviewTotals {
     pub onchain_matched_count: i64,
     /// All withdrawals/deposits across every account.
     pub onchain_total_count: i64,
+    /// Ledger activity totals across every account.
+    pub activity: ExchangeActivityTotals,
 }
 
 /// One page of exchange accounts plus the global totals.

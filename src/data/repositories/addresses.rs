@@ -1,8 +1,9 @@
 //! SQL access to the `addresses` table.
 
-use rusqlite::{params, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, params_from_iter, OptionalExtension, TransactionBehavior};
 
 use super::exchanges as exchange_repository;
+use super::placeholders;
 use crate::data::{Database, DatabaseError};
 use crate::domain::address::{AddressEntity, AddressListItem, AddressScopeFilter};
 use crate::domain::table::SortDirection;
@@ -286,23 +287,38 @@ pub fn update_address_details(
     Ok(updated == 1)
 }
 
-pub fn delete_address(database: &Database, address: &str) -> Result<(), DatabaseError> {
+/// Delete the given addresses in one transaction.
+///
+/// Every affected exchange provider balance is refreshed once after the
+/// rows and their cascaded transactions are gone. Returns the number of
+/// deleted address rows.
+pub fn delete_addresses(database: &Database, addresses: &[String]) -> Result<usize, DatabaseError> {
+    if addresses.is_empty() {
+        return Ok(0);
+    }
+
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let exchange_id: Option<i64> = transaction
-        .query_row(
-            "SELECT exchange_id FROM addresses WHERE address = ?1",
-            [address],
-            |row| row.get(0),
-        )
-        .optional()?
-        .flatten();
-    transaction.execute("DELETE FROM addresses WHERE address = ?1", [address])?;
-    if let Some(exchange_id) = exchange_id {
+    let placeholders = placeholders(addresses.len());
+    let exchange_ids = {
+        let mut statement = transaction.prepare(&format!(
+            "SELECT DISTINCT exchange_id FROM addresses
+             WHERE address IN ({placeholders}) AND exchange_id IS NOT NULL"
+        ))?;
+        let rows = statement.query_map(params_from_iter(addresses.iter()), |row| {
+            row.get::<_, i64>(0)
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    let deleted = transaction.execute(
+        &format!("DELETE FROM addresses WHERE address IN ({placeholders})"),
+        params_from_iter(addresses.iter()),
+    )?;
+    for exchange_id in exchange_ids {
         exchange_repository::refresh_provider_balance_tx(&transaction, exchange_id)?;
     }
     transaction.commit()?;
-    Ok(())
+    Ok(deleted)
 }
 
 /// Insert or refresh an address and, when provided, its classification.
@@ -502,6 +518,22 @@ mod tests {
             address: address.to_string(),
             ..AddressEntity::default()
         }
+    }
+
+    #[test]
+    fn batch_delete_removes_all_selected_addresses() {
+        let database = Database::open_in_memory().unwrap();
+        for value in ["bc1qa", "bc1qb", "bc1qc"] {
+            insert_address(&database, &address(value)).unwrap();
+        }
+
+        let deleted =
+            delete_addresses(&database, &["bc1qa".to_string(), "bc1qc".to_string()]).unwrap();
+
+        assert_eq!(deleted, 2);
+        assert!(get_address(&database, "bc1qa").unwrap().is_none());
+        assert!(get_address(&database, "bc1qb").unwrap().is_some());
+        assert!(get_address(&database, "bc1qc").unwrap().is_none());
     }
 
     #[test]

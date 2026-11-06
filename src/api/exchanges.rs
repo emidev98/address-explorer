@@ -67,6 +67,16 @@ pub async fn delete_exchange_api(id: i64) -> Result<bool, ServerFnError> {
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
+/// Delete several exchange accounts and their cascaded ledger rows in one
+/// transaction. Returns the number of deleted accounts.
+#[server]
+#[post("/api/exchanges/delete")]
+pub async fn delete_exchanges_api(ids: Vec<i64>) -> Result<usize, ServerFnError> {
+    ExchangeService::connect(open_database()?)
+        .delete_accounts(&ids)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
 #[server]
 #[post("/api/exchanges/csv/preview")]
 pub async fn preview_import_data_api(
@@ -144,6 +154,19 @@ pub async fn delete_exchange_transaction_api(
 ) -> Result<bool, ServerFnError> {
     ExchangeService::connect(open_database()?)
         .delete_transaction(exchange_id, transaction_id)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+/// Delete several ledger transactions of one account in one transaction.
+/// Returns the number of deleted rows.
+#[server]
+#[post("/api/exchanges/:exchange_id/transactions/delete")]
+pub async fn delete_exchange_transactions_api(
+    exchange_id: i64,
+    ids: Vec<i64>,
+) -> Result<usize, ServerFnError> {
+    ExchangeService::connect(open_database()?)
+        .delete_transactions(exchange_id, &ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 

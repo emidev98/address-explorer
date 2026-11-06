@@ -98,3 +98,13 @@ pub async fn delete_address_api(address: String) -> Result<(), ServerFnError> {
         .delete_address(&address)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
+
+/// Delete several stored addresses and their cascaded transactions in one
+/// transaction. Returns the number of deleted rows.
+#[server]
+#[post("/api/addresses/delete")]
+pub async fn delete_addresses_api(addresses: Vec<String>) -> Result<usize, ServerFnError> {
+    AddressService::connect(open_database()?)
+        .delete_addresses(&addresses)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}

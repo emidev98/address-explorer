@@ -1,8 +1,6 @@
 //! Wallet Types / Exchange Types sub-settings: the provider table, filters,
 //! KPIs, CRUD dialogs, cascade deletion, and CSV import.
 
-use std::collections::HashSet;
-
 use dioxus::prelude::*;
 
 use crate::api::catalogs::{
@@ -11,9 +9,10 @@ use crate::api::catalogs::{
 };
 use crate::api::settings::get_exchange_settings_api;
 use crate::components::{
-    catalog_delete_summary_message, use_toast, BadgeSize, CatalogCategoriesDialog,
-    CatalogDeleteDialog, CatalogImportDialog, CatalogTypeDialog, Kpi, ProviderBadge,
-    SortableHeader, TablePagination, Toast,
+    catalog_delete_summary_message, use_table_selection, use_toast, BadgeSize,
+    CatalogCategoriesDialog, CatalogDeleteDialog, CatalogImportDialog, CatalogTypeDialog, Kpi,
+    ProviderBadge, SortableHeader, TablePagination, TableSelection, TableSelectionCell,
+    TableSelectionHeader, Toast,
 };
 use crate::domain::catalog::{
     CatalogCategory, CatalogDeleteOutcome, CatalogDeletePreview, CatalogKind, CatalogType,
@@ -50,7 +49,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     let mut page = use_signal(|| 0_u32);
     let sort_by = use_signal(|| Option::<String>::None);
     let sort_dir = use_signal(|| SortDirection::Asc);
-    let mut selected = use_signal(HashSet::<i64>::new);
+    let mut selection = use_table_selection::<i64>();
     let mut show_type_dialog = use_signal(|| false);
     let mut edit_target = use_signal(|| Option::<CatalogType>::None);
     let mut show_categories = use_signal(|| false);
@@ -120,13 +119,13 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
         _ => Vec::new(),
     };
     let page_ids = items.iter().map(|row| row.id).collect::<Vec<_>>();
-    let selected_snapshot = selected.read().clone();
-    let selected_count = selected_snapshot.len();
+    let selected_snapshot = selection.snapshot();
+    let selected_count = selection.len();
     let delete_action_label = if selected_count == 0 {
         format!("Select {} to delete", kind.plural_label())
     } else {
         format!(
-            "Delete '{selected_count}' {}",
+            "Delete {selected_count} {}",
             if selected_count == 1 {
                 kind.singular_label()
             } else {
@@ -134,8 +133,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
             }
         )
     };
-    let all_selected =
-        !page_ids.is_empty() && page_ids.iter().all(|id| selected_snapshot.contains(id));
+    let all_selected = selection.all_selected(&page_ids);
 
     let confirm_delete = move |_| {
         if let Some(request) = delete_request() {
@@ -145,7 +143,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 toast,
                 list,
                 categories,
-                selected,
+                selection,
                 delete_request,
                 deleting,
             );
@@ -168,6 +166,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
         },
         Some(Ok(data)) => {
             let total = data.page.total;
+            let selectable_ids = page_ids.clone();
             let table = rsx! {
                 TablePagination {
                     page: page(),
@@ -175,51 +174,35 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                     total,
                     on_page: move |next| {
                         page.set(next);
-                        selected.write().clear();
+                        selection.clear();
                     },
                 }
                 div { class: "md3-table-container",
                     table { class: "md3-table md3-catalog-table",
                         thead {
                             tr {
-                                th {
-                                    input {
-                                        r#type: "checkbox",
-                                        aria_label: "Select all types on this page",
-                                        checked: all_selected,
-                                        onchange: move |event| {
-                                            let checked = event.checked();
-                                            let mut guard = selected.write();
-                                            if checked {
-                                                guard.extend(page_ids.iter().copied());
-                                            } else {
-                                                for id in &page_ids {
-                                                    guard.remove(id);
-                                                }
-                                            }
-                                        },
-                                    }
-                                }
-                                th {
+                                TableSelectionHeader {
+                                    all_selected,
+                                    select_all_label: "Select all types on this page".to_string(),
+                                    disabled: page_ids.is_empty(),
+                                    on_toggle_all: move |checked| {
+                                        selection.set_many(&selectable_ids, checked);
+                                    },
                                     button {
                                         r#type: "button",
                                         class: "md3-icon-button md3-icon-button-danger",
-                                        disabled: selected_count == 0,
+                                        disabled: selection.is_empty(),
                                         title: "{delete_action_label}",
                                         aria_label: "{delete_action_label}",
                                         onclick: move |_| {
-                                            let ids = selected.read().iter().copied().collect::<Vec<_>>();
+                                            let ids = selection.selected_ids();
                                             if ids.is_empty() {
                                                 return;
                                             }
                                             let count = ids.len();
                                             let title = format!(
                                                 "Delete {count} selected {}",
-                                                if count == 1 {
-                                                    kind.singular_label()
-                                                } else {
-                                                    kind.plural_label()
-                                                }
+                                                if count == 1 { kind.singular_label() } else { kind.plural_label() },
                                             );
                                             start_delete(
                                                 kind,
@@ -230,7 +213,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                 delete_request,
                                                 list,
                                                 categories,
-                                                selected,
+                                                selection,
                                                 deleting,
                                             );
                                         },
@@ -240,43 +223,43 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 SortableHeader {
                                     label: "Name".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("name"))
-                                                                            .then_some(sort_dir()),
+                                                                                                                                                    .then_some(sort_dir()),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selected, "name", SortDirection::Asc);
+                                        apply_sort(sort_by, sort_dir, page, selection, "name", SortDirection::Asc);
                                     },
                                 }
                                 SortableHeader {
                                     label: "Category".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("category"))
-                                                                            .then_some(sort_dir()),
+                                                                                                                                                    .then_some(sort_dir()),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selected, "category", SortDirection::Asc);
+                                        apply_sort(sort_by, sort_dir, page, selection, "category", SortDirection::Asc);
                                     },
                                 }
                                 SortableHeader {
                                     label: "Custody".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("custody"))
-                                                                            .then_some(sort_dir()),
+                                                                                                                                                    .then_some(sort_dir()),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selected, "custody", SortDirection::Asc);
+                                        apply_sort(sort_by, sort_dir, page, selection, "custody", SortDirection::Asc);
                                     },
                                 }
                                 if kind == CatalogKind::Wallet {
                                     SortableHeader {
                                         label: "Platform".to_string(),
                                         active_direction: (sort_by().as_deref() == Some("platform"))
-                                                                                    .then_some(sort_dir()),
+                                                                                                                                                                    .then_some(sort_dir()),
                                         on_sort: move |_| {
-                                            apply_sort(sort_by, sort_dir, page, selected, "platform", SortDirection::Asc);
+                                            apply_sort(sort_by, sort_dir, page, selection, "platform", SortDirection::Asc);
                                         },
                                     }
                                 }
                                 SortableHeader {
                                     label: "Addresses".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("addresses"))
-                                                                            .then_some(sort_dir()),
+                                                                                                                                                    .then_some(sort_dir()),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selected, "addresses", SortDirection::Desc);
+                                        apply_sort(sort_by, sort_dir, page, selection, "addresses", SortDirection::Desc);
                                     },
                                 }
                             }
@@ -296,22 +279,11 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                     let title = format!("Delete \"{row_name}\"");
                                     let edit_row = row.clone();
                                     rsx! {
-                                        tr {
-                                            td {
-                                                input {
-                                                    r#type: "checkbox",
-                                                    aria_label: "Select {row_name}",
-                                                    checked: row_checked,
-                                                    onchange: move |event| {
-                                                        let checked = event.checked();
-                                                        let mut guard = selected.write();
-                                                        if checked {
-                                                            guard.insert(row_id);
-                                                        } else {
-                                                            guard.remove(&row_id);
-                                                        }
-                                                    },
-                                                }
+                                        tr { class: if row_checked { "md3-table-row-selected" } else { "" },
+                                            TableSelectionCell {
+                                                checked: row_checked,
+                                                label: format!("Select {row_name}"),
+                                                on_change: move |checked| selection.set(row_id, checked),
                                             }
                                             td {
                                                 div { class: "md3-table-actions",
@@ -341,7 +313,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                                 delete_request,
                                                                 list,
                                                                 categories,
-                                                                selected,
+                                                                selection,
                                                                 deleting,
                                                             );
                                                         },
@@ -472,7 +444,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 on_close: move |_| {
                     show_categories.set(false);
                     page.set(0);
-                    selected.write().clear();
+                    selection.clear();
                     categories.restart();
                     list.restart();
                 },
@@ -511,7 +483,7 @@ fn apply_sort(
     mut sort_by: Signal<Option<String>>,
     mut sort_dir: Signal<SortDirection>,
     mut page: Signal<u32>,
-    mut selected: Signal<HashSet<i64>>,
+    mut selection: TableSelection<i64>,
     key: &str,
     default_direction: SortDirection,
 ) {
@@ -522,7 +494,7 @@ fn apply_sort(
         sort_dir.set(default_direction);
     }
     page.set(0);
-    selected.write().clear();
+    selection.clear();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -535,7 +507,7 @@ fn start_delete(
     mut delete_request: Signal<Option<DeleteRequest>>,
     list: Resource<Result<CatalogTypePage, String>>,
     categories: Resource<Result<Vec<CatalogCategory>, String>>,
-    selected: Signal<HashSet<i64>>,
+    selection: TableSelection<i64>,
     deleting: Signal<bool>,
 ) {
     spawn(async move {
@@ -554,7 +526,7 @@ fn start_delete(
                         toast,
                         list,
                         categories,
-                        selected,
+                        selection,
                         delete_request,
                         deleting,
                     );
@@ -572,7 +544,7 @@ fn perform_delete(
     mut toast: Toast,
     mut list: Resource<Result<CatalogTypePage, String>>,
     mut categories: Resource<Result<Vec<CatalogCategory>, String>>,
-    mut selected: Signal<HashSet<i64>>,
+    mut selection: TableSelection<i64>,
     mut delete_request: Signal<Option<DeleteRequest>>,
     mut deleting: Signal<bool>,
 ) {
@@ -582,7 +554,7 @@ fn perform_delete(
             Ok(CatalogDeleteOutcome::Deleted(summary)) => {
                 toast.success(catalog_delete_summary_message(kind, &summary));
                 delete_request.set(None);
-                selected.write().clear();
+                selection.clear();
                 list.restart();
                 categories.restart();
             }

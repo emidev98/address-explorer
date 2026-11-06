@@ -23,6 +23,8 @@ pub const SECONDARY_CONTAINER: &str = "var(--md-sys-color-secondary-container)";
 pub const ON_SECONDARY_CONTAINER: &str = "var(--md-sys-color-on-secondary-container)";
 pub const TERTIARY_CONTAINER: &str = "var(--md-sys-color-tertiary-container)";
 pub const ON_TERTIARY_CONTAINER: &str = "var(--md-sys-color-on-tertiary-container)";
+pub const ERROR_CONTAINER: &str = "var(--md-sys-color-error-container)";
+pub const ON_ERROR_CONTAINER: &str = "var(--md-sys-color-on-error-container)";
 
 // Neutral roles for text, axes, lines, and surfaces.
 pub const SURFACE_CONTAINER: &str = "var(--md-sys-color-surface-container)";

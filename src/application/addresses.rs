@@ -104,9 +104,30 @@ impl AddressService {
             .ok_or(AddressServiceError::NotFound)
     }
 
-    /// Delete a stored address; its transactions cascade away with it.
+    /// Delete stored addresses; their transactions cascade away with them.
+    /// Empty selections are rejected and duplicate addresses are collapsed
+    /// before the atomic batch delete.
+    pub fn delete_addresses(&self, addresses: &[String]) -> Result<usize, AddressServiceError> {
+        let mut addresses = addresses.to_vec();
+        addresses.sort();
+        addresses.dedup();
+        if addresses.is_empty() {
+            return Err(AddressServiceError::Validation(
+                "Select at least one address.".to_string(),
+            ));
+        }
+        Ok(address_repository::delete_addresses(
+            &self.database,
+            &addresses,
+        )?)
+    }
+
+    /// Delete one stored address. Kept as the single-row wrapper of
+    /// [`Self::delete_addresses`].
     pub fn delete_address(&self, address: &str) -> Result<(), AddressServiceError> {
-        Ok(address_repository::delete_address(&self.database, address)?)
+        let addresses = [address.to_string()];
+        self.delete_addresses(&addresses)?;
+        Ok(())
     }
 
     /// Import an address and index its transaction history.
@@ -460,5 +481,12 @@ mod tests {
         assert_eq!(entity.description, None);
         assert_eq!(entity.exchange_id, None);
         assert_eq!(entity.wallet_id, None);
+    }
+
+    #[test]
+    fn deleting_no_addresses_is_rejected() {
+        let service = AddressService::connect(Database::open_in_memory().unwrap());
+
+        assert!(service.delete_addresses(&[]).is_err());
     }
 }

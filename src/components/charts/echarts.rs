@@ -25,8 +25,18 @@ fn next_chart_id() -> String {
 /// components own option construction; this host only owns the ECharts
 /// lifecycle.
 #[component]
-pub(crate) fn EChartsHost(option: String, aria_label: String) -> Element {
+pub(crate) fn EChartsHost(
+    option: String,
+    aria_label: String,
+    /// Optional explicit CSS height for charts that need more vertical room
+    /// than the default `.md3-chart` height.
+    #[props(default)]
+    height: Option<String>,
+) -> Element {
     let chart_id = use_hook(next_chart_id);
+    let height_style = height
+        .map(|height| format!("height: {height}; min-height: {height};"))
+        .unwrap_or_default();
 
     use_effect(use_reactive((&option,), {
         let chart_id = chart_id.clone();
@@ -50,6 +60,7 @@ pub(crate) fn EChartsHost(option: String, aria_label: String) -> Element {
         div {
             id: "{chart_id}",
             class: "md3-chart",
+            style: "{height_style}",
             role: "img",
             aria_label: "{aria_label}",
             // ECharts replaces `aria-label` with its generated data
@@ -147,6 +158,27 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
     }},
   }};
 
+  // Tooltip formatters are declarative markers too: the chart component puts
+  // preformatted plain text on each data item, and this host swaps the marker
+  // for a formatter that reads it back. No value is interpolated into source
+  // code, and richText mode keeps the result plain text.
+  const TOOLTIP_FORMATTERS = {{
+    "@flow-tooltip": (params) => {{
+      const data = params && params.data;
+      if (data && typeof data.tooltipText === "string") {{
+        return data.tooltipText;
+      }}
+      if (params && typeof params.name === "string") {{
+        return typeof params.value === "undefined"
+          ? params.name
+          : `${{params.name}}: ${{params.value}}`;
+      }}
+      return params && typeof params.value !== "undefined"
+        ? String(params.value)
+        : "";
+    }},
+  }};
+
   const resolveValueFormatters = (node) => {{
     if (Array.isArray(node)) {{
       return node.map(resolveValueFormatters);
@@ -161,6 +193,12 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
           VALUE_FORMATTERS[value]
         ) {{
           resolved[key] = VALUE_FORMATTERS[value];
+        }} else if (
+          key === "formatter" &&
+          typeof value === "string" &&
+          TOOLTIP_FORMATTERS[value]
+        ) {{
+          resolved[key] = TOOLTIP_FORMATTERS[value];
         }} else {{
           resolved[key] = resolveValueFormatters(value);
         }}
@@ -529,6 +567,15 @@ mod tests {
         assert!(script.contains("probe.style.display = \"none\";"));
         assert!(script.contains("getComputedStyle(registry.probe).color"));
         assert!(script.contains("resolveValueFormatters(resolveThemeColors("));
+    }
+
+    #[test]
+    fn render_script_resolves_declarative_tooltip_formatters() {
+        let script = render_script("echarts-7", "Funds flow", "{}");
+
+        assert!(script.contains(r#""@flow-tooltip": (params) =>"#));
+        assert!(script.contains("typeof data.tooltipText"));
+        assert!(script.contains(r#"key === "formatter""#));
     }
 
     #[test]

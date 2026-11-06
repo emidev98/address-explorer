@@ -10,6 +10,7 @@ pub mod addresses;
 pub mod catalogs;
 pub mod exchange_fiat;
 pub mod exchanges;
+pub mod flow;
 pub mod prices;
 pub mod settings;
 pub mod transactions;

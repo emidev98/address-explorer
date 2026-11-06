@@ -7,6 +7,7 @@
 
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, TransactionBehavior};
 
+use super::placeholders;
 use crate::data::{Database, DatabaseError};
 use crate::domain::catalog::{
     CatalogCategory, CatalogDeletePreview, CatalogDeleteSummary, CatalogEntry, CatalogKind,
@@ -532,12 +533,6 @@ pub fn rename_category(
         params![id, name],
     )?;
     Ok(updated == 1)
-}
-
-fn placeholders(count: usize) -> String {
-    std::iter::repeat_n("?", count)
-        .collect::<Vec<_>>()
-        .join(",")
 }
 
 fn provider_ids_for_category(

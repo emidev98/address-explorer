@@ -533,7 +533,7 @@ mod tests {
         let database = database_with_address(ADDRESS);
         sync_transactions(&database, ADDRESS, &[sample_tx("tx-one")], false).unwrap();
 
-        address_repository::delete_address(&database, ADDRESS).unwrap();
+        address_repository::delete_addresses(&database, &[ADDRESS.to_string()]).unwrap();
 
         assert_eq!(count(&database, "transactions"), 0);
         assert_eq!(count(&database, "transaction_inputs"), 0);

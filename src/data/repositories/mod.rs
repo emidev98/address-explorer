@@ -9,6 +9,16 @@ pub mod addresses;
 pub mod catalogs;
 pub mod exchanges;
 pub mod fiat_rates;
+pub mod flow;
 pub mod prices;
 pub mod settings;
 pub mod transactions;
+
+/// SQLite placeholders for one `IN (...)` list of bound values. The count is
+/// derived from an internal length, never from client input reaching SQL as
+/// an identifier (Section 6.3 of CONTRIBUTING.md).
+pub(crate) fn placeholders(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(",")
+}

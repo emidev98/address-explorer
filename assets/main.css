@@ -543,6 +543,25 @@ select.md3-input option {
     }
 }
 
+/* Six-card exchange activity row: one card per ledger direction. */
+.md3-kpi-grid-six {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+@media (max-width: 72rem) {
+    .md3-kpi-grid-six {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 45rem) {
+    .md3-kpi-grid-six {
+        grid-template-columns: 1fr;
+    }
+}
+
 .md3-exchanges-table td,
 .md3-exchange-transactions-table td {
     white-space: nowrap;
@@ -1033,8 +1052,9 @@ select.md3-input option {
     }
 }
 
-/* Long combined BTC/fiat KPI values wrap inside the five-card exchange row. */
-.md3-kpi-grid-five .md3-kpi-value {
+/* Long combined BTC/fiat KPI values wrap inside the five- and six-card rows. */
+.md3-kpi-grid-five .md3-kpi-value,
+.md3-kpi-grid-six .md3-kpi-value {
     white-space: normal;
     overflow-wrap: anywhere;
 }

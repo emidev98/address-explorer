@@ -4,15 +4,16 @@
 use dioxus::prelude::*;
 
 use crate::api::exchanges::{
-    delete_exchange_transaction_api, get_exchange_api, get_exchange_transaction_api,
+    delete_exchange_transactions_api, get_exchange_api, get_exchange_transaction_api,
     list_exchange_transactions_api, reconcile_exchange_api,
 };
 use crate::api::settings::get_exchange_settings_api;
 use crate::app::Route;
 use crate::components::format::{format_btc, format_fiat};
 use crate::components::{
-    use_fiat_currency, use_toast, ConfirmDialog, ExchangeInspector, ExchangeLinkDialog,
-    ImportDataDialog, Kpi, SortableHeader, TablePagination, Toast,
+    use_fiat_currency, use_table_selection, use_toast, ConfirmDialog, ExchangeInspector,
+    ExchangeLinkDialog, ImportDataDialog, Kpi, SortableHeader, TablePagination, TableSelection,
+    TableSelectionCell, TableSelectionHeader, Toast,
 };
 use crate::domain::civil_time;
 use crate::domain::exchange::csv::is_bitcoin_currency;
@@ -40,7 +41,8 @@ pub fn ExchangeDetail(
     let mut loaded_query = use_signal(|| Option::<String>::None);
     let mut show_import_data = use_signal(|| false);
     let mut link_target = use_signal(|| Option::<ExchangeTransaction>::None);
-    let mut delete_target = use_signal(|| Option::<ExchangeTransaction>::None);
+    let mut delete_target = use_signal(|| Option::<Vec<ExchangeTransaction>>::None);
+    let mut selection = use_table_selection::<i64>();
     let mut reconciling = use_signal(|| false);
     let mut confirm_destructive = use_signal(|| true);
 
@@ -78,6 +80,17 @@ pub fn ExchangeDetail(
             })
             .await
             .map_err(|error| error.to_string())
+        }
+    });
+
+    // A deletion can empty the current page while earlier pages still have
+    // rows; step back until the page has content again.
+    use_effect(move || {
+        if let Some(Ok(data)) = transactions() {
+            if data.items.is_empty() && page() > 0 {
+                page.set(page() - 1);
+                selection.clear();
+            }
         }
     });
 
@@ -158,188 +171,280 @@ pub fn ExchangeDetail(
                 "No transactions imported yet. Import a CSV or add a transaction manually."
             }
         },
-        Some(Ok(page_data)) => rsx! {
-            TablePagination {
-                page: page(),
-                page_size: PAGE_SIZE,
-                total: page_data.total,
-                on_page: move |next| page.set(next),
-            }
-            div { class: "md3-table-container",
-                table { class: "md3-table md3-exchange-transactions-table",
-                    thead {
-                        tr {
-                            th {}
-                            SortableHeader {
-                                label: "Date".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("date")).then_some(sort_dir()),
-                                on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
-                                    page.set(0);
-                                },
-                            }
-                            SortableHeader {
-                                label: "Type".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("type")).then_some(sort_dir()),
-                                on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "type", SortDirection::Asc);
-                                    page.set(0);
-                                },
-                            }
-                            SortableHeader {
-                                label: "Amount".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("amount")).then_some(sort_dir()),
-                                on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "amount", SortDirection::Desc);
-                                    page.set(0);
-                                },
-                            }
-                            th { "Fiat ({table_currency})" }
-                            SortableHeader {
-                                label: "Fee".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("fee")).then_some(sort_dir()),
-                                on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "fee", SortDirection::Desc);
-                                    page.set(0);
-                                },
-                            }
-                            SortableHeader {
-                                label: "On-chain".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("on_chain")).then_some(sort_dir()),
-                                on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "on_chain", SortDirection::Asc);
-                                    page.set(0);
-                                },
-                            }
-                            SortableHeader {
-                                label: "Exchange TX Hash".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("tx_hash")).then_some(sort_dir()),
-                                on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "tx_hash", SortDirection::Asc);
-                                    page.set(0);
-                                },
-                            }
-                            SortableHeader {
-                                label: "Description".to_string(),
-                                active_direction: (sort_by().as_deref() == Some("description")).then_some(sort_dir()),
-                                on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "description", SortDirection::Asc);
-                                    page.set(0);
-                                },
+        Some(Ok(page_data)) => {
+            let total = page_data.total;
+            let items = page_data.items.clone();
+            let page_ids = items.iter().map(|row| row.id).collect::<Vec<_>>();
+            let selected_snapshot = selection.snapshot();
+            let selected_count = selection.len();
+            let all_selected = selection.all_selected(&page_ids);
+            let selectable_ids = page_ids.clone();
+            let rows_for_bulk_delete = items.clone();
+            let delete_action_label = if selected_count == 0 {
+                "Select transactions to delete".to_string()
+            } else {
+                format!(
+                    "Delete {selected_count} {}",
+                    if selected_count == 1 {
+                        "transaction"
+                    } else {
+                        "transactions"
+                    }
+                )
+            };
+            rsx! {
+                TablePagination {
+                    page: page(),
+                    page_size: PAGE_SIZE,
+                    total,
+                    on_page: move |next| {
+                        page.set(next);
+                        selection.clear();
+                    },
+                }
+                div { class: "md3-table-container",
+                    table { class: "md3-table md3-exchange-transactions-table",
+                        thead {
+                            tr {
+                                TableSelectionHeader {
+                                    all_selected,
+                                    select_all_label: "Select all transactions on this page".to_string(),
+                                    disabled: page_ids.is_empty(),
+                                    on_toggle_all: move |checked| {
+                                        selection.set_many(&selectable_ids, checked);
+                                    },
+                                    button {
+                                        r#type: "button",
+                                        class: "md3-icon-button md3-icon-button-danger",
+                                        disabled: selection.is_empty(),
+                                        title: "{delete_action_label}",
+                                        aria_label: "{delete_action_label}",
+                                        onclick: move |_| {
+                                            let snapshot = selection.snapshot();
+                                            let rows = rows_for_bulk_delete
+                                                .iter()
+                                                .filter(|row| snapshot.contains(&row.id))
+                                                .cloned()
+                                                .collect::<Vec<_>>();
+                                            if rows.is_empty() {
+                                                return;
+                                            }
+                                            if editor_transaction()
+                                                .as_ref()
+                                                .is_some_and(|row| snapshot.contains(&row.id))
+                                            {
+                                                close_editor.call(());
+                                            }
+                                            if confirm_destructive() {
+                                                delete_target.set(Some(rows));
+                                            } else {
+                                                remove_transactions(
+                                                    toast,
+                                                    detail,
+                                                    transactions,
+                                                    exchange_id,
+                                                    selection,
+                                                    rows,
+                                                );
+                                            }
+                                        },
+                                        {icon(ICON_DELETE)}
+                                    }
+                                }
+                                SortableHeader {
+                                    label: "Date".to_string(),
+                                    active_direction: (sort_by().as_deref() == Some("date")).then_some(sort_dir()),
+                                    on_sort: move |_| {
+                                        toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
+                                        page.set(0);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Type".to_string(),
+                                    active_direction: (sort_by().as_deref() == Some("type")).then_some(sort_dir()),
+                                    on_sort: move |_| {
+                                        toggle_sort(sort_by, sort_dir, "type", SortDirection::Asc);
+                                        page.set(0);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Amount".to_string(),
+                                    active_direction: (sort_by().as_deref() == Some("amount")).then_some(sort_dir()),
+                                    on_sort: move |_| {
+                                        toggle_sort(sort_by, sort_dir, "amount", SortDirection::Desc);
+                                        page.set(0);
+                                        selection.clear();
+                                    },
+                                }
+                                th { "Fiat ({table_currency})" }
+                                SortableHeader {
+                                    label: "Fee".to_string(),
+                                    active_direction: (sort_by().as_deref() == Some("fee")).then_some(sort_dir()),
+                                    on_sort: move |_| {
+                                        toggle_sort(sort_by, sort_dir, "fee", SortDirection::Desc);
+                                        page.set(0);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "On-chain".to_string(),
+                                    active_direction: (sort_by().as_deref() == Some("on_chain")).then_some(sort_dir()),
+                                    on_sort: move |_| {
+                                        toggle_sort(sort_by, sort_dir, "on_chain", SortDirection::Asc);
+                                        page.set(0);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Exchange TX Hash".to_string(),
+                                    active_direction: (sort_by().as_deref() == Some("tx_hash")).then_some(sort_dir()),
+                                    on_sort: move |_| {
+                                        toggle_sort(sort_by, sort_dir, "tx_hash", SortDirection::Asc);
+                                        page.set(0);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Description".to_string(),
+                                    active_direction: (sort_by().as_deref() == Some("description")).then_some(sort_dir()),
+                                    on_sort: move |_| {
+                                        toggle_sort(sort_by, sort_dir, "description", SortDirection::Asc);
+                                        page.set(0);
+                                        selection.clear();
+                                    },
+                                }
                             }
                         }
-                    }
-                    tbody {
-                        for transaction in &page_data.items {
-                            {
-                                let row = transaction.clone();
-                                let edit_row = row.clone();
-                                let edit_action_row = row.clone();
-                                let delete_row = row.clone();
-                                let link_row = row.clone();
-                                let selected = editor_transaction().as_ref().map(|row| row.id) == Some(row.id);
-                                let linkable = matches!(
-                                    row.tx_type,
-                                    crate::domain::exchange::ExchangeTxType::Deposit
-                                    | crate::domain::exchange::ExchangeTxType::Withdrawal
-                                );
-                                let linked = row.on_chain_link.is_some() || row.matched_tx_id.is_some();
-                                let on_chain = row
-                                    .on_chain_link
-                                    .as_ref()
-                                    .map(|link| link.txid.clone())
-                                    .or_else(|| row.matched_tx_id.clone());
-                                let fee = format_fee(
-                                    row.fee,
-                                    row.fee_currency.as_deref(),
-                                    row.converted_fee_amount
-                                        .zip(row.converted_fee_currency.as_deref()),
-                                );
-                                rsx! {
-                                    tr {
-                                        class: if selected { "md3-exchange-selected-row" } else { "" },
-                                        onclick: move |_| {
-                                            editor_transaction.set(Some(edit_row.clone()));
-                                            editor_open.set(true);
-                                            loaded_query.set(Some(edit_row.id.to_string()));
-                                            navigate_to_detail(navigator, exchange_id, Some(edit_row.id));
-                                        },
-                                        td {
-                                            div { class: "md3-table-actions",
-                                                button {
-                                                    r#type: "button",
-                                                    class: "md3-icon-button",
-                                                    title: "Edit transaction",
-                                                    aria_label: "Edit transaction",
-                                                    onclick: move |event| {
-                                                        event.stop_propagation();
-                                                        editor_transaction.set(Some(edit_action_row.clone()));
-                                                        editor_open.set(true);
-                                                        loaded_query.set(Some(edit_action_row.id.to_string()));
-                                                        navigate_to_detail(navigator, exchange_id, Some(edit_action_row.id));
-                                                    },
-                                                    {icon(ICON_EDIT)}
-                                                }
-                                                button {
-                                                    r#type: "button",
-                                                    class: "md3-icon-button md3-icon-button-danger",
-                                                    title: "Remove transaction",
-                                                    aria_label: "Remove transaction",
-                                                    onclick: move |event| {
-                                                        event.stop_propagation();
-                                                        if editor_transaction()
-                                                            .as_ref()
-                                                            .is_some_and(|row| row.id == delete_row.id)
-                                                        {
-                                                            close_editor.call(());
-                                                        }
-                                                        if confirm_destructive() {
-                                                            delete_target.set(Some(delete_row.clone()));
-                                                        } else {
-                                                            remove_transaction(toast, detail, transactions, exchange_id, delete_row.id);
-                                                        }
-                                                    },
-                                                    {icon(ICON_DELETE)}
-                                                }
-                                            }
-                                        }
-                                        td { "{civil_time::format_datetime(row.timestamp)}" }
-                                        td {
-                                            button {
-                                                r#type: "button",
-                                                class: "md3-exchange-type-cell",
-                                                disabled: !linkable,
-                                                title: if linkable { if linked { "View on-chain link" } else { "Link on-chain transaction" } } else { "Only deposits and withdrawals can be linked" },
-                                                onclick: move |event| {
-                                                    event.stop_propagation();
-                                                    if linkable {
-                                                        link_target.set(Some(link_row.clone()));
-                                                    }
+                        tbody {
+                            for transaction in &items {
+                                {
+                                    let row = transaction.clone();
+                                    let edit_row = row.clone();
+                                    let edit_action_row = row.clone();
+                                    let delete_row = row.clone();
+                                    let link_row = row.clone();
+                                    let inspector_selected = editor_transaction().as_ref().map(|row| row.id)
+                                        == Some(row.id);
+                                    let row_selected = selected_snapshot.contains(&row.id);
+                                    let linkable = matches!(
+                                        row.tx_type,
+                                        crate::domain::exchange::ExchangeTxType::Deposit
+                                        | crate::domain::exchange::ExchangeTxType::Withdrawal
+                                    );
+                                    let linked = row.on_chain_link.is_some() || row.matched_tx_id.is_some();
+                                    let on_chain = row
+                                        .on_chain_link
+                                        .as_ref()
+                                        .map(|link| link.txid.clone())
+                                        .or_else(|| row.matched_tx_id.clone());
+                                    let fee = format_fee(
+                                        row.fee,
+                                        row.fee_currency.as_deref(),
+                                        row.converted_fee_amount.zip(row.converted_fee_currency.as_deref()),
+                                    );
+                                    rsx! {
+                                        tr {
+                                            class: if inspector_selected && row_selected { "md3-exchange-selected-row md3-table-row-selected" } else if inspector_selected { "md3-exchange-selected-row" } else if row_selected { "md3-table-row-selected" } else { "" },
+                                            onclick: move |_| {
+                                                editor_transaction.set(Some(edit_row.clone()));
+                                                editor_open.set(true);
+                                                loaded_query.set(Some(edit_row.id.to_string()));
+                                                navigate_to_detail(navigator, exchange_id, Some(edit_row.id));
+                                            },
+                                            TableSelectionCell {
+                                                checked: row_selected,
+                                                label: format!("Select {} transaction", row.tx_type.as_str()),
+                                                on_change: {
+                                                    let id = row.id;
+                                                    move |checked| selection.set(id, checked)
                                                 },
-                                                span { class: if linked { "md3-exchange-chip md3-exchange-chip-success" } else { "md3-exchange-chip" },
-                                                    "{row.tx_type.as_str()}"
+                                            }
+                                            td {
+                                                div { class: "md3-table-actions",
+                                                    button {
+                                                        r#type: "button",
+                                                        class: "md3-icon-button",
+                                                        title: "Edit transaction",
+                                                        aria_label: "Edit transaction",
+                                                        onclick: move |event| {
+                                                            event.stop_propagation();
+                                                            editor_transaction.set(Some(edit_action_row.clone()));
+                                                            editor_open.set(true);
+                                                            loaded_query.set(Some(edit_action_row.id.to_string()));
+                                                            navigate_to_detail(navigator, exchange_id, Some(edit_action_row.id));
+                                                        },
+                                                        {icon(ICON_EDIT)}
+                                                    }
+                                                    button {
+                                                        r#type: "button",
+                                                        class: "md3-icon-button md3-icon-button-danger",
+                                                        title: "Remove transaction",
+                                                        aria_label: "Remove transaction",
+                                                        onclick: move |event| {
+                                                            event.stop_propagation();
+                                                            if editor_transaction()
+                                                                .as_ref()
+                                                                .is_some_and(|row| row.id == delete_row.id)
+                                                            {
+                                                                close_editor.call(());
+                                                            }
+                                                            if confirm_destructive() {
+                                                                delete_target.set(Some(vec![delete_row.clone()]));
+                                                            } else {
+                                                                remove_transactions(
+                                                                    toast,
+                                                                    detail,
+                                                                    transactions,
+                                                                    exchange_id,
+                                                                    selection,
+                                                                    vec![delete_row.clone()],
+                                                                );
+                                                            }
+                                                        },
+                                                        {icon(ICON_DELETE)}
+                                                    }
                                                 }
-                                                if linkable {
-                                                    span { class: "md3-exchange-link-icon", "↗" }
+                                            }
+                                            td { "{civil_time::format_datetime(row.timestamp)}" }
+                                            td {
+                                                button {
+                                                    r#type: "button",
+                                                    class: "md3-exchange-type-cell",
+                                                    disabled: !linkable,
+                                                    title: if linkable { if linked { "View on-chain link" } else { "Link on-chain transaction" } } else { "Only deposits and withdrawals can be linked" },
+                                                    onclick: move |event| {
+                                                        event.stop_propagation();
+                                                        if linkable {
+                                                            link_target.set(Some(link_row.clone()));
+                                                        }
+                                                    },
+                                                    span { class: if linked { "md3-exchange-chip md3-exchange-chip-success" } else { "md3-exchange-chip" },
+                                                        "{row.tx_type.as_str()}"
+                                                    }
+                                                    if linkable {
+                                                        span { class: "md3-exchange-link-icon", "↗" }
+                                                    }
                                                 }
                                             }
-                                        }
-                                        td {
-                                            span { class: if row.amount_sats < 0 { "md3-exchange-amount-negative" } else { "md3-exchange-amount-positive" },
-                                                "{format_btc(row.amount_sats)}"
+                                            td {
+                                                span { class: if row.amount_sats < 0 { "md3-exchange-amount-negative" } else { "md3-exchange-amount-positive" },
+                                                    "{format_btc(row.amount_sats)}"
+                                                }
                                             }
-                                        }
-                                        td {
-                                            if let Some(amount) = row.converted_fiat_amount {
-                                                "{format_fiat(amount, row.converted_fiat_currency.as_deref().unwrap_or(\"\"))}"
-                                            } else {
-                                                "-"
+                                            td {
+                                                if let Some(amount) = row.converted_fiat_amount {
+                                                    "{format_fiat(amount, row.converted_fiat_currency.as_deref().unwrap_or(\"\"))}"
+                                                } else {
+                                                    "-"
+                                                }
                                             }
+                                            td { "{fee}" }
+                                            td { "{on_chain.as_deref().map(format_tx_hash).unwrap_or_else(|| \"-\".to_string())}" }
+                                            td { "{row.tx_hash.as_deref().map(format_tx_hash).unwrap_or_else(|| \"-\".to_string())}" }
+                                            td { "{row.description.as_deref().unwrap_or(\"-\")}" }
                                         }
-                                        td { "{fee}" }
-                                        td { "{on_chain.as_deref().map(format_tx_hash).unwrap_or_else(|| \"-\".to_string())}" }
-                                        td { "{row.tx_hash.as_deref().map(format_tx_hash).unwrap_or_else(|| \"-\".to_string())}" }
-                                        td { "{row.description.as_deref().unwrap_or(\"-\")}" }
                                     }
                                 }
                             }
@@ -347,7 +452,7 @@ pub fn ExchangeDetail(
                     }
                 }
             }
-        },
+        }
     };
 
     if loading {
@@ -548,28 +653,56 @@ pub fn ExchangeDetail(
             }
         }
 
-        if let Some(transaction) = delete_target() {
-            ConfirmDialog {
-                title: "Remove transaction".to_string(),
-                message: format!(
-                    "Remove this {} transaction from {}?",
-                    transaction.tx_type.as_str(),
-                    account.name,
-                ),
-                confirm_text: "Remove".to_string(),
-                cancel_text: "Cancel".to_string(),
-                on_cancel: move |_| delete_target.set(None),
-                on_confirm: move |_| {
-                    let transaction = transaction.clone();
-                    if editor_transaction()
-                        .as_ref()
-                        .is_some_and(|row| row.id == transaction.id)
-                    {
-                        close_editor.call(());
+        if let Some(selected_transactions) = delete_target() {
+            {
+                let count = selected_transactions.len();
+                let (title, message) = if count == 1 {
+                    (
+                        "Remove transaction".to_string(),
+                        format!(
+                            "Remove this {} transaction from {}?",
+                            selected_transactions[0].tx_type.as_str(),
+                            account.name,
+                        ),
+                    )
+                } else {
+                    (
+                        "Remove transactions".to_string(),
+                        format!(
+                            "Remove {count} selected transactions from {}? This cannot be undone.",
+                            account.name,
+                        ),
+                    )
+                };
+                rsx! {
+                    ConfirmDialog {
+                        title,
+                        message,
+                        confirm_text: "Remove".to_string(),
+                        cancel_text: "Cancel".to_string(),
+                        on_cancel: move |_| delete_target.set(None),
+                        on_confirm: move |_| {
+                            let selected_transactions = selected_transactions.clone();
+                            if editor_transaction()
+                                .as_ref()
+                                .is_some_and(|row| {
+                                    selected_transactions.iter().any(|selected| selected.id == row.id)
+                                })
+                            {
+                                close_editor.call(());
+                            }
+                            delete_target.set(None);
+                            remove_transactions(
+                                toast,
+                                detail,
+                                transactions,
+                                exchange_id,
+                                selection,
+                                selected_transactions,
+                            );
+                        },
                     }
-                    delete_target.set(None);
-                    remove_transaction(toast, detail, transactions, exchange_id, transaction.id);
-                },
+                }
             }
         }
     }
@@ -600,21 +733,28 @@ fn navigate_to_detail(
     });
 }
 
-fn remove_transaction(
+fn remove_transactions(
     mut toast: Toast,
     mut detail: Resource<Result<ExchangeDetailData, String>>,
     mut transactions: Resource<
         Result<crate::domain::table::TablePage<ExchangeTransaction>, String>,
     >,
     exchange_id: i64,
-    transaction_id: i64,
+    mut selection: TableSelection<i64>,
+    rows: Vec<ExchangeTransaction>,
 ) {
+    if rows.is_empty() {
+        return;
+    }
+    let ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
     spawn(async move {
-        match delete_exchange_transaction_api(exchange_id, transaction_id).await {
-            Ok(true) => toast.success("Exchange transaction removed."),
-            Ok(false) => toast.error("Exchange transaction was not found."),
-            Err(error) => toast.error(format!("Could not remove the transaction: {error}")),
+        match delete_exchange_transactions_api(exchange_id, ids).await {
+            Ok(0) => toast.error("No exchange transactions were found to remove."),
+            Ok(1) => toast.success("Exchange transaction removed."),
+            Ok(deleted) => toast.success(format!("Removed {deleted} exchange transactions.")),
+            Err(error) => toast.error(format!("Could not remove the transactions: {error}")),
         }
+        selection.clear();
         detail.restart();
         transactions.restart();
     });

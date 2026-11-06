@@ -2,15 +2,16 @@ use std::collections::BTreeMap;
 
 use dioxus::prelude::*;
 
-use crate::api::addresses::{addresses_overview_api, delete_address_api, validate_address_api};
+use crate::api::addresses::{addresses_overview_api, delete_addresses_api, validate_address_api};
 use crate::api::prices::latest_price_api;
 use crate::api::settings::get_exchange_settings_api;
 use crate::api::transactions::sync_address_transactions_api;
 use crate::components::format::{format_address, format_btc, format_fiat};
 use crate::components::{
-    read_clipboard_text, use_fiat_currency, use_toast, write_clipboard_text, AddressEditData,
-    BadgeSize, ConfirmDialog, HoldingSlice, HoldingsDistributionChart, ImportAddressDialog,
-    ImportAddressDialogMode, Kpi, ProviderBadge, SortableHeader, Toast, ToastKind,
+    read_clipboard_text, use_fiat_currency, use_table_selection, use_toast, write_clipboard_text,
+    AddressEditData, BadgeSize, ConfirmDialog, HoldingSlice, HoldingsDistributionChart,
+    ImportAddressDialog, ImportAddressDialogMode, Kpi, ProviderBadge, SortableHeader,
+    TableSelection, TableSelectionCell, TableSelectionHeader, Toast, ToastKind,
 };
 use crate::domain::address::{
     AddressEntity, AddressImportResult, AddressOverview, AddressOverviewItem, AddressOverviewQuery,
@@ -36,8 +37,9 @@ pub fn Addresses() -> Element {
     let mut show_import_dialog = use_signal(|| false);
     let mut edit_target = use_signal(|| Option::<AddressOverviewItem>::None);
     let mut clipboard_text = use_signal(|| Option::<String>::None);
-    let mut address_to_remove = use_signal(|| Option::<String>::None);
+    let mut addresses_to_remove = use_signal(|| Option::<Vec<String>>::None);
     let sync_states = use_signal(BTreeMap::<String, SyncState>::new);
+    let mut selection = use_table_selection::<String>();
     // Backend-driven table state (Section 5.11 of CONTRIBUTING.md): the sort
     // and the scope filter are part of the overview query, so changing them
     // re-runs the request. The overview is not paginated because the KPIs
@@ -128,18 +130,66 @@ pub fn Addresses() -> Element {
 
     let sort_direction_for = |key: &str| (sort_by().as_deref() == Some(key)).then_some(sort_dir());
 
+    let page_ids = listed_items
+        .iter()
+        .map(|item| item.address.clone())
+        .collect::<Vec<_>>();
+    let selected_snapshot = selection.snapshot();
+    let selected_count = selection.len();
+    let all_selected = selection.all_selected(&page_ids);
+    let selectable_ids = page_ids.clone();
+    let delete_action_label = if selected_count == 0 {
+        "Select addresses to delete".to_string()
+    } else {
+        format!(
+            "Delete {selected_count} {}",
+            if selected_count == 1 {
+                "address"
+            } else {
+                "addresses"
+            }
+        )
+    };
+
     let table_content = match &overview_state {
         Some(Ok(_)) => rsx! {
             div { class: "md3-table-container",
                 table { class: "md3-table",
                     thead {
                         tr {
-                            th {}
+                            TableSelectionHeader {
+                                all_selected,
+                                select_all_label: "Select all addresses".to_string(),
+                                disabled: page_ids.is_empty(),
+                                on_toggle_all: move |checked| {
+                                    selection.set_many(&selectable_ids, checked);
+                                },
+                                button {
+                                    r#type: "button",
+                                    class: "md3-icon-button md3-icon-button-danger",
+                                    disabled: selection.is_empty(),
+                                    title: "{delete_action_label}",
+                                    aria_label: "{delete_action_label}",
+                                    onclick: move |_| {
+                                        let addresses = selection.selected_ids();
+                                        start_address_delete(
+                                            toast,
+                                            addresses_to_remove,
+                                            overview,
+                                            selection,
+                                            confirm_destructive(),
+                                            addresses,
+                                        );
+                                    },
+                                    {icon(ICON_DELETE)}
+                                }
+                            }
                             SortableHeader {
                                 label: "Address".to_string(),
                                 active_direction: sort_direction_for("address"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "address", SortDirection::Asc);
+                                    selection.clear();
                                 },
                             }
                             SortableHeader {
@@ -147,6 +197,7 @@ pub fn Addresses() -> Element {
                                 active_direction: sort_direction_for("label"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "label", SortDirection::Asc);
+                                    selection.clear();
                                 },
                             }
                             th {
@@ -166,7 +217,10 @@ pub fn Addresses() -> Element {
                                                 r#type: "button",
                                                 class: if scope_filter() == filter { "md3-chip md3-chip-selected" } else { "md3-chip" },
                                                 aria_pressed: (scope_filter() == filter).to_string(),
-                                                onclick: move |_| scope_filter.set(filter),
+                                                onclick: move |_| {
+                                                    scope_filter.set(filter);
+                                                    selection.clear();
+                                                },
                                                 "{filter_label}"
                                             }
                                         }
@@ -178,6 +232,7 @@ pub fn Addresses() -> Element {
                                 active_direction: sort_direction_for("txs"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc);
+                                    selection.clear();
                                 },
                             }
                             SortableHeader {
@@ -185,6 +240,7 @@ pub fn Addresses() -> Element {
                                 active_direction: sort_direction_for("balance"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "balance", SortDirection::Desc);
+                                    selection.clear();
                                 },
                             }
                             SortableHeader {
@@ -192,6 +248,7 @@ pub fn Addresses() -> Element {
                                 active_direction: sort_direction_for("price"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
+                                    selection.clear();
                                 },
                             }
                             SortableHeader {
@@ -199,6 +256,7 @@ pub fn Addresses() -> Element {
                                 active_direction: sort_direction_for("first_tx"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc);
+                                    selection.clear();
                                 },
                             }
                             SortableHeader {
@@ -206,6 +264,7 @@ pub fn Addresses() -> Element {
                                 active_direction: sort_direction_for("last_tx"),
                                 on_sort: move |_| {
                                     toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc);
+                                    selection.clear();
                                 },
                             }
                         }
@@ -214,7 +273,7 @@ pub fn Addresses() -> Element {
                         if listed_items.is_empty() {
                             tr {
                                 td {
-                                    colspan: "9",
+                                    colspan: "10",
                                     class: "md3-table-empty text-body-medium",
                                     "{empty_message}"
                                 }
@@ -225,6 +284,8 @@ pub fn Addresses() -> Element {
                                     let row = item.clone();
                                     let sync_address = row.address.clone();
                                     let delete_address = row.address.clone();
+                                    let selection_address = row.address.clone();
+                                    let row_selected = selected_snapshot.contains(&selection_address);
                                     let copy_target = row.address.clone();
                                     let short_address = format_address(&row.address);
                                     let label = row
@@ -260,7 +321,14 @@ pub fn Addresses() -> Element {
                                         "Sync transactions"
                                     };
                                     rsx! {
-                                        tr {
+                                        tr { class: if row_selected { "md3-table-row-selected" } else { "" },
+                                            TableSelectionCell {
+                                                checked: row_selected,
+                                                label: format!("Select {}", format_address(&selection_address)),
+                                                on_change: move |checked| {
+                                                    selection.set(selection_address.clone(), checked);
+                                                },
+                                            }
                                             td {
                                                 div { class: "md3-table-actions",
                                                     if row.tx_index_rate_limited {
@@ -310,11 +378,14 @@ pub fn Addresses() -> Element {
                                                         title: "Remove address",
                                                         aria_label: "Remove address",
                                                         onclick: move |_| {
-                                                            if confirm_destructive() {
-                                                                address_to_remove.set(Some(delete_address.clone()));
-                                                            } else {
-                                                                remove_address(toast, address_to_remove, overview, delete_address.clone());
-                                                            }
+                                                            start_address_delete(
+                                                                toast,
+                                                                addresses_to_remove,
+                                                                overview,
+                                                                selection,
+                                                                confirm_destructive(),
+                                                                vec![delete_address.clone()],
+                                                            );
                                                         },
                                                         {icon(ICON_DELETE)}
                                                     }
@@ -473,18 +544,35 @@ pub fn Addresses() -> Element {
                 }
             }
 
-            if let Some(address) = address_to_remove() {
-                ConfirmDialog {
-                    title: "Remove address".to_string(),
-                    message: format!("Are you sure you want to remove {}?", format_address(&address)),
-                    confirm_text: "Yes, remove".to_string(),
-                    cancel_text: "Cancel".to_string(),
-                    on_cancel: move |_| address_to_remove.set(None),
-                    on_confirm: move |_| {
-                        if let Some(address) = address_to_remove() {
-                            remove_address(toast, address_to_remove, overview, address);
+            if let Some(addresses) = addresses_to_remove() {
+                {
+                    let title = if addresses.len() == 1 {
+                        "Remove address".to_string()
+                    } else {
+                        "Remove addresses".to_string()
+                    };
+                    let message = if addresses.len() == 1 {
+                        format!("Are you sure you want to remove {}?", format_address(&addresses[0]))
+                    } else {
+                        format!(
+                            "Remove {} selected addresses? Their stored transactions will also be removed. This cannot be undone.",
+                            addresses.len(),
+                        )
+                    };
+                    rsx! {
+                        ConfirmDialog {
+                            title,
+                            message,
+                            confirm_text: "Yes, remove".to_string(),
+                            cancel_text: "Cancel".to_string(),
+                            on_cancel: move |_| addresses_to_remove.set(None),
+                            on_confirm: move |_| {
+                                if let Some(addresses) = addresses_to_remove() {
+                                    remove_addresses(toast, selection, addresses_to_remove, overview, addresses);
+                                }
+                            },
                         }
-                    },
+                    }
                 }
             }
         }
@@ -583,33 +671,68 @@ fn import_result_toast(result: &AddressImportResult) -> (ToastKind, String) {
     }
 }
 
-/// Delete the selected address after confirmation and refresh the page.
-///
-/// The stored transactions of the address cascade away with it, so the KPIs
-/// and the transaction columns update on the refresh.
-fn remove_address(
-    mut toast: Toast,
-    mut address_to_remove: Signal<Option<String>>,
-    mut overview: Resource<Result<AddressOverview, String>>,
-    address: String,
+/// Open the removal confirmation for the given addresses, or delete them
+/// immediately when the "Confirm destructive actions" setting is off.
+fn start_address_delete(
+    toast: Toast,
+    mut addresses_to_remove: Signal<Option<Vec<String>>>,
+    overview: Resource<Result<AddressOverview, String>>,
+    selection: TableSelection<String>,
+    confirm_destructive: bool,
+    addresses: Vec<String>,
 ) {
+    if addresses.is_empty() {
+        return;
+    }
+    if confirm_destructive {
+        addresses_to_remove.set(Some(addresses));
+    } else {
+        remove_addresses(toast, selection, addresses_to_remove, overview, addresses);
+    }
+}
+
+/// Delete the selected addresses after confirmation and refresh the page.
+///
+/// The stored transactions of the addresses cascade away with them, so the
+/// KPIs and the transaction columns update on the refresh.
+fn remove_addresses(
+    mut toast: Toast,
+    mut selection: TableSelection<String>,
+    mut addresses_to_remove: Signal<Option<Vec<String>>>,
+    mut overview: Resource<Result<AddressOverview, String>>,
+    addresses: Vec<String>,
+) {
+    let count = addresses.len();
     spawn(async move {
-        match delete_address_api(address.clone()).await {
-            Ok(()) => {
+        match delete_addresses_api(addresses.clone()).await {
+            Ok(0) => toast.error("No addresses were found to remove."),
+            Ok(_) if addresses.len() == 1 => {
                 toast.success(format!(
                     "Address {} removed successfully!",
-                    format_address(&address)
+                    format_address(&addresses[0])
                 ));
             }
+            Ok(deleted) => {
+                toast.success(if deleted == 1 {
+                    "1 address removed successfully!".to_string()
+                } else {
+                    format!("{deleted} addresses removed successfully!")
+                });
+            }
             Err(error) => {
-                toast.error(format!(
-                    "Could not remove address {}: {error}",
-                    format_address(&address)
-                ));
+                if count == 1 {
+                    toast.error(format!(
+                        "Could not remove address {}: {error}",
+                        format_address(&addresses[0])
+                    ));
+                } else {
+                    toast.error(format!("Could not remove the addresses: {error}"));
+                }
             }
         }
 
-        address_to_remove.set(None);
+        selection.clear();
+        addresses_to_remove.set(None);
         overview.restart();
     });
 }

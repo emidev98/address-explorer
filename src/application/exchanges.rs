@@ -25,6 +25,8 @@ use crate::domain::table::{SortDirection, TablePage};
 const MAX_CSV_BYTES: usize = 25 * 1024 * 1024;
 const MAX_CSV_ROWS: usize = 200_000;
 const MAX_PAGE_SIZE: u32 = 100;
+/// Largest number of rows one bulk deletion may address.
+const MAX_DELETE_IDS: usize = 100;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExchangeServiceError {
@@ -132,8 +134,17 @@ impl ExchangeService {
         )?)
     }
 
+    /// Delete several exchange accounts atomically; their ledger rows
+    /// cascade and the affected provider balances are refreshed once.
+    pub fn delete_accounts(&self, ids: &[i64]) -> Result<usize, ExchangeServiceError> {
+        let ids = normalize_delete_ids(ids, "exchange")?;
+        Ok(exchange_repository::delete_accounts(&self.database, &ids)?)
+    }
+
+    /// Delete one exchange account. Kept as the single-row wrapper of
+    /// [`Self::delete_accounts`].
     pub fn delete_account(&self, id: i64) -> Result<bool, ExchangeServiceError> {
-        Ok(exchange_repository::delete_account(&self.database, id)?)
+        Ok(self.delete_accounts(&[id])? == 1)
     }
 
     pub async fn preview_import_data(
@@ -437,16 +448,28 @@ impl ExchangeService {
         Ok(ExchangeTransactionSaveOutcome::Saved(Box::new(saved)))
     }
 
+    /// Delete several ledger transactions of one account atomically.
+    pub fn delete_transactions(
+        &self,
+        exchange_id: i64,
+        ids: &[i64],
+    ) -> Result<usize, ExchangeServiceError> {
+        let ids = normalize_delete_ids(ids, "transaction")?;
+        Ok(exchange_repository::delete_transactions(
+            &self.database,
+            exchange_id,
+            &ids,
+        )?)
+    }
+
+    /// Delete one ledger transaction. Kept as the single-row wrapper of
+    /// [`Self::delete_transactions`].
     pub fn delete_transaction(
         &self,
         exchange_id: i64,
         transaction_id: i64,
     ) -> Result<bool, ExchangeServiceError> {
-        Ok(exchange_repository::delete_transaction(
-            &self.database,
-            exchange_id,
-            transaction_id,
-        )?)
+        Ok(self.delete_transactions(exchange_id, &[transaction_id])? == 1)
     }
 
     pub async fn get_transaction(
@@ -621,6 +644,25 @@ fn validate_name(name: &str) -> Result<String, ExchangeServiceError> {
         ));
     }
     Ok(name.to_string())
+}
+
+/// Deduplicate and validate a batch selection before it reaches the
+/// repository. Sorting also gives the SQL parameters a deterministic order.
+fn normalize_delete_ids(ids: &[i64], noun: &str) -> Result<Vec<i64>, ExchangeServiceError> {
+    let mut ids = ids.to_vec();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return Err(ExchangeServiceError::Validation(format!(
+            "Select at least one {noun}."
+        )));
+    }
+    if ids.len() > MAX_DELETE_IDS {
+        return Err(ExchangeServiceError::Validation(format!(
+            "Select at most {MAX_DELETE_IDS} rows at once."
+        )));
+    }
+    Ok(ids)
 }
 
 fn parse_account_sort(
@@ -899,4 +941,17 @@ fn now() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deleting_an_empty_batch_is_rejected() {
+        let service = ExchangeService::connect(Database::open_in_memory().unwrap());
+
+        assert!(service.delete_accounts(&[]).is_err());
+        assert!(service.delete_transactions(1, &[]).is_err());
+    }
 }

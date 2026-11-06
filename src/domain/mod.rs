@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod civil_time;
 pub mod csv;
 pub mod exchange;
+pub mod flow;
 pub mod price;
 pub mod table;
 pub mod theme;

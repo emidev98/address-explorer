@@ -1,11 +1,15 @@
 //! Reusable controls of the shared data-table pattern (Section 5.11 of
-//! CONTRIBUTING.md): the pagination bar with its editable page index and
-//! sortable column headers.
+//! CONTRIBUTING.md): the pagination bar with its editable page index,
+//! sortable column headers, and the opt-in multi-selection cells used by
+//! tables with bulk actions.
 //!
 //! Every data-table screen composes these instead of re-implementing them,
 //! so all tables paginate and sort the same way. The controls only report
 //! intent through their event handlers; the screen owns the query state and
 //! the backend decides ordering.
+
+use std::collections::HashSet;
+use std::hash::Hash;
 
 use dioxus::prelude::*;
 
@@ -104,6 +108,148 @@ pub fn SortableHeader(
                 onclick: move |_| on_sort.call(()),
                 "{label}"
                 span { class: "md3-sort-arrow", aria_hidden: "true", "{arrow}" }
+            }
+        }
+    }
+}
+
+/// Multi-selection state of one table.
+///
+/// The selection is keyed by the table's row identifier (`i64` ids or the
+/// address string). It is opt-in: a table only gains selection when it
+/// renders [`TableSelectionHeader`] and [`TableSelectionCell`], so tables
+/// without bulk actions keep their existing layout.
+pub struct TableSelection<T: 'static> {
+    selected: Signal<HashSet<T>>,
+}
+
+impl<T: 'static> Clone for TableSelection<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: 'static> Copy for TableSelection<T> {}
+
+/// Create the multi-selection state of one table. Call it once with the
+/// other hooks of the table component; the selected ids survive re-renders
+/// until the screen clears them explicitly.
+pub fn use_table_selection<T>() -> TableSelection<T>
+where
+    T: Clone + Eq + Hash + 'static,
+{
+    TableSelection {
+        selected: use_signal(HashSet::<T>::new),
+    }
+}
+
+impl<T> TableSelection<T>
+where
+    T: Clone + Eq + Hash + 'static,
+{
+    /// The checked ids as an owned set for one render pass.
+    pub fn snapshot(&self) -> HashSet<T> {
+        self.selected.read().clone()
+    }
+
+    /// Number of checked rows.
+    pub fn len(&self) -> usize {
+        self.selected.read().len()
+    }
+
+    /// Whether no row is checked.
+    pub fn is_empty(&self) -> bool {
+        self.selected.read().is_empty()
+    }
+
+    /// The checked ids. HashSet iteration order is unspecified; services
+    /// normalize and deduplicate the list before using it.
+    pub fn selected_ids(&self) -> Vec<T> {
+        self.selected.read().iter().cloned().collect()
+    }
+
+    /// Check or uncheck one row.
+    pub fn set(&mut self, id: T, selected: bool) {
+        let mut guard = self.selected.write();
+        if selected {
+            guard.insert(id);
+        } else {
+            guard.remove(&id);
+        }
+    }
+
+    /// Check or uncheck every id in the list, leaving other selections
+    /// untouched.
+    pub fn set_many(&mut self, ids: &[T], selected: bool) {
+        let mut guard = self.selected.write();
+        if selected {
+            guard.extend(ids.iter().cloned());
+        } else {
+            for id in ids {
+                guard.remove(id);
+            }
+        }
+    }
+
+    /// Whether every id in a non-empty list is checked.
+    pub fn all_selected(&self, ids: &[T]) -> bool {
+        if ids.is_empty() {
+            return false;
+        }
+        let guard = self.selected.read();
+        ids.iter().all(|id| guard.contains(id))
+    }
+
+    /// Drop the whole selection.
+    pub fn clear(&mut self) {
+        self.selected.write().clear();
+    }
+}
+
+/// Select-all checkbox plus the bulk-action header cell of a table.
+///
+/// The action is rendered in the `th` directly next to the selector, so it
+/// reads as applying to the selection; the row-level actions stay in the
+/// second body cell. Screen-specific actions are passed as children, which
+/// keeps the control reusable for future bulk operations beyond deletion.
+#[component]
+pub fn TableSelectionHeader(
+    all_selected: bool,
+    select_all_label: String,
+    on_toggle_all: EventHandler<bool>,
+    #[props(default)] disabled: bool,
+    children: Element,
+) -> Element {
+    rsx! {
+        th { class: "md3-table-select-cell",
+            input {
+                r#type: "checkbox",
+                aria_label: "{select_all_label}",
+                checked: all_selected,
+                disabled,
+                onchange: move |event| on_toggle_all.call(event.checked()),
+            }
+        }
+        th { class: "md3-table-select-actions", {children} }
+    }
+}
+
+/// Checkbox cell of one selectable table row.
+///
+/// Clicks are stopped at the cell so a selectable row that also opens a
+/// detail view or navigates from its row click does not trigger that action
+/// when the checkbox is toggled.
+#[component]
+pub fn TableSelectionCell(checked: bool, label: String, on_change: EventHandler<bool>) -> Element {
+    rsx! {
+        td {
+            class: "md3-table-select-cell",
+            onclick: move |event| event.stop_propagation(),
+            input {
+                r#type: "checkbox",
+                aria_label: "{label}",
+                checked,
+                onchange: move |event| on_change.call(event.checked()),
             }
         }
     }

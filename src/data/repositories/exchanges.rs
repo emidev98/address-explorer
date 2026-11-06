@@ -3,13 +3,17 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{
+    params, params_from_iter, Connection, OptionalExtension, ToSql, Transaction,
+    TransactionBehavior,
+};
 
+use super::placeholders;
 use crate::data::{Database, DatabaseError};
 use crate::domain::exchange::matching::{OnChainInput, OnChainOutput, OnChainTransaction};
 use crate::domain::exchange::{
-    ExchangeAccount, ExchangeAccountRow, ExchangeOverviewTotals, ExchangeTransaction,
-    ExchangeTxType, MatchState, OnChainLink, OnChainLinkSource,
+    ExchangeAccount, ExchangeAccountRow, ExchangeActivityTotals, ExchangeOverviewTotals,
+    ExchangeTransaction, ExchangeTxType, MatchState, OnChainLink, OnChainLinkSource,
 };
 use crate::domain::table::{SortDirection, TablePage};
 
@@ -195,14 +199,39 @@ pub fn list_accounts(
                 (SELECT COUNT(*) FROM exchange_transactions
                  WHERE tx_type IN ('deposit', 'withdrawal') AND match_state <> 'unmatched'),
                 (SELECT COUNT(*) FROM exchange_transactions
-                 WHERE tx_type IN ('deposit', 'withdrawal'))",
+                 WHERE tx_type IN ('deposit', 'withdrawal')),
+                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'buy' THEN ABS(amount_sats)
+                                         ELSE 0 END), 0) FROM exchange_transactions),
+                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'sell' THEN ABS(amount_sats)
+                                         ELSE 0 END), 0) FROM exchange_transactions),
+                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'reward' THEN ABS(amount_sats)
+                                         ELSE 0 END), 0) FROM exchange_transactions),
+                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'withdrawal' THEN ABS(amount_sats)
+                                         ELSE 0 END), 0) FROM exchange_transactions),
+                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'deposit' THEN ABS(amount_sats)
+                                         ELSE 0 END), 0) FROM exchange_transactions)",
         [],
         |row| {
+            let bought_sats: i64 = row.get(4)?;
+            let sold_sats: i64 = row.get(5)?;
+            let rewarded_sats: i64 = row.get(6)?;
+            let withdrawn_sats: i64 = row.get(7)?;
+            let deposited_sats: i64 = row.get(8)?;
             Ok(ExchangeOverviewTotals {
                 exchange_count: row.get(0)?,
                 total_transactions: row.get(1)?,
                 onchain_matched_count: row.get(2)?,
                 onchain_total_count: row.get(3)?,
+                activity: ExchangeActivityTotals {
+                    bought_sats,
+                    sold_sats,
+                    rewarded_sats,
+                    withdrawn_sats,
+                    deposited_sats,
+                    net_ledger_sats: bought_sats + rewarded_sats + deposited_sats
+                        - sold_sats
+                        - withdrawn_sats,
+                },
             })
         },
     )?;
@@ -295,23 +324,36 @@ pub fn update_account(
     get_account(database, id)?.ok_or_else(|| DatabaseError::new("exchange account was not stored"))
 }
 
-pub fn delete_account(database: &Database, id: i64) -> Result<bool, DatabaseError> {
+/// Delete several exchange accounts in one transaction.
+///
+/// Their ledger rows cascade with the accounts. Every affected provider
+/// balance is refreshed once after the deletion. Returns the number of
+/// deleted account rows.
+pub fn delete_accounts(database: &Database, ids: &[i64]) -> Result<usize, DatabaseError> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let provider_id: Option<i64> = transaction
-        .query_row(
-            "SELECT provider_id FROM exchange_accounts WHERE id = ?1",
-            [id],
-            |row| row.get(0),
-        )
-        .optional()?
-        .flatten();
-    let deleted = transaction.execute("DELETE FROM exchange_accounts WHERE id = ?1", [id])?;
-    if let Some(provider_id) = provider_id {
+    let placeholders = placeholders(ids.len());
+    let provider_ids = {
+        let mut statement = transaction.prepare(&format!(
+            "SELECT DISTINCT provider_id FROM exchange_accounts
+             WHERE id IN ({placeholders}) AND provider_id IS NOT NULL"
+        ))?;
+        let rows = statement.query_map(params_from_iter(ids.iter()), |row| row.get::<_, i64>(0))?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    let deleted = transaction.execute(
+        &format!("DELETE FROM exchange_accounts WHERE id IN ({placeholders})"),
+        params_from_iter(ids.iter()),
+    )?;
+    for provider_id in provider_ids {
         refresh_provider_balance_tx(&transaction, provider_id)?;
     }
     transaction.commit()?;
-    Ok(deleted == 1)
+    Ok(deleted)
 }
 
 /// Refresh the stored ledger balance of one provider.
@@ -658,11 +700,19 @@ pub fn save_transaction(
         .ok_or_else(|| DatabaseError::new("exchange transaction was not stored"))
 }
 
-pub fn delete_transaction(
+/// Delete several ledger transactions of one account in one transaction.
+///
+/// The account's modification time and the provider balance are refreshed
+/// once for the whole batch. Returns the number of deleted rows.
+pub fn delete_transactions(
     database: &Database,
     exchange_id: i64,
-    id: i64,
-) -> Result<bool, DatabaseError> {
+    ids: &[i64],
+) -> Result<usize, DatabaseError> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+
     let now = unix_now();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -674,11 +724,21 @@ pub fn delete_transaction(
         )
         .optional()?
         .flatten();
+    let id_placeholders = (0..ids.len())
+        .map(|index| format!("?{}", index + 2))
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut parameters: Vec<&dyn ToSql> = Vec::with_capacity(ids.len() + 1);
+    parameters.push(&exchange_id);
+    parameters.extend(ids.iter().map(|id| id as &dyn ToSql));
     let deleted = transaction.execute(
-        "DELETE FROM exchange_transactions WHERE id = ?1 AND exchange_id = ?2",
-        params![id, exchange_id],
+        &format!(
+            "DELETE FROM exchange_transactions
+             WHERE exchange_id = ?1 AND id IN ({id_placeholders})"
+        ),
+        parameters.as_slice(),
     )?;
-    if deleted == 1 {
+    if deleted > 0 {
         transaction.execute(
             "UPDATE exchange_accounts SET last_modified_at = ?2 WHERE id = ?1",
             params![exchange_id, now],
@@ -688,7 +748,7 @@ pub fn delete_transaction(
         refresh_provider_balance_tx(&transaction, provider_id)?;
     }
     transaction.commit()?;
-    Ok(deleted == 1)
+    Ok(deleted)
 }
 
 /// Insert already deduplicated imported rows and refresh the provider.
@@ -1111,7 +1171,7 @@ mod tests {
         assert_eq!(stored_balance(&database, "bc1qm"), 0);
 
         // Deleting the anchor promotes the next alphabetical address.
-        address_repository::delete_address(&database, "bc1qa").unwrap();
+        address_repository::delete_addresses(&database, &["bc1qa".to_string()]).unwrap();
         assert_eq!(stored_balance(&database, "bc1qm"), 7_000_000);
         assert_eq!(stored_balance(&database, "bc1qz"), 0);
     }
@@ -1154,8 +1214,62 @@ mod tests {
         assert_eq!(stored_balance(&database, "bc1qb"), 3_000_000);
 
         let transactions = list_account_transactions(&database, account.id).unwrap();
-        delete_transaction(&database, account.id, transactions[0].id).unwrap();
+        delete_transactions(&database, account.id, &[transactions[0].id]).unwrap();
         assert_eq!(stored_balance(&database, "bc1qb"), 0);
+    }
+
+    #[test]
+    fn batch_delete_removes_every_selected_account_and_its_rows() {
+        let database = Database::open_in_memory().unwrap();
+        let first = create_account(&database, "First", None).unwrap();
+        let second = create_account(&database, "Second", None).unwrap();
+        let kept = create_account(&database, "Kept", None).unwrap();
+        for account in [&first, &second, &kept] {
+            insert_imported_transactions(
+                &database,
+                account.id,
+                &[ledger_write(1_000_000, ExchangeTxType::Buy, None)],
+                1,
+            )
+            .unwrap();
+        }
+
+        let deleted = delete_accounts(&database, &[first.id, second.id]).unwrap();
+
+        assert_eq!(deleted, 2);
+        assert!(get_account(&database, first.id).unwrap().is_none());
+        assert!(get_account(&database, second.id).unwrap().is_none());
+        assert!(get_account(&database, kept.id).unwrap().is_some());
+        assert!(list_account_transactions(&database, first.id)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn batch_delete_removes_only_the_selected_transactions() {
+        let database = Database::open_in_memory().unwrap();
+        let account = create_account(&database, "Batch", None).unwrap();
+        insert_imported_transactions(
+            &database,
+            account.id,
+            &[
+                ledger_write(1_000_000, ExchangeTxType::Buy, None),
+                ledger_write(2_000_000, ExchangeTxType::Deposit, None),
+                ledger_write(3_000_000, ExchangeTxType::Reward, None),
+            ],
+            1,
+        )
+        .unwrap();
+        let rows = list_account_transactions(&database, account.id).unwrap();
+        assert_eq!(rows.len(), 3);
+
+        let deleted =
+            delete_transactions(&database, account.id, &[rows[0].id, rows[2].id]).unwrap();
+
+        assert_eq!(deleted, 2);
+        let remaining = list_account_transactions(&database, account.id).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, rows[1].id);
     }
 
     #[test]
@@ -1199,6 +1313,40 @@ mod tests {
         assert_eq!(totals.total_transactions, 4);
         assert_eq!(totals.onchain_matched_count, 1);
         assert_eq!(totals.onchain_total_count, 2);
+    }
+
+    #[test]
+    fn account_totals_include_ledger_activity_across_types() {
+        let database = Database::open_in_memory().unwrap();
+        let account = create_account(&database, "Kraken", Some(1)).unwrap();
+        insert_imported_transactions(
+            &database,
+            account.id,
+            &[
+                ledger_write(10_000_000, ExchangeTxType::Buy, None),
+                ledger_write(5_000_000, ExchangeTxType::Sell, None),
+                ledger_write(1_000_000, ExchangeTxType::Reward, None),
+                ledger_write(3_000_000, ExchangeTxType::Deposit, None),
+                ledger_write(-2_000_000, ExchangeTxType::Withdrawal, None),
+            ],
+            1,
+        )
+        .unwrap();
+
+        let (_, totals) = list_accounts(
+            &database,
+            25,
+            0,
+            Some((ExchangeAccountSortColumn::TxCount, SortDirection::Desc)),
+        )
+        .unwrap();
+        let activity = totals.activity;
+        assert_eq!(activity.bought_sats, 10_000_000);
+        assert_eq!(activity.sold_sats, 5_000_000);
+        assert_eq!(activity.rewarded_sats, 1_000_000);
+        assert_eq!(activity.withdrawn_sats, 2_000_000);
+        assert_eq!(activity.deposited_sats, 3_000_000);
+        assert_eq!(activity.net_ledger_sats, 7_000_000);
     }
 
     #[test]
