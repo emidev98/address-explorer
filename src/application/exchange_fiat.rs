@@ -12,7 +12,7 @@ use crate::clients::frankfurter::{Frankfurter, FrankfurterConfig, RatesQuery};
 use crate::data::repositories::{fiat_rates as rate_repository, settings as settings_repository};
 use crate::data::{Database, DatabaseError};
 use crate::domain::civil_time;
-use crate::domain::exchange::{csv, ExchangeTransaction};
+use crate::domain::exchange::{csv, ExchangeKpiTransaction, ExchangeTransaction};
 use crate::domain::price::USD_SYMBOL;
 
 const MAX_RANGE_DAYS: i64 = 366;
@@ -96,7 +96,7 @@ impl ExchangeFiatService {
                     missing.insert((base, date));
                 }
                 Err(error) => {
-                    warning = Some(format!("Could not read cached fiat rates: {error}"));
+                    warning = Some(format!("Could not read cached exchange rates: {error}"));
                 }
             }
         }
@@ -117,7 +117,7 @@ impl ExchangeFiatService {
                     .await
                 {
                     warning = Some(format!(
-                        "Some historical fiat rates could not be loaded: {error}"
+                        "Some historical exchange rates could not be loaded: {error}"
                     ));
                 }
                 for date in &dates {
@@ -160,11 +160,11 @@ impl ExchangeFiatService {
                         }
                     }
                     Ok(_) => {
-                        warning = Some("A fiat rate was invalid and was skipped.".to_string());
+                        warning = Some("An exchange rate was invalid and was skipped.".to_string());
                     }
                     Err(error) => {
                         warning = Some(format!(
-                            "Some historical fiat rates could not be loaded: {error}"
+                            "Some historical exchange rates could not be loaded: {error}"
                         ));
                     }
                 }
@@ -295,6 +295,62 @@ impl ExchangeFiatService {
         }
         warning
     }
+
+    /// Convert the fiat amounts and fiat fees of the lean KPI projection into
+    /// `target` and return the warning, if any. BTC/XBT fees stay satoshis.
+    pub async fn convert_kpi_transactions(
+        &self,
+        target: &str,
+        transactions: &mut [ExchangeKpiTransaction],
+    ) -> Option<String> {
+        for transaction in transactions.iter_mut() {
+            transaction.converted_fiat_amount = None;
+            transaction.converted_fee_amount = None;
+        }
+
+        let mut values = Vec::new();
+        let mut assignments = Vec::new();
+        for (index, transaction) in transactions.iter().enumerate() {
+            if let (Some(amount), Some(currency)) = (
+                transaction.fiat_amount,
+                transaction.fiat_currency.as_deref(),
+            ) {
+                values.push(FiatValue {
+                    timestamp: transaction.timestamp,
+                    amount,
+                    currency: currency.to_string(),
+                });
+                assignments.push((index, FiatField::Amount));
+            }
+            if let (Some(fee), Some(currency)) =
+                (transaction.fee, transaction.fee_currency.as_deref())
+            {
+                if !csv::is_bitcoin_currency(currency) {
+                    values.push(FiatValue {
+                        timestamp: transaction.timestamp,
+                        amount: fee,
+                        currency: currency.to_string(),
+                    });
+                    assignments.push((index, FiatField::Fee));
+                }
+            }
+        }
+        if values.is_empty() {
+            return None;
+        }
+
+        let (converted, warning) = self.convert_values(target, &values).await;
+        for ((index, field), value) in assignments.into_iter().zip(converted) {
+            let Some(value) = value else {
+                continue;
+            };
+            match field {
+                FiatField::Amount => transactions[index].converted_fiat_amount = Some(value),
+                FiatField::Fee => transactions[index].converted_fee_amount = Some(value),
+            }
+        }
+        warning
+    }
 }
 
 fn now() -> i64 {
@@ -391,6 +447,35 @@ mod tests {
         assert_eq!(transaction.converted_fiat_currency.as_deref(), Some("USD"));
         assert!((transaction.converted_fee_amount.unwrap() - 2.2).abs() < 1e-9);
         assert_eq!(transaction.converted_fee_currency.as_deref(), Some("USD"));
+    }
+
+    #[test]
+    fn converts_lean_kpi_rows_in_the_default_currency() {
+        let database = Database::open_in_memory().unwrap();
+        let timestamp = civil_time::epoch_seconds(2026, 3, 25, 12, 0, 0);
+        let date = civil_time::format_date(timestamp);
+        rate_repository::upsert_rate(&database, "EUR", "USD", &date, 1.1, 0).unwrap();
+
+        let service = ExchangeFiatService::connect(database);
+        let mut row = ExchangeKpiTransaction {
+            timestamp,
+            tx_type: ExchangeTxType::Buy,
+            amount_sats: 100_000_000,
+            fiat_amount: Some(100.0),
+            fiat_currency: Some("EUR".into()),
+            fee: Some(2.0),
+            fee_currency: Some("EUR".into()),
+            match_state: MatchState::Unmatched,
+            converted_fiat_amount: None,
+            converted_fee_amount: None,
+        };
+
+        let warning =
+            block_on(service.convert_kpi_transactions("USD", std::slice::from_mut(&mut row)));
+
+        assert_eq!(warning, None);
+        assert!((row.converted_fiat_amount.unwrap() - 110.0).abs() < 1e-9);
+        assert!((row.converted_fee_amount.unwrap() - 2.2).abs() < 1e-9);
     }
 
     #[test]

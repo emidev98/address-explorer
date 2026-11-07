@@ -1,10 +1,11 @@
-//! SQL access to the `setting` key/value table, holding the theme preference
-//! and the default fiat currency.
+//! SQL access to the `setting` key/value table, holding the theme preference,
+//! the default fiat currency, and interface preferences.
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::data::{Database, DatabaseError};
 use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
+use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
 use crate::domain::price::USD_SYMBOL;
 use crate::domain::theme::{ThemeMode, ThemePalette, ThemePreference};
 
@@ -13,6 +14,13 @@ const MODE_KEY: &str = "mode";
 const DEFAULT_FIAT_CURRENCY_KEY: &str = "default_fiat_currency";
 const CONFIRM_DESTRUCTIVE_KEY: &str = "confirm_destructive_actions";
 const ON_CHAIN_SCORING_KEY: &str = "on_chain_link_scoring";
+const SHOW_DATE_RANGE_SUPPORT_KEY: &str = "show_date_range_support";
+const NAVIGATION_POSITION_KEY: &str = "navigation_position";
+const SIDE_NAV_COLLAPSED_KEY: &str = "side_nav_collapsed";
+/// Key used by the earlier Flow-only helper preference. It is read as a
+/// fallback so an existing preference survives the generic rename; saves
+/// always write [`SHOW_DATE_RANGE_SUPPORT_KEY`].
+const LEGACY_SHOW_FLOW_DATE_RANGE_HELPER_KEY: &str = "show_flow_date_range_helper";
 
 /// Load the stored theme, falling back to defaults for missing or
 /// unrecognized values.
@@ -97,6 +105,61 @@ pub fn save_on_chain_link_scoring(
     Ok(settings)
 }
 
+/// Load interface preferences, falling back to their defaults for missing or
+/// malformed values (supporting text hidden, automatic navigation).
+pub fn load_interface_settings(database: &Database) -> Result<InterfaceSettings, DatabaseError> {
+    let connection = database.connection()?;
+    let show_date_range_support = match read_setting(&connection, SHOW_DATE_RANGE_SUPPORT_KEY)? {
+        Some(value) => value.parse::<bool>().ok().unwrap_or(false),
+        None => read_setting(&connection, LEGACY_SHOW_FLOW_DATE_RANGE_HELPER_KEY)?
+            .and_then(|value| value.parse::<bool>().ok())
+            .unwrap_or(false),
+    };
+    let navigation_position = read_setting(&connection, NAVIGATION_POSITION_KEY)?
+        .and_then(|value| NavigationPosition::from_value(&value))
+        .unwrap_or_default();
+    let side_nav_collapsed = read_setting(&connection, SIDE_NAV_COLLAPSED_KEY)?
+        .and_then(|value| value.parse::<bool>().ok())
+        .unwrap_or(false);
+    Ok(InterfaceSettings {
+        show_date_range_support,
+        navigation_position,
+        side_nav_collapsed,
+    })
+}
+
+/// Persist the date-range support-text visibility.
+pub fn save_show_date_range_support(
+    database: &Database,
+    enabled: bool,
+) -> Result<(), DatabaseError> {
+    let connection = database.connection()?;
+    write_setting(
+        &connection,
+        SHOW_DATE_RANGE_SUPPORT_KEY,
+        if enabled { "true" } else { "false" },
+    )
+}
+
+/// Persist the primary-navigation placement.
+pub fn save_navigation_position(
+    database: &Database,
+    position: NavigationPosition,
+) -> Result<(), DatabaseError> {
+    let connection = database.connection()?;
+    write_setting(&connection, NAVIGATION_POSITION_KEY, position.as_str())
+}
+
+/// Persist whether the side panel is compressed into an icon rail.
+pub fn save_side_nav_collapsed(database: &Database, collapsed: bool) -> Result<(), DatabaseError> {
+    let connection = database.connection()?;
+    write_setting(
+        &connection,
+        SIDE_NAV_COLLAPSED_KEY,
+        if collapsed { "true" } else { "false" },
+    )
+}
+
 fn read_setting(connection: &Connection, key: &str) -> Result<Option<String>, DatabaseError> {
     connection
         .query_row("SELECT value FROM setting WHERE key = ?1", [key], |row| {
@@ -147,8 +210,8 @@ mod tests {
             mode: ThemeMode::Light,
         };
         let second = ThemePreference {
-            palette: ThemePalette::Sunset,
-            mode: ThemeMode::System,
+            palette: ThemePalette::Orange,
+            mode: ThemeMode::Dark,
         };
 
         save(&database, &first).unwrap();
@@ -231,6 +294,161 @@ mod tests {
             OnChainLinkScoringSettings::default()
         );
     }
+    #[test]
+    fn interface_settings_default_to_hidden_and_round_trip() {
+        let database = Database::open_in_memory().unwrap();
+        let defaults = load_interface_settings(&database).unwrap();
+        assert!(!defaults.show_date_range_support);
+        assert_eq!(defaults.navigation_position, NavigationPosition::Auto);
+        assert!(!defaults.side_nav_collapsed);
+
+        save_show_date_range_support(&database, true).unwrap();
+        assert!(
+            load_interface_settings(&database)
+                .unwrap()
+                .show_date_range_support
+        );
+
+        save_show_date_range_support(&database, false).unwrap();
+        assert!(
+            !load_interface_settings(&database)
+                .unwrap()
+                .show_date_range_support
+        );
+    }
+
+    #[test]
+    fn navigation_position_round_trips_and_rejects_unknown_values() {
+        let database = Database::open_in_memory().unwrap();
+
+        for position in NavigationPosition::ALL {
+            save_navigation_position(&database, position).unwrap();
+            assert_eq!(
+                load_interface_settings(&database)
+                    .unwrap()
+                    .navigation_position,
+                position
+            );
+        }
+
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO setting (key, value)
+                 VALUES ('navigation_position', 'diagonal')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            load_interface_settings(&database)
+                .unwrap()
+                .navigation_position,
+            NavigationPosition::Auto
+        );
+    }
+
+    #[test]
+    fn side_nav_collapsed_round_trips_and_invalid_values_expand() {
+        let database = Database::open_in_memory().unwrap();
+
+        save_side_nav_collapsed(&database, true).unwrap();
+        assert!(
+            load_interface_settings(&database)
+                .unwrap()
+                .side_nav_collapsed
+        );
+
+        save_side_nav_collapsed(&database, false).unwrap();
+        assert!(
+            !load_interface_settings(&database)
+                .unwrap()
+                .side_nav_collapsed
+        );
+
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO setting (key, value)
+                 VALUES ('side_nav_collapsed', 'sideways')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+        assert!(
+            !load_interface_settings(&database)
+                .unwrap()
+                .side_nav_collapsed
+        );
+    }
+
+    #[test]
+    fn legacy_flow_helper_setting_is_read_when_generic_setting_is_missing() {
+        let database = Database::open_in_memory().unwrap();
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO setting (key, value)
+                 VALUES ('show_flow_date_range_helper', 'true')",
+                [],
+            )
+            .unwrap();
+
+        assert!(
+            load_interface_settings(&database)
+                .unwrap()
+                .show_date_range_support
+        );
+
+        // Saving the generic preference takes precedence over the legacy key.
+        save_show_date_range_support(&database, false).unwrap();
+        assert!(
+            !load_interface_settings(&database)
+                .unwrap()
+                .show_date_range_support
+        );
+    }
+
+    #[test]
+    fn invalid_interface_setting_falls_back_to_hidden() {
+        let database = Database::open_in_memory().unwrap();
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO setting (key, value)
+                 VALUES ('show_date_range_support', 'not-a-bool')",
+                [],
+            )
+            .unwrap();
+
+        assert!(
+            !load_interface_settings(&database)
+                .unwrap()
+                .show_date_range_support
+        );
+    }
+
+    #[test]
+    fn removed_stored_values_fall_back_to_defaults() {
+        for palette in ["orchid", "graphite-lime", "sunset", "ledger"] {
+            let database = Database::open_in_memory().unwrap();
+            database
+                .connection()
+                .unwrap()
+                .execute(
+                    "INSERT INTO setting (key, value) VALUES ('theme', ?1), ('mode', 'system')",
+                    [palette],
+                )
+                .unwrap();
+
+            assert_eq!(load(&database).unwrap(), ThemePreference::default());
+        }
+    }
+
     #[test]
     fn invalid_stored_values_fall_back_to_defaults() {
         let database = Database::open_in_memory().unwrap();

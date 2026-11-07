@@ -19,8 +19,9 @@ pub async fn list_addresses_api() -> Result<Vec<AddressListItem>, ServerFnError>
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
-/// Addresses overview: the page rows, sorted and scope-filtered in the
-/// backend, plus the global KPI totals of the addresses page.
+/// Addresses overview: every listed row sorted and scope-filtered in the
+/// backend for the KPI cards and the holdings chart, the requested table
+/// page, and the global KPI totals of the addresses page.
 #[server]
 #[post("/api/addresses/overview")]
 pub async fn addresses_overview_api(

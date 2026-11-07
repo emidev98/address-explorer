@@ -10,6 +10,7 @@ use crate::api::catalogs::{
 };
 use crate::components::provider_badge::derived_color;
 use crate::components::{use_toast, BadgeSize, ConfirmDialog, CsvDropzone, ProviderBadge, Toast};
+use crate::domain::catalog::csv::MAX_PREVIEW_ROWS;
 use crate::domain::catalog::{
     normalize_brand_color, slugify, CatalogCategory, CatalogDeleteOutcome, CatalogDeletePreview,
     CatalogDeleteSummary, CatalogField, CatalogImportPreview, CatalogImportSummary, CatalogKind,
@@ -986,7 +987,7 @@ pub fn CatalogImportDialog(
                                 }
                                 if preview.rows_truncated {
                                     p { class: "text-body-small text-on-surface-variant",
-                                        "Showing the first 200 rows; every valid row is still imported."
+                                        "Showing the first {MAX_PREVIEW_ROWS} rows; every valid row is still imported."
                                     }
                                 }
                             }
@@ -1011,14 +1012,12 @@ pub fn CatalogImportDialog(
                             result.skipped_duplicates,
                             duplicate_noun,
                             result.invalid_rows,
-                            result.uncategorized_rows
+                            result.uncategorized_rows,
                         );
                         rsx! {
                             div { class: "md3-import-result",
                                 strong { "Imported {result.created} {noun}." }
-                                span { class: "text-body-small text-on-surface-variant",
-                                    "{details}"
-                                }
+                                span { class: "text-body-small text-on-surface-variant", "{details}" }
                             }
                         }
                     }

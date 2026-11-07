@@ -16,11 +16,15 @@ use crate::data::repositories::{
     addresses as address_repository, transactions as transaction_repository,
 };
 use crate::data::{Database, DatabaseError};
-use crate::domain::transaction::TransactionSyncSummary;
+use crate::domain::transaction::{
+    TransactionSyncBatchSummary, TransactionSyncFailure, TransactionSyncSummary,
+};
 
 /// Failures of the transaction sync service.
 #[derive(Debug, thiserror::Error)]
 pub enum TransactionSyncError {
+    #[error("Select at least one address.")]
+    EmptySelection,
     #[error("address not found")]
     AddressNotFound,
     #[error("database access failed: {0}")]
@@ -101,6 +105,46 @@ impl TransactionService {
         Ok(summary)
     }
 
+    /// Sync the transaction histories of several stored addresses.
+    ///
+    /// This is the use case behind the addresses table's bulk sync action.
+    /// The selection is sorted, deduplicated, and split into ordinary and
+    /// exchange-owned addresses before any work starts; an empty selection
+    /// is rejected. Ordinary addresses sync first because an exchange runs a
+    /// reverse search over the transactions already stored for them, so the
+    /// batch must never depend on the lexical order of the selection. The
+    /// addresses sync sequentially so a batch never fans out concurrent
+    /// mempool requests that would exhaust the provider's rate limit.
+    ///
+    /// Each address keeps its own database transaction: network I/O happens
+    /// before the matching write, so the connection is never locked while
+    /// waiting on the mempool API. A failing address is recorded in the
+    /// summary's `failed` list and the batch continues with the remaining
+    /// addresses, so one failure never discards their results.
+    pub async fn sync_addresses_transactions(
+        &self,
+        addresses: &[String],
+    ) -> Result<TransactionSyncBatchSummary, TransactionSyncError> {
+        let addresses = normalize_selection(addresses);
+        if addresses.is_empty() {
+            return Err(TransactionSyncError::EmptySelection);
+        }
+        let (ordinary, exchanges) = partition_by_exchange_ownership(&self.database, &addresses)?;
+
+        let mut summary = TransactionSyncBatchSummary::default();
+        for address in ordinary.iter().chain(exchanges.iter()) {
+            match self.sync_address_transactions(address).await {
+                Ok(result) => summary.synced.push(result),
+                Err(error) => summary.failed.push(TransactionSyncFailure {
+                    address: address.clone(),
+                    error: error.to_string(),
+                }),
+            }
+        }
+
+        Ok(summary)
+    }
+
     /// Read every transaction page exposed by the mempool address endpoint,
     /// optionally resuming from `after_txid`.
     ///
@@ -164,6 +208,45 @@ impl TransactionService {
     }
 }
 
+/// Normalize a bulk selection: duplicate addresses collapse to one sync and
+/// sorting makes the order deterministic even though the UI selection set
+/// has no order.
+fn normalize_selection(addresses: &[String]) -> Vec<String> {
+    let mut addresses = addresses.to_vec();
+    addresses.sort();
+    addresses.dedup();
+    addresses
+}
+
+/// Split a bulk selection into ordinary addresses and exchange-owned
+/// addresses.
+///
+/// Ordinary addresses are indexed by walking their mempool history, while an
+/// exchange address is mirrored from the transactions already stored for the
+/// other addresses. Running the ordinary addresses first lets the exchange
+/// reverse search see their freshly indexed transactions in the same batch.
+/// Addresses missing from the store count as ordinary so their sync reports
+/// the not-found failure.
+fn partition_by_exchange_ownership(
+    database: &Database,
+    addresses: &[String],
+) -> Result<(Vec<String>, Vec<String>), TransactionSyncError> {
+    let mut ordinary = Vec::new();
+    let mut exchanges = Vec::new();
+
+    for address in addresses {
+        let is_exchange = address_repository::get_address(database, address)?
+            .is_some_and(|stored| stored.exchange_id.is_some());
+        if is_exchange {
+            exchanges.push(address.clone());
+        } else {
+            ordinary.push(address.clone());
+        }
+    }
+
+    Ok((ordinary, exchanges))
+}
+
 /// Why a transaction history walk stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FetchStop {
@@ -176,4 +259,93 @@ enum FetchStop {
     /// The API answered 429; the walk can resume later from the oldest
     /// indexed transaction.
     RateLimited,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::address::AddressEntity;
+
+    /// Drive a future to completion without an async runtime. The empty
+    /// selection resolves before any network request is started.
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        use std::task::{Context, RawWaker, RawWakerVTable, Waker};
+
+        fn raw_waker() -> RawWaker {
+            fn clone(_: *const ()) -> RawWaker {
+                raw_waker()
+            }
+            fn noop(_: *const ()) {}
+            // SAFETY: the vtable never dereferences the null data pointer:
+            // cloning manufactures another null waker and the remaining
+            // operations are no-ops, so no requirement of `RawWaker` is
+            // violated.
+            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+
+        // SAFETY: `raw_waker` builds a `RawWaker` whose vtable satisfies the
+        // contract documented above; the data pointer is never dereferenced.
+        let waker = unsafe { Waker::from_raw(raw_waker()) };
+        let mut context = Context::from_waker(&waker);
+        let mut future = std::pin::pin!(future);
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(output) => output,
+            std::task::Poll::Pending => panic!("test future unexpectedly yielded"),
+        }
+    }
+
+    #[test]
+    fn bulk_selection_is_sorted_and_deduplicated() {
+        let selection = vec![
+            "bc1qsecond".to_string(),
+            "bc1qfirst".to_string(),
+            "bc1qsecond".to_string(),
+        ];
+
+        assert_eq!(
+            normalize_selection(&selection),
+            vec!["bc1qfirst".to_string(), "bc1qsecond".to_string()]
+        );
+        assert!(normalize_selection(&[]).is_empty());
+    }
+
+    #[test]
+    fn bulk_sync_rejects_an_empty_selection() {
+        let service = TransactionService::connect(Database::open_in_memory().unwrap());
+
+        let result = block_on(service.sync_addresses_transactions(&[]));
+
+        assert!(matches!(result, Err(TransactionSyncError::EmptySelection)));
+    }
+
+    #[test]
+    fn bulk_selection_syncs_exchange_addresses_after_ordinary_ones() {
+        let database = Database::open_in_memory().unwrap();
+        for entity in [
+            AddressEntity {
+                address: "bc1qwallet".to_string(),
+                ..AddressEntity::default()
+            },
+            AddressEntity {
+                address: "bc1qexchange".to_string(),
+                exchange_id: Some(1),
+                ..AddressEntity::default()
+            },
+        ] {
+            address_repository::insert_address(&database, &entity).unwrap();
+        }
+
+        let selection = vec!["bc1qexchange".to_string(), "bc1qwallet".to_string()];
+        let (ordinary, exchanges) = partition_by_exchange_ownership(&database, &selection).unwrap();
+
+        assert_eq!(ordinary, vec!["bc1qwallet"]);
+        assert_eq!(exchanges, vec!["bc1qexchange"]);
+        // An address that vanished from the store keeps its not-found
+        // failure in the ordinary pass instead of being treated as exchange.
+        let missing = vec!["bc1qmissing".to_string()];
+        let (ordinary, exchanges) = partition_by_exchange_ownership(&database, &missing).unwrap();
+        assert_eq!(ordinary, vec!["bc1qmissing"]);
+        assert!(exchanges.is_empty());
+    }
 }

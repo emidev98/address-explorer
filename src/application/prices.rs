@@ -3,8 +3,11 @@
 //!
 //! Resolution checks the database first, asks the external APIs exactly once
 //! per missing day, and stores every resolved price back into the table so
-//! the same lookup never touches the network twice. The default-currency
-//! preparation reuses the bulk conversion to materialize the stored USD
+//! the same lookup never touches the network twice. The unified sync fills the
+//! BTC/USD daily closes of a range, adds the finer recent reference-rate
+//! observations when the free tier serves them, and converts the stored USD
+//! close times into another currency on request. The default-currency
+//! preparation reuses the same bulk conversion to materialize the stored USD
 //! history in whichever currency Settings selects. SQL stays in
 //! `data::repositories::prices`; the external sources stay behind the
 //! `CoinMetrics` and `Frankfurter` clients.
@@ -13,9 +16,12 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
+use crate::clients::coinmetrics::catalog::CatalogAssetMetricsQuery;
 use crate::clients::coinmetrics::params::{Page, TimeRange};
 use crate::clients::coinmetrics::timeseries::AssetMetricsQuery;
-use crate::clients::coinmetrics::{CoinMetrics, CoinMetricsConfig, CoinMetricsError, Timeseries};
+use crate::clients::coinmetrics::{
+    CatalogScope, CoinMetrics, CoinMetricsConfig, CoinMetricsError, Timeseries,
+};
 use crate::clients::frankfurter::{
     Frankfurter, FrankfurterConfig, FrankfurterError, Rates, RatesQuery,
 };
@@ -25,7 +31,8 @@ use crate::domain::civil_time;
 use crate::domain::price::{
     daily_close_time, fifteen_minute_close_time, normalize_symbol, validate_price_value,
     BulkSyncSummary, CurrencyHistorySummary, FiatCurrency, Price, PriceConversion, PriceError,
-    PricePage, PriceSeries, SyncToTodaySummary, CSV_COVERAGE_END, USD_SYMBOL,
+    PricePage, PriceSeries, PriceSyncSummary, SyncGranularity, CSV_COVERAGE_END,
+    PRICE_HISTORY_START, USD_SYMBOL,
 };
 use crate::domain::table::TableQuery;
 
@@ -35,6 +42,8 @@ use crate::domain::table::TableQuery;
 pub enum PriceServiceError {
     #[error(transparent)]
     Price(#[from] PriceError),
+    #[error("{0}")]
+    Validation(String),
     #[error("database access failed: {0}")]
     Database(#[from] DatabaseError),
     #[error("coin metrics request failed: {0}")]
@@ -74,11 +83,14 @@ async fn usd_close_at(
 ///
 /// Resolution order for the bucketed close time:
 ///
-/// 1. exact row in `historical_prices` — including the imported 15-minute
+/// 1. after the imported 15-minute coverage, the freshest stored intraday
+///    close within the last hour (the 15-minute/hourly observations written by
+///    the unified sync), when one exists;
+/// 2. exact row in `historical_prices` — including the imported 15-minute
 ///    `USD` history;
-/// 2. the daily row covering the request (used to answer candles missing from
+/// 3. the daily row covering the request (used to answer candles missing from
 ///    the historical export, e.g. maintenance gaps, without a network call);
-/// 3. one API round trip per missing day: Coin Metrics for the BTC/USD close
+/// 4. one API round trip per missing day: Coin Metrics for the BTC/USD close
 ///    and, for any other symbol, a Frankfurter `USD → symbol` rate applied to
 ///    the BTC price; every resolved value is stored before returning.
 ///
@@ -101,6 +113,22 @@ pub async fn resolve_price(
     } else {
         daily_close_time(timestamp)
     };
+
+    if timestamp > CSV_COVERAGE_END {
+        if let Some(price) = price_repository::find_latest_price_between(
+            database,
+            &symbol,
+            timestamp - GRANULAR_RESOLUTION_LOOKBACK,
+            timestamp,
+        )? {
+            // Only a sub-daily observation outranks the daily bucket; a daily
+            // close from just before midnight must not replace the close of
+            // the requested day.
+            if price.close_time != daily_close_time(price.close_time) {
+                return Ok(price);
+            }
+        }
+    }
 
     if let Some(price) = price_repository::find_price(database, &symbol, bucket)? {
         return Ok(price);
@@ -221,6 +249,11 @@ type FetchSeriesFuture =
 
 /// Owned future producing daily BTC/USD closes for a range.
 type FetchDailyFuture = Pin<Box<dyn Future<Output = Result<Vec<Price>, PriceServiceError>> + Send>>;
+
+/// Owned future producing reference-rate observations as `(interval start,
+/// value)` pairs for a frequency and range.
+type FetchReferenceFuture =
+    Pin<Box<dyn Future<Output = Result<Vec<(i64, f64)>, PriceServiceError>> + Send>>;
 
 /// Convert the stored USD history of `[from_time, to_time]` into `symbol`
 /// and persist it, in one transaction.
@@ -380,161 +413,345 @@ pub async fn ensure_currency_history(
     Ok(summary)
 }
 
-/// One range the "sync to today" run fills: a gap between two stored closes,
-/// or the days between the latest stored close and the current day.
-struct SyncWindow {
-    /// Last stored close before the range; rows at or before it are skipped.
-    after: i64,
-    /// Inclusive upper bound of the rows kept from the source.
-    fetch_through: i64,
-    /// Upper bound used when counting the daily closes the range is missing.
-    /// It excludes the in-progress day for the tail, whose close is not
-    /// published while the day is still running.
-    counted_through: i64,
+/// Availability of the BTC/USD series reported by the Coin Metrics catalogue.
+#[derive(Debug, Clone, Default)]
+pub struct BtcUsdCoverage {
+    /// First day the `PriceUSD` metric serves; `None` when the catalogue did
+    /// not say, in which case [`PRICE_HISTORY_START`] is assumed.
+    pub daily_start: Option<i64>,
+    /// Finer reference-rate frequencies the source serves.
+    pub reference: Vec<ReferenceCoverage>,
 }
 
-/// Recover the BTC/USD daily closes missing from the stored series.
+/// Time span of one finer reference-rate frequency.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReferenceCoverage {
+    /// Coin Metrics frequency, `1m` or `1h`.
+    pub frequency: String,
+    pub min_time: i64,
+    pub max_time: i64,
+}
+
+impl BtcUsdCoverage {
+    /// Assumed coverage when the catalogue cannot be reached: the documented
+    /// first daily day and the last seven days at both finer frequencies.
+    pub fn fallback(now: i64) -> Self {
+        let start = now - 7 * DAY_SECONDS;
+        Self {
+            daily_start: Some(PRICE_HISTORY_START),
+            reference: vec![
+                ReferenceCoverage {
+                    frequency: "1m".to_string(),
+                    min_time: start,
+                    max_time: now,
+                },
+                ReferenceCoverage {
+                    frequency: "1h".to_string(),
+                    min_time: start,
+                    max_time: now,
+                },
+            ],
+        }
+    }
+
+    /// Intersection of `[from_time, to_time]` with the coverage of the
+    /// frequency behind `granularity`, when one exists.
+    fn reference_window(
+        &self,
+        granularity: SyncGranularity,
+        from_time: i64,
+        to_time: i64,
+    ) -> Option<(i64, i64)> {
+        let frequency = granularity.source_frequency()?;
+        let coverage = self
+            .reference
+            .iter()
+            .find(|entry| entry.frequency == frequency)?;
+        let start = from_time.max(coverage.min_time);
+        let end = to_time.min(coverage.max_time);
+        (start <= end).then_some((start, end))
+    }
+}
+
+/// Intraday stage resolved for one run of the unified sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PriceSyncPlan {
+    /// Resolution actually applied; `Daily` skips the intraday stage.
+    pub granularity: SyncGranularity,
+    /// First day the daily source serves.
+    pub first_day: i64,
+    /// Inclusive intersection of the range with the finer source coverage.
+    pub granular_from: Option<i64>,
+    pub granular_to: Option<i64>,
+}
+
+impl PriceSyncPlan {
+    fn daily(first_day: i64) -> Self {
+        Self {
+            granularity: SyncGranularity::Daily,
+            first_day,
+            granular_from: None,
+            granular_to: None,
+        }
+    }
+
+    fn granular_window(self) -> Option<(i64, i64)> {
+        self.granular_from.zip(self.granular_to)
+    }
+}
+
+/// Resolve the requested granularity against the source coverage.
 ///
-/// Two kinds of ranges are filled:
-///
-/// - **gaps of more than one day** between consecutive stored closes, oldest
-///   first (the imported history has maintenance outages);
-/// - the **tail** from the latest stored close through the current day.
-///
-/// Coin Metrics timestamps a daily row at the start of its interval, so every
-/// row is stored at the matching daily close time (`23:59:59`). Only missing
-/// days are inserted and existing rows are left untouched, so re-running the
-/// sync is safe and only fills what is still absent. Days the source has no
-/// price for are counted as unavailable instead of failing the run. A range
-/// whose request fails is reported in the summary warning as long as another
-/// range succeeded; when every range fails the first error is returned.
-pub async fn sync_prices_to_today(
-    database: &Database,
+/// `Auto` walks the options from the finest to the coarsest and keeps the
+/// first one whose window intersects the range; when no finer window does, it
+/// degrades to daily closes only. A manual intraday choice without coverage
+/// keeps its label so the run can report why it was skipped.
+pub fn plan_price_sync(
+    requested: SyncGranularity,
+    coverage: &BtcUsdCoverage,
+    from_time: i64,
+    to_time: i64,
     now: i64,
-    fetch_daily: &(dyn Fn(i64, i64) -> FetchDailyFuture + Send + Sync),
-) -> Result<SyncToTodaySummary, PriceServiceError> {
+) -> PriceSyncPlan {
+    let first_day = coverage.daily_start.unwrap_or(PRICE_HISTORY_START);
+    let from = from_time.max(first_day);
+    let to = to_time.min(now);
+    if from > to || requested == SyncGranularity::Daily {
+        return PriceSyncPlan::daily(first_day);
+    }
+
+    let candidates: Vec<SyncGranularity> = match requested {
+        SyncGranularity::Auto => {
+            vec![SyncGranularity::FifteenMinutes, SyncGranularity::Hourly]
+        }
+        other => vec![other],
+    };
+    for candidate in candidates {
+        if let Some((start, end)) = coverage.reference_window(candidate, from, to) {
+            return PriceSyncPlan {
+                granularity: candidate,
+                first_day,
+                granular_from: Some(start),
+                granular_to: Some(end),
+            };
+        }
+    }
+
+    if requested.is_intraday() {
+        PriceSyncPlan {
+            granularity: requested,
+            first_day,
+            granular_from: None,
+            granular_to: None,
+        }
+    } else {
+        PriceSyncPlan::daily(first_day)
+    }
+}
+
+/// Sources the unified sync calls. Closures keep the network out of the
+/// orchestration so the workflow is testable without HTTP.
+pub struct PriceSyncSources<'a> {
+    pub daily: &'a (dyn Fn(i64, i64) -> FetchDailyFuture + Send + Sync),
+    pub reference: &'a (dyn Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync),
+    pub fx_series: &'a (dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync),
+}
+
+/// Synchronize the stored BTC price history of `symbol` for `[from_time,
+/// to_time]`.
+///
+/// Every run first fills the BTC/USD daily closes of the range from Coin
+/// Metrics `PriceUSD`, so the reference series stays complete even on an empty
+/// database. When the resolved plan carries an intraday window, the matching
+/// `ReferenceRateUSD` observations are stored as well; they are keyed at their
+/// source timestamps so their values are never shifted and cannot collide with
+/// the daily `23:59:59` close. A non-USD `symbol` then converts every stored
+/// USD close time of the range through [`sync_prices_bulk`], reusing the same
+/// Frankfurter series for the whole span.
+///
+/// Existing rows, including manual edits, are never overwritten. The daily
+/// stage is mandatory; a failing intraday or conversion stage is reported as a
+/// warning while the rest of the run stays stored.
+pub async fn sync_prices_range(
+    database: &Database,
+    symbol: &str,
+    from_time: i64,
+    to_time: i64,
+    now: i64,
+    plan: PriceSyncPlan,
+    sources: &PriceSyncSources<'_>,
+) -> Result<PriceSyncSummary, PriceServiceError> {
+    let symbol = normalize_symbol(symbol)?;
     if now <= 0 {
         return Err(PriceError::InvalidTimestamp(now).into());
     }
-    let Some((_, latest)) = price_repository::price_series_range(database, USD_SYMBOL)? else {
-        return Err(PriceError::InvalidData(
-            "there is no stored USD price history to sync from".to_string(),
-        )
+    if from_time <= 0 {
+        return Err(PriceError::InvalidTimestamp(from_time).into());
+    }
+    if to_time <= 0 {
+        return Err(PriceError::InvalidTimestamp(to_time).into());
+    }
+    if from_time > to_time {
+        return Err(PriceError::InvalidData(format!(
+            "the start of the sync range ({}) must not be after its end ({})",
+            civil_time::format_date(from_time),
+            civil_time::format_date(to_time)
+        ))
         .into());
-    };
-
-    let gaps = price_repository::price_gaps(database, USD_SYMBOL, DAY_SECONDS)?;
-    let mut windows: Vec<SyncWindow> = gaps
-        .iter()
-        .map(|&(after, before)| SyncWindow {
-            after,
-            // The pair's next close is stored, so it is excluded.
-            fetch_through: before - 1,
-            counted_through: before - 1,
-        })
-        .collect();
-    if latest < now {
-        let current_day_close = daily_close_time(now);
-        windows.push(SyncWindow {
-            after: latest,
-            fetch_through: current_day_close,
-            // The current day has no close yet while it is still running.
-            counted_through: now,
-        });
     }
 
-    let mut summary = SyncToTodaySummary {
-        from_time: windows.first().map(|window| window.after).unwrap_or(latest),
-        to_time: now,
-        gaps_found: gaps.len() as u64,
-        missing_days: 0,
-        fetched: 0,
-        stored: 0,
+    let range_start = from_time.max(plan.first_day);
+    let range_end = to_time.min(now);
+    if range_start > range_end {
+        return Err(PriceError::InvalidData(format!(
+            "the sync range ends before the first day the source serves ({})",
+            civil_time::format_date(plan.first_day)
+        ))
+        .into());
+    }
+
+    let mut summary = PriceSyncSummary {
+        symbol: symbol.clone(),
+        from_time: range_start,
+        to_time: range_end,
+        granularity: plan.granularity,
+        granular_from_time: None,
+        granular_to_time: None,
+        daily_fetched: 0,
+        daily_stored: 0,
+        granular_fetched: 0,
+        granular_stored: 0,
         unavailable_days: 0,
-        warning: None,
+        conversion: None,
+        warnings: Vec::new(),
     };
 
-    let mut succeeded = 0_u64;
-    let mut failed = 0_u64;
-    let mut first_failure = None;
-    // Missing days of the ranges the source actually answered. Days in a
-    // failed range are unknown, not unavailable, so they stay out of it.
-    let mut reachable_missing = 0_u64;
-    for window in &windows {
-        let expected = count_daily_closes(window.after, window.counted_through);
-        summary.missing_days += expected;
-        match fetch_daily_window(database, fetch_daily, window).await {
-            Ok((fetched, stored)) => {
-                succeeded += 1;
-                reachable_missing += expected;
-                summary.fetched += fetched;
-                summary.stored += stored;
-            }
-            // A source that cannot be reached leaves the other ranges
-            // recoverable; the run reports them and stays re-runnable.
-            Err(error @ PriceServiceError::CoinMetrics(_)) => {
-                failed += 1;
-                if first_failure.is_none() {
-                    first_failure = Some(error);
+    // Daily stage: the reference series and the floor every other value
+    // derives from.
+    let mut daily = (sources.daily)(range_start, range_end).await?;
+    daily.retain(|price| {
+        price.close_time >= daily_close_time(range_start)
+            && price.close_time <= daily_close_time(range_end)
+    });
+    for price in &mut daily {
+        price.symbol = USD_SYMBOL.to_string();
+        price.close = validate_price_value(price.close, USD_SYMBOL, "Coin Metrics PriceUSD 1d")?;
+    }
+    daily.sort_by_key(|price| price.close_time);
+    daily.dedup_by_key(|price| price.close_time);
+    summary.daily_fetched = daily.len() as u64;
+    summary.daily_stored = price_repository::store_prices_bulk(database, &daily)?;
+
+    // The in-progress day has no published daily close yet, so it is not
+    // counted as unavailable.
+    let complete_through = range_end.min(day_start(now) - 1);
+    let fetched_complete = daily
+        .iter()
+        .filter(|price| price.close_time <= complete_through)
+        .count() as u64;
+    summary.unavailable_days =
+        count_daily_closes(range_start, complete_through).saturating_sub(fetched_complete);
+
+    // Intraday stage: only the newest slice of the range has a finer source.
+    if let Some((granular_from, granular_to)) = plan.granular_window() {
+        let frequency = plan
+            .granularity
+            .source_frequency()
+            .expect("an intraday plan carries a source frequency");
+        match (sources.reference)(frequency, granular_from, granular_to).await {
+            Ok(rows) => {
+                let mut granular = reference_prices(plan.granularity, rows);
+                granular.retain(|price| {
+                    price.close_time >= granular_from && price.close_time <= granular_to
+                });
+                for price in &mut granular {
+                    price.close = validate_price_value(
+                        price.close,
+                        USD_SYMBOL,
+                        "Coin Metrics ReferenceRateUSD",
+                    )?;
                 }
+                granular.sort_by_key(|price| price.close_time);
+                granular.dedup_by_key(|price| price.close_time);
+                summary.granular_fetched = granular.len() as u64;
+                summary.granular_stored = price_repository::store_prices_bulk(database, &granular)?;
+                summary.granular_from_time = Some(granular_from);
+                summary.granular_to_time = Some(granular_to);
             }
-            Err(error) => return Err(error),
+            Err(error @ PriceServiceError::Database(_)) => return Err(error),
+            Err(error) => summary.warnings.push(format!(
+                "Could not fetch {} closes: {error}",
+                plan.granularity.resolution_label()
+            )),
         }
+    } else if plan.granularity.is_intraday() {
+        summary.warnings.push(format!(
+            "No {} closes are available for the selected range; only daily closes were synced.",
+            plan.granularity.resolution_label()
+        ));
     }
 
-    summary.unavailable_days = reachable_missing.saturating_sub(summary.fetched);
-    if failed > 0 {
-        if succeeded == 0 {
-            return Err(first_failure.expect("a failed window recorded its error"));
+    // Conversion stage: every stored USD close time of the range, including
+    // the rows the stages above just inserted.
+    if symbol != USD_SYMBOL {
+        match sync_prices_bulk(database, &symbol, range_start, range_end, sources.fx_series).await {
+            Ok(bulk) => {
+                if bulk.skipped > 0 {
+                    summary.warnings.push(format!(
+                        "{} source prices had no FX rate for their day and were skipped.",
+                        bulk.skipped
+                    ));
+                }
+                summary.conversion = Some(bulk);
+            }
+            Err(error @ PriceServiceError::Database(_)) => return Err(error),
+            Err(error) => summary.warnings.push(format!(
+                "Could not convert the stored prices into {symbol}: {error}"
+            )),
         }
-        let reason = first_failure
-            .map(|error| error.to_string())
-            .unwrap_or_default();
-        summary.warning = Some(format!(
-            "{failed} of {} price ranges could not be fetched ({reason}); sync again to retry them.",
-            failed + succeeded
-        ));
     }
 
     Ok(summary)
 }
 
-/// Fetch one sync window and store the daily closes it is missing. Returns
-/// `(rows returned by the source, rows inserted)`.
-async fn fetch_daily_window(
-    database: &Database,
-    fetch_daily: &(dyn Fn(i64, i64) -> FetchDailyFuture + Send + Sync),
-    window: &SyncWindow,
-) -> Result<(u64, u64), PriceServiceError> {
-    let mut prices = fetch_daily(window.after, window.fetch_through).await?;
-    prices.retain(|price| {
-        price.close_time > window.after && price.close_time <= window.fetch_through
-    });
-    prices.sort_by_key(|price| price.close_time);
-    prices.dedup_by_key(|price| price.close_time);
-    for price in &mut prices {
-        price.symbol = USD_SYMBOL.to_string();
-        price.close = validate_price_value(price.close, USD_SYMBOL, "Coin Metrics PriceUSD 1d")?;
-    }
-
-    let fetched = prices.len() as u64;
-    let stored = price_repository::store_prices_bulk(database, &prices)?;
-    Ok((fetched, stored))
+/// Map reference-rate rows to stored USD observations.
+///
+/// The source timestamps each observation at the start of its interval; the
+/// rows are kept at that timestamp so the value is not shifted. The minute
+/// feed is sampled every 15 minutes, which is the finest resolution the source
+/// offers and matches the imported history's spacing.
+fn reference_prices(granularity: SyncGranularity, rows: Vec<(i64, f64)>) -> Vec<Price> {
+    let unit = match granularity {
+        SyncGranularity::FifteenMinutes => FIFTEEN_MINUTES,
+        SyncGranularity::Hourly => 3_600,
+        _ => return Vec::new(),
+    };
+    rows.into_iter()
+        .filter(|(start, _)| start.rem_euclid(unit) == 0)
+        .map(|(start, close)| Price {
+            symbol: USD_SYMBOL.to_string(),
+            close_time: start,
+            close,
+        })
+        .collect()
 }
 
-/// Number of daily close times (`23:59:59` UTC) strictly after `after` and at
-/// or before `up_to`.
-fn count_daily_closes(after: i64, up_to: i64) -> u64 {
-    let day_close = daily_close_time(after);
-    let first = if day_close > after {
-        day_close
-    } else {
-        day_close + DAY_SECONDS
-    };
-    if first > up_to {
+/// Start of the UTC day containing `timestamp`.
+fn day_start(timestamp: i64) -> i64 {
+    timestamp.div_euclid(DAY_SECONDS) * DAY_SECONDS
+}
+
+/// Number of daily close times (`23:59:59` UTC) within `[from_time,
+/// through]`, counting the close of the day containing `from_time`.
+fn count_daily_closes(from_time: i64, through: i64) -> u64 {
+    if through < from_time {
         return 0;
     }
-    ((up_to - first) / DAY_SECONDS + 1) as u64
+    let first = daily_close_time(from_time);
+    if first > through {
+        return 0;
+    }
+    ((through - first) / DAY_SECONDS + 1) as u64
 }
 
 /// Number of time buckets a series request is downsampled into at most, so a
@@ -613,6 +830,31 @@ pub fn update_stored_price(
     Ok(price)
 }
 
+/// Delete every stored price at the given close times in one batch.
+///
+/// A close time identifies a whole price snapshot: every symbol stored at that
+/// moment is removed, including the conversions other currencies expose in the
+/// table's tooltip. Other close times are left untouched. The selection is
+/// validated and deduplicated before the repository runs its single
+/// transaction.
+pub fn delete_stored_prices(
+    database: &Database,
+    close_times: &[i64],
+) -> Result<usize, PriceServiceError> {
+    let mut close_times = close_times.to_vec();
+    close_times.sort_unstable();
+    close_times.dedup();
+    if close_times.is_empty() {
+        return Err(PriceServiceError::Validation(
+            "Select at least one price to delete.".to_string(),
+        ));
+    }
+    if let Some(invalid) = close_times.iter().find(|&&close_time| close_time <= 0) {
+        return Err(PriceError::InvalidTimestamp(*invalid).into());
+    }
+    Ok(price_repository::delete_prices(database, &close_times)?)
+}
+
 /// Read the stored prices of the other symbols at the same close time: the
 /// conversions displayed when hovering a row of the historical prices table.
 /// Like [`list_price_page`], this is a pure read of the table.
@@ -632,6 +874,15 @@ pub fn list_price_conversions(
 
 /// One day in seconds: the spacing of the daily price series.
 const DAY_SECONDS: i64 = 86_400;
+
+/// One 15-minute interval in seconds: the spacing of the imported history and
+/// of the finest intraday closes the sync stores.
+const FIFTEEN_MINUTES: i64 = 15 * 60;
+
+/// How far back price resolution looks for a stored intraday close after the
+/// imported 15-minute coverage. Within the synchronized granular window every
+/// interval has a row, so one hour always finds the newest one.
+const GRANULAR_RESOLUTION_LOOKBACK: i64 = 3_600;
 
 /// One day in seconds: the fallback distance of [`latest_price_at`].
 const LATEST_PRICE_FALLBACK_SECONDS: i64 = 86_400;
@@ -766,27 +1017,141 @@ impl PriceService {
         .await
     }
 
-    /// Convert the stored USD history of `[from_time, to_time]` into
-    /// `symbol` and persist it; see [`sync_prices_bulk`]. The Frankfurter
-    /// `USD → symbol` series for the range is fetched in a single request.
+    /// Synchronize the BTC/USD history of `[from_time, to_time]` and, when
+    /// `symbol` is not USD, convert every stored USD close time of the range
+    /// into it; see [`sync_prices_range`]. The Coin Metrics catalogue is read
+    /// once to discover the daily start and the finer reference-rate window.
     pub async fn sync_prices(
         &self,
         symbol: &str,
         from_time: i64,
         to_time: i64,
-    ) -> Result<BulkSyncSummary, PriceServiceError> {
+        granularity: SyncGranularity,
+    ) -> Result<PriceSyncSummary, PriceServiceError> {
+        let symbol = normalize_symbol(symbol)?;
+        let now = current_epoch_seconds()?;
+        let (coverage, warning) = self.btc_usd_coverage(now).await;
+        let plan = plan_price_sync(granularity, &coverage, from_time, to_time, now);
+
+        let fetch_daily = |from_time: i64, to_time: i64| -> FetchDailyFuture {
+            let timeseries = self.coinmetrics.timeseries.clone();
+            Box::pin(async move { fetch_btc_usd_daily(&timeseries, from_time, to_time).await })
+        };
+        let fetch_reference =
+            |frequency: &str, from_time: i64, to_time: i64| -> FetchReferenceFuture {
+                let timeseries = self.coinmetrics.timeseries.clone();
+                let frequency = frequency.to_string();
+                Box::pin(async move {
+                    fetch_btc_usd_reference(&timeseries, &frequency, from_time, to_time).await
+                })
+            };
+        let quote = symbol.clone();
         let fetch_fx_series = |from_date: String, to_date: String| -> FetchSeriesFuture {
             let rates = self.frankfurter.rates.clone();
-            let quote = symbol.to_string();
+            let quote = quote.clone();
             Box::pin(async move { fetch_usd_fx_series(&rates, &from_date, &to_date, &quote).await })
         };
-        sync_prices_bulk(&self.database, symbol, from_time, to_time, &fetch_fx_series).await
+        let sources = PriceSyncSources {
+            daily: &fetch_daily,
+            reference: &fetch_reference,
+            fx_series: &fetch_fx_series,
+        };
+
+        let mut summary = sync_prices_range(
+            &self.database,
+            &symbol,
+            from_time,
+            to_time,
+            now,
+            plan,
+            &sources,
+        )
+        .await?;
+        if let Some(warning) = warning {
+            summary.warnings.insert(0, warning);
+        }
+        Ok(summary)
+    }
+
+    /// Read the BTC/USD availability from the Coin Metrics catalogue.
+    ///
+    /// A failure is not fatal: the documented coverage is assumed and the
+    /// reason is returned so the run can report it as a warning.
+    async fn btc_usd_coverage(&self, now: i64) -> (BtcUsdCoverage, Option<String>) {
+        let query = CatalogAssetMetricsQuery {
+            assets: vec!["btc".to_string()],
+            metrics: vec!["PriceUSD".to_string(), "ReferenceRateUSD".to_string()],
+            ..Default::default()
+        };
+        let response = match self
+            .coinmetrics
+            .catalog
+            .get_asset_metrics(CatalogScope::V2, query)
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                return (
+                    BtcUsdCoverage::fallback(now),
+                    Some(format!(
+                        "Could not read the Coin Metrics catalogue ({error}); assuming the documented coverage."
+                    )),
+                )
+            }
+        };
+
+        let mut coverage = BtcUsdCoverage::default();
+        for asset in response.data {
+            for metric in asset.metrics {
+                match metric.metric.as_str() {
+                    "PriceUSD" => {
+                        if let Some(start) = metric
+                            .frequencies
+                            .iter()
+                            .find(|frequency| frequency.frequency == "1d")
+                            .and_then(|frequency| frequency.min_time.as_deref())
+                            .and_then(civil_time::parse_iso_timestamp)
+                        {
+                            coverage.daily_start = Some(start);
+                        }
+                    }
+                    "ReferenceRateUSD" => {
+                        for frequency in ["1m", "1h"] {
+                            let Some(entry) = metric
+                                .frequencies
+                                .iter()
+                                .find(|entry| entry.frequency == frequency)
+                            else {
+                                continue;
+                            };
+                            let min_time = entry
+                                .min_time
+                                .as_deref()
+                                .and_then(civil_time::parse_iso_timestamp);
+                            let max_time = entry
+                                .max_time
+                                .as_deref()
+                                .and_then(civil_time::parse_iso_timestamp);
+                            if let (Some(min_time), Some(max_time)) = (min_time, max_time) {
+                                coverage.reference.push(ReferenceCoverage {
+                                    frequency: frequency.to_string(),
+                                    min_time,
+                                    max_time,
+                                });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        (coverage, None)
     }
 
     /// Prepare the stored USD history in the currently selected currency;
     /// see [`ensure_currency_history`]. The automatic preparation behind the
     /// default fiat currency setting reuses the same conversion path as
-    /// [`Self::sync_prices`].
+    /// [`sync_prices_bulk`].
     pub async fn ensure_currency_history(
         &self,
         symbol: &str,
@@ -799,17 +1164,6 @@ impl PriceService {
             Box::pin(async move { fetch_usd_fx_series(&rates, &from_date, &to_date, &quote).await })
         };
         ensure_currency_history(&self.database, &symbol, &fetch_fx_series).await
-    }
-
-    /// Fetch the BTC/USD daily closes from the latest stored close through
-    /// the current day and persist them; see [`sync_prices_to_today`].
-    pub async fn sync_prices_to_today(&self) -> Result<SyncToTodaySummary, PriceServiceError> {
-        let now = current_epoch_seconds()?;
-        let fetch_daily = |from_time: i64, to_time: i64| -> FetchDailyFuture {
-            let timeseries = self.coinmetrics.timeseries.clone();
-            Box::pin(async move { fetch_btc_usd_daily(&timeseries, from_time, to_time).await })
-        };
-        sync_prices_to_today(&self.database, now, &fetch_daily).await
     }
 
     /// List the currencies the Frankfurter catalogue offers for conversions,
@@ -874,17 +1228,15 @@ const DAILY_PAGE_SIZE: u32 = 10_000;
 /// Metrics.
 ///
 /// The API returns the rows of one page at a time; the loop follows
-/// `next_page_token` so a long gap between the latest stored price and the
-/// current day is fetched completely. Rows are keyed by their interval start
-/// and mapped to the close time stored in the table. Rows without a
-/// `PriceUSD` value are skipped: the API reports gaps that way.
+/// `next_page_token` so a range longer than one page is fetched completely.
+/// Rows are keyed by their interval start and mapped to the close time stored
+/// in the table. Rows without a `PriceUSD` value are skipped: the API reports
+/// gaps that way.
 async fn fetch_btc_usd_daily(
     timeseries: &Timeseries,
     from_time: i64,
     to_time: i64,
 ) -> Result<Vec<Price>, PriceServiceError> {
-    // Include the day containing the latest stored close; the service drops
-    // it when that close is already stored.
     let start_date = civil_time::format_date(from_time);
     let end_date = civil_time::format_date(to_time);
     let mut prices = Vec::new();
@@ -927,6 +1279,64 @@ async fn fetch_btc_usd_daily(
     }
 
     Ok(prices)
+}
+
+/// Fetch `ReferenceRateUSD` observations of `[from_time, to_time]` at
+/// `frequency` (`1m` or `1h`) from Coin Metrics, as `(interval start, value)`
+/// pairs.
+///
+/// The Community API serves finer frequencies only for a short rolling window;
+/// the caller intersects the request with the window the catalogue reports.
+/// Rows without a value are skipped, and the loop follows `next_page_token` so
+/// a full window is fetched completely.
+async fn fetch_btc_usd_reference(
+    timeseries: &Timeseries,
+    frequency: &str,
+    from_time: i64,
+    to_time: i64,
+) -> Result<Vec<(i64, f64)>, PriceServiceError> {
+    let start_time = civil_time::format_iso_timestamp(from_time);
+    let end_time = civil_time::format_iso_timestamp(to_time);
+    let mut observations = Vec::new();
+    let mut next_page_token = None;
+
+    loop {
+        let query = AssetMetricsQuery {
+            assets: vec!["btc".to_string()],
+            metrics: vec!["ReferenceRateUSD".to_string()],
+            frequency: Some(frequency.to_string()),
+            time: TimeRange {
+                start_time: Some(start_time.clone()),
+                end_time: Some(end_time.clone()),
+                ..Default::default()
+            },
+            page: Page {
+                page_size: Some(DAILY_PAGE_SIZE),
+                next_page_token: next_page_token.clone(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let response = timeseries.get_asset_metrics(query).await?;
+
+        for row in &response.data {
+            let Some(close) = row.values.get("ReferenceRateUSD").and_then(json_number_f64) else {
+                continue;
+            };
+            if let Some(start) = civil_time::parse_iso_timestamp(&row.time) {
+                observations.push((start, close));
+            }
+        }
+
+        match response.next_page_token {
+            Some(token) if !token.is_empty() && Some(&token) != next_page_token.as_ref() => {
+                next_page_token = Some(token);
+            }
+            _ => break,
+        }
+    }
+
+    Ok(observations)
 }
 
 /// Map one Coin Metrics asset-metric row to the stored daily close.
@@ -1889,6 +2299,73 @@ mod tests {
         (calls, fetch)
     }
 
+    /// Stub reference-rate fetcher returning `rows` and counting its calls.
+    fn stub_reference(
+        rows: Vec<(i64, f64)>,
+    ) -> (
+        std::sync::Arc<AtomicU32>,
+        impl Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync,
+    ) {
+        let calls = std::sync::Arc::new(AtomicU32::new(0));
+        let fetch = {
+            let calls = std::sync::Arc::clone(&calls);
+            move |_frequency: &str, _from: i64, _to: i64| -> FetchReferenceFuture {
+                calls.fetch_add(1, Ordering::SeqCst);
+                let rows = rows.clone();
+                Box::pin(async move { Ok(rows) })
+            }
+        };
+        (calls, fetch)
+    }
+
+    /// Drive [`sync_prices_range`] with the three stub sources.
+    #[allow(clippy::too_many_arguments)]
+    fn run_sync(
+        database: &Database,
+        symbol: &str,
+        from_time: i64,
+        to_time: i64,
+        now: i64,
+        plan: PriceSyncPlan,
+        daily: &(dyn Fn(i64, i64) -> FetchDailyFuture + Send + Sync),
+        reference: &(dyn Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync),
+        fx_series: &(dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync),
+    ) -> Result<PriceSyncSummary, PriceServiceError> {
+        let sources = PriceSyncSources {
+            daily,
+            reference,
+            fx_series,
+        };
+        block_on(sync_prices_range(
+            database, symbol, from_time, to_time, now, plan, &sources,
+        ))
+    }
+
+    /// Noon of a November 2026 day, the month the sync tests use.
+    fn november_day(day: i64) -> i64 {
+        civil_time::epoch_seconds(2026, 11, day, 12, 0, 0)
+    }
+
+    fn daily_row(day: i64, close: f64) -> Price {
+        Price {
+            symbol: USD_SYMBOL.to_string(),
+            close_time: daily_close_time(november_day(day)),
+            close,
+        }
+    }
+
+    fn empty_reference() -> impl Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync {
+        |_frequency: &str, _from: i64, _to: i64| -> FetchReferenceFuture {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+    }
+
+    fn empty_fx_series() -> impl Fn(String, String) -> FetchSeriesFuture + Send + Sync {
+        |_from: String, _to: String| -> FetchSeriesFuture {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+    }
+
     #[test]
     fn asset_metric_rows_map_to_stored_daily_closes() {
         let price = daily_price("2026-06-16T00:00:00.000000000Z", 66_000.0).unwrap();
@@ -1903,316 +2380,599 @@ mod tests {
     }
 
     #[test]
-    fn sync_prices_to_today_stores_daily_closes_through_the_current_day() {
-        let database = Database::open_in_memory().unwrap();
-        let latest = civil_time::epoch_seconds(2026, 6, 15, 23, 29, 59);
-        let now = civil_time::epoch_seconds(2026, 6, 18, 3, 30, 0);
-        for (symbol, close) in [(USD_SYMBOL, 100.0), ("EUR", 90.0)] {
-            price_repository::store_price(
-                &database,
-                &Price {
-                    symbol: symbol.to_string(),
-                    close_time: latest,
-                    close,
+    fn plan_price_sync_picks_the_finest_available_window() {
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let week_ago = now - 7 * DAY_SECONDS;
+        let coverage = BtcUsdCoverage {
+            daily_start: Some(PRICE_HISTORY_START),
+            reference: vec![
+                ReferenceCoverage {
+                    frequency: "1m".to_string(),
+                    min_time: week_ago,
+                    max_time: now,
                 },
-            )
-            .unwrap();
-        }
-
-        let first_day = civil_time::epoch_seconds(2026, 6, 15, 0, 0, 0);
-        let mut rows = (0..5)
-            .map(|index| Price {
-                symbol: USD_SYMBOL.to_string(),
-                close_time: daily_close_time(first_day + index * 86_400),
-                close: 100.0 + index as f64,
-            })
-            .collect::<Vec<_>>();
-        // A duplicate is collapsed, and the day after `now` is dropped. The
-        // current day's row is kept: "to today" includes the day in progress.
-        rows.push(rows[1].clone());
-        let (calls, fetch) = stub_daily(rows);
-
-        let summary = block_on(sync_prices_to_today(&database, now, &fetch)).unwrap();
-
-        assert_eq!(summary.from_time, latest);
-        assert_eq!(summary.to_time, now);
-        assert_eq!(summary.gaps_found, 0);
-        assert_eq!(summary.missing_days, 3);
-        assert_eq!(summary.fetched, 4);
-        assert_eq!(summary.stored, 4);
-        assert_eq!(summary.unavailable_days, 0);
-        assert_eq!(summary.warning, None);
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        for index in 0..4 {
-            let close_time = daily_close_time(first_day + index * 86_400);
-            assert_eq!(
-                price_repository::find_price(&database, USD_SYMBOL, close_time)
-                    .unwrap()
-                    .map(|price| price.close),
-                Some(100.0 + index as f64)
-            );
-        }
-        assert_eq!(
-            price_repository::find_price(
-                &database,
-                USD_SYMBOL,
-                daily_close_time(first_day + 4 * 86_400)
-            )
-            .unwrap(),
-            None
-        );
-        // Other symbols keep their values.
-        assert_eq!(
-            price_repository::find_price(&database, "EUR", latest)
-                .unwrap()
-                .map(|price| price.close),
-            Some(90.0)
-        );
-
-        // A re-run after the current day's close is stored has nothing to do.
-        let second = block_on(sync_prices_to_today(&database, now, &fetch)).unwrap();
-        assert_eq!(second.missing_days, 0);
-        assert_eq!(second.fetched, 0);
-        assert_eq!(second.stored, 0);
-        assert_eq!(second.unavailable_days, 0);
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn sync_prices_to_today_refills_gaps_of_more_than_one_day() {
-        let database = Database::open_in_memory().unwrap();
-        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
-        for day in [1, 2, 5, 6] {
-            price_repository::store_price(
-                &database,
-                &Price {
-                    symbol: USD_SYMBOL.to_string(),
-                    close_time: day_close(day),
-                    close: 100.0 + day as f64,
+                ReferenceCoverage {
+                    frequency: "1h".to_string(),
+                    min_time: week_ago,
+                    max_time: now,
                 },
-            )
-            .unwrap();
-        }
-
-        // The source knows every day, including the two whose rows are
-        // missing from the stored series.
-        let source = (1..=6)
-            .map(|day| Price {
-                symbol: USD_SYMBOL.to_string(),
-                close_time: day_close(day),
-                close: 200.0 + day as f64,
-            })
-            .collect();
-        let (calls, fetch) = stub_daily(source);
-
-        let summary = block_on(sync_prices_to_today(&database, day_close(6), &fetch)).unwrap();
-
-        assert_eq!(summary.gaps_found, 1);
-        assert_eq!(summary.missing_days, 2);
-        assert_eq!(summary.fetched, 2);
-        assert_eq!(summary.stored, 2);
-        assert_eq!(summary.unavailable_days, 0);
-        assert_eq!(summary.warning, None);
-        assert_eq!(summary.from_time, day_close(2));
-        assert_eq!(summary.to_time, day_close(6));
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-
-        // The gap days are filled; the rows around the gap keep their values.
-        for (day, close) in [(3, 203.0), (4, 204.0)] {
-            assert_eq!(
-                price_repository::find_price(&database, USD_SYMBOL, day_close(day))
-                    .unwrap()
-                    .map(|price| price.close),
-                Some(close)
-            );
-        }
-        assert_eq!(
-            price_repository::find_price(&database, USD_SYMBOL, day_close(1))
-                .unwrap()
-                .map(|price| price.close),
-            Some(101.0)
-        );
-    }
-
-    #[test]
-    fn sync_prices_to_today_counts_days_the_source_does_not_have() {
-        let database = Database::open_in_memory().unwrap();
-        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
-        for day in [1, 5] {
-            price_repository::store_price(
-                &database,
-                &Price {
-                    symbol: USD_SYMBOL.to_string(),
-                    close_time: day_close(day),
-                    close: 100.0,
-                },
-            )
-            .unwrap();
-        }
-
-        // Days 2 and 4 are missing from the source too; only day 3 exists.
-        let (_, fetch) = stub_daily(vec![Price {
-            symbol: USD_SYMBOL.to_string(),
-            close_time: day_close(3),
-            close: 190.0,
-        }]);
-
-        let summary = block_on(sync_prices_to_today(&database, day_close(5), &fetch)).unwrap();
-
-        assert_eq!(summary.gaps_found, 1);
-        assert_eq!(summary.missing_days, 3);
-        assert_eq!(summary.fetched, 1);
-        assert_eq!(summary.stored, 1);
-        assert_eq!(summary.unavailable_days, 2);
-        assert_eq!(summary.warning, None);
-    }
-
-    #[test]
-    fn sync_prices_to_today_reports_failed_ranges_and_keeps_the_others() {
-        let database = Database::open_in_memory().unwrap();
-        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
-        for day in [1, 2, 4, 5, 7] {
-            price_repository::store_price(
-                &database,
-                &Price {
-                    symbol: USD_SYMBOL.to_string(),
-                    close_time: day_close(day),
-                    close: 100.0,
-                },
-            )
-            .unwrap();
-        }
-
-        // The first gap (day 3) cannot be fetched; the second (day 6) can.
-        let fetch = move |from: i64, _to: i64| -> FetchDailyFuture {
-            Box::pin(async move {
-                if from == day_close(2) {
-                    return Err(PriceServiceError::CoinMetrics(CoinMetricsError::Url(
-                        "offline".to_string(),
-                    )));
-                }
-                Ok(vec![Price {
-                    symbol: USD_SYMBOL.to_string(),
-                    close_time: day_close(6),
-                    close: 160.0,
-                }])
-            })
+            ],
         };
 
-        let summary = block_on(sync_prices_to_today(&database, day_close(7), &fetch)).unwrap();
-
-        assert_eq!(summary.gaps_found, 2);
-        assert_eq!(summary.missing_days, 2);
-        assert_eq!(summary.fetched, 1);
-        assert_eq!(summary.stored, 1);
-        // The failed range's day is unknown, not unavailable.
-        assert_eq!(summary.unavailable_days, 0);
-        let warning = summary.warning.expect("failed range is reported");
-        assert!(warning.contains("1 of 2 price ranges could not be fetched"));
-        assert_eq!(
-            price_repository::find_price(&database, USD_SYMBOL, day_close(3)).unwrap(),
-            None
+        let plan = plan_price_sync(
+            SyncGranularity::Auto,
+            &coverage,
+            PRICE_HISTORY_START,
+            now,
+            now,
         );
+        assert_eq!(plan.granularity, SyncGranularity::FifteenMinutes);
+        assert_eq!(plan.granular_from, Some(week_ago));
+        assert_eq!(plan.granular_to, Some(now));
+
+        // A manual choice is honored when its window intersects the range.
+        let plan = plan_price_sync(SyncGranularity::Hourly, &coverage, week_ago, now, now);
+        assert_eq!(plan.granularity, SyncGranularity::Hourly);
+        assert_eq!(plan.granular_from, Some(week_ago));
+
+        // A range older than the reference window falls back to daily only.
+        let old = civil_time::epoch_seconds(2020, 1, 1, 0, 0, 0);
+        let plan = plan_price_sync(
+            SyncGranularity::Auto,
+            &coverage,
+            old,
+            old + DAY_SECONDS,
+            now,
+        );
+        assert_eq!(plan.granularity, SyncGranularity::Daily);
+        assert_eq!(plan.granular_from, None);
+
+        // A manual intraday choice without coverage keeps its label so the
+        // run can explain why the stage was skipped.
+        let empty = BtcUsdCoverage {
+            daily_start: Some(PRICE_HISTORY_START),
+            reference: Vec::new(),
+        };
+        let plan = plan_price_sync(SyncGranularity::FifteenMinutes, &empty, old, now, now);
+        assert_eq!(plan.granularity, SyncGranularity::FifteenMinutes);
+        assert_eq!(plan.granular_from, None);
+    }
+
+    #[test]
+    fn reference_prices_sample_the_requested_frequency() {
+        let start = civil_time::epoch_seconds(2026, 11, 6, 18, 0, 0);
+        let rows = vec![
+            (start, 1.0),
+            (start + 60, 2.0),
+            (start + 15 * 60, 3.0),
+            (start + 3_600, 4.0),
+        ];
+
+        let quarter = reference_prices(SyncGranularity::FifteenMinutes, rows.clone());
         assert_eq!(
-            price_repository::find_price(&database, USD_SYMBOL, day_close(6))
+            quarter,
+            [
+                Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: start,
+                    close: 1.0,
+                },
+                Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: start + 15 * 60,
+                    close: 3.0,
+                },
+                Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time: start + 3_600,
+                    close: 4.0,
+                },
+            ]
+        );
+
+        let hourly = reference_prices(SyncGranularity::Hourly, rows);
+        assert_eq!(hourly.len(), 2);
+        assert_eq!(hourly[0].close_time, start);
+        assert_eq!(hourly[1].close_time, start + 3_600);
+
+        assert!(reference_prices(SyncGranularity::Daily, vec![(start, 1.0)]).is_empty());
+    }
+
+    #[test]
+    fn sync_prices_range_fills_daily_and_granular_rows() {
+        let database = Database::open_in_memory().unwrap();
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
+        let granular_start = civil_time::epoch_seconds(2026, 11, 6, 18, 0, 0);
+        let (daily_calls, daily) = stub_daily(
+            (1..=5)
+                .map(|day| daily_row(day, 100.0 + day as f64))
+                .collect(),
+        );
+        let (reference_calls, reference) = stub_reference(vec![
+            (granular_start, 1.0),
+            (granular_start + 15 * 60, 2.0),
+            (granular_start + 30 * 60, 3.0),
+        ]);
+        let fx = empty_fx_series();
+        let plan = PriceSyncPlan {
+            granularity: SyncGranularity::FifteenMinutes,
+            first_day: PRICE_HISTORY_START,
+            granular_from: Some(granular_start),
+            granular_to: Some(now),
+        };
+
+        let summary = run_sync(
+            &database, USD_SYMBOL, from, now, now, plan, &daily, &reference, &fx,
+        )
+        .unwrap();
+
+        assert_eq!(summary.from_time, from);
+        assert_eq!(summary.to_time, now);
+        assert_eq!(summary.granularity, SyncGranularity::FifteenMinutes);
+        assert_eq!(summary.daily_fetched, 5);
+        assert_eq!(summary.daily_stored, 5);
+        assert_eq!(summary.granular_fetched, 3);
+        assert_eq!(summary.granular_stored, 3);
+        assert_eq!(summary.unavailable_days, 0);
+        assert!(summary.warnings.is_empty());
+        assert_eq!(daily_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(reference_calls.load(Ordering::SeqCst), 1);
+
+        // The daily closes live at 23:59:59; the reference observations keep
+        // their source timestamps.
+        assert_eq!(
+            price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(3)))
                 .unwrap()
                 .map(|price| price.close),
-            Some(160.0)
+            Some(103.0)
+        );
+        assert_eq!(
+            price_repository::find_latest_price_between(
+                &database,
+                USD_SYMBOL,
+                now - GRANULAR_RESOLUTION_LOOKBACK,
+                now,
+            )
+            .unwrap()
+            .map(|price| price.close),
+            Some(3.0)
+        );
+
+        // A second run inserts nothing new.
+        let second = run_sync(
+            &database, USD_SYMBOL, from, now, now, plan, &daily, &reference, &fx,
+        )
+        .unwrap();
+        assert_eq!(second.daily_stored, 0);
+        assert_eq!(second.granular_stored, 0);
+    }
+
+    #[test]
+    fn sync_prices_range_preserves_existing_rows_and_counts_unavailable_days() {
+        let database = Database::open_in_memory().unwrap();
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
+        // A manually edited row on day 2 must survive the sync.
+        price_repository::store_price(&database, &daily_row(2, 999.0)).unwrap();
+        // The source only knows days 1 and 3 of the expected five days.
+        let (_, daily) = stub_daily(vec![daily_row(1, 101.0), daily_row(3, 103.0)]);
+        let reference = empty_reference();
+        let fx = empty_fx_series();
+
+        let summary = run_sync(
+            &database,
+            USD_SYMBOL,
+            from,
+            now,
+            now,
+            PriceSyncPlan::daily(PRICE_HISTORY_START),
+            &daily,
+            &reference,
+            &fx,
+        )
+        .unwrap();
+
+        assert_eq!(summary.daily_fetched, 2);
+        assert_eq!(summary.daily_stored, 2);
+        assert_eq!(summary.unavailable_days, 3);
+        assert_eq!(summary.granular_fetched, 0);
+        assert_eq!(
+            price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(2)))
+                .unwrap()
+                .map(|price| price.close),
+            Some(999.0)
         );
     }
 
     #[test]
-    fn sync_prices_to_today_fails_when_every_range_fails() {
+    fn sync_prices_range_keeps_daily_rows_when_the_intraday_stage_fails() {
         let database = Database::open_in_memory().unwrap();
-        let day_close = |day: i64| civil_time::epoch_seconds(2026, 6, day, 23, 59, 59);
-        for day in [1, 3] {
-            price_repository::store_price(
-                &database,
-                &Price {
-                    symbol: USD_SYMBOL.to_string(),
-                    close_time: day_close(day),
-                    close: 100.0,
-                },
-            )
-            .unwrap();
-        }
-
-        let fetch = |_from: i64, _to: i64| -> FetchDailyFuture {
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
+        let granular_start = civil_time::epoch_seconds(2026, 11, 6, 18, 0, 0);
+        let (_, daily) = stub_daily(vec![daily_row(5, 105.0)]);
+        let reference = |_frequency: &str, _from: i64, _to: i64| -> FetchReferenceFuture {
             Box::pin(async move {
                 Err(PriceServiceError::CoinMetrics(CoinMetricsError::Url(
                     "offline".to_string(),
                 )))
             })
         };
+        let fx = empty_fx_series();
+        let plan = PriceSyncPlan {
+            granularity: SyncGranularity::Hourly,
+            first_day: PRICE_HISTORY_START,
+            granular_from: Some(granular_start),
+            granular_to: Some(now),
+        };
+
+        let summary = run_sync(
+            &database, USD_SYMBOL, from, now, now, plan, &daily, &reference, &fx,
+        )
+        .unwrap();
+
+        assert_eq!(summary.daily_stored, 1);
+        assert_eq!(summary.granular_stored, 0);
+        assert_eq!(summary.warnings.len(), 1);
+        assert!(summary.warnings[0].contains("Could not fetch hourly closes"));
+    }
+
+    #[test]
+    fn sync_prices_range_fails_when_the_daily_source_fails() {
+        let database = Database::open_in_memory().unwrap();
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
+        let daily = |_from: i64, _to: i64| -> FetchDailyFuture {
+            Box::pin(async move {
+                Err(PriceServiceError::CoinMetrics(CoinMetricsError::Url(
+                    "offline".to_string(),
+                )))
+            })
+        };
+        let reference = empty_reference();
+        let fx = empty_fx_series();
 
         assert!(matches!(
-            block_on(sync_prices_to_today(&database, day_close(3), &fetch)),
+            run_sync(
+                &database,
+                USD_SYMBOL,
+                from,
+                now,
+                now,
+                PriceSyncPlan::daily(PRICE_HISTORY_START),
+                &daily,
+                &reference,
+                &fx,
+            ),
             Err(PriceServiceError::CoinMetrics(_))
         ));
     }
 
     #[test]
-    fn sync_prices_to_today_requires_stored_history_and_a_positive_clock() {
+    fn sync_prices_range_rejects_invalid_source_values_and_bad_ranges() {
         let database = Database::open_in_memory().unwrap();
-        let (calls, fetch) = stub_daily(vec![]);
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
+        let (_, daily) = stub_daily(vec![Price {
+            symbol: USD_SYMBOL.to_string(),
+            close_time: daily_close_time(november_day(5)),
+            close: -1.0,
+        }]);
+        let reference = empty_reference();
+        let fx = empty_fx_series();
 
         assert!(matches!(
-            block_on(sync_prices_to_today(&database, 0, &fetch)),
-            Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
-        ));
-        assert!(matches!(
-            block_on(sync_prices_to_today(&database, 1_000, &fetch)),
+            run_sync(
+                &database,
+                USD_SYMBOL,
+                from,
+                now,
+                now,
+                PriceSyncPlan::daily(PRICE_HISTORY_START),
+                &daily,
+                &reference,
+                &fx,
+            ),
             Err(PriceServiceError::Price(PriceError::InvalidData(_)))
         ));
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
-
-        let latest = civil_time::epoch_seconds(2026, 6, 15, 23, 29, 59);
-        price_repository::store_price(
-            &database,
-            &Price {
-                symbol: USD_SYMBOL.to_string(),
-                close_time: latest,
-                close: 100.0,
-            },
-        )
-        .unwrap();
-
-        // Nothing to fetch when the history already reaches the clock.
-        let summary = block_on(sync_prices_to_today(&database, latest, &fetch)).unwrap();
-        assert_eq!(summary.from_time, latest);
-        assert_eq!(summary.to_time, latest);
-        assert_eq!(summary.fetched, 0);
-        assert_eq!(summary.stored, 0);
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            run_sync(
+                &database,
+                USD_SYMBOL,
+                now,
+                from,
+                now,
+                PriceSyncPlan::daily(PRICE_HISTORY_START),
+                &daily,
+                &reference,
+                &fx,
+            ),
+            Err(PriceServiceError::Price(PriceError::InvalidData(_)))
+        ));
+        assert!(matches!(
+            run_sync(
+                &database,
+                USD_SYMBOL,
+                from,
+                now,
+                0,
+                PriceSyncPlan::daily(PRICE_HISTORY_START),
+                &daily,
+                &reference,
+                &fx,
+            ),
+            Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
+        ));
     }
 
     #[test]
-    fn sync_prices_to_today_rejects_invalid_source_values() {
+    fn sync_prices_range_converts_every_stored_usd_close_time() {
         let database = Database::open_in_memory().unwrap();
-        let latest = civil_time::epoch_seconds(2026, 6, 15, 23, 29, 59);
-        let now = civil_time::epoch_seconds(2026, 6, 18, 3, 30, 0);
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
+        let quarter_hour = civil_time::epoch_seconds(2026, 11, 1, 12, 14, 59);
+        let observation = civil_time::epoch_seconds(2026, 11, 6, 18, 0, 0);
+        for close_time in [quarter_hour, observation] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: USD_SYMBOL.to_string(),
+                    close_time,
+                    close: 100.0,
+                },
+            )
+            .unwrap();
+        }
+        let (_, daily) = stub_daily((1..=5).map(|day| daily_row(day, 100.0)).collect());
+        let reference = empty_reference();
+        let (fx_calls, fx) = stub_fx_series(vec![("2010-01-01".to_string(), 0.5)]);
+
+        let summary = run_sync(
+            &database,
+            "eur",
+            from,
+            now,
+            now,
+            PriceSyncPlan::daily(PRICE_HISTORY_START),
+            &daily,
+            &reference,
+            &fx,
+        )
+        .unwrap();
+
+        let conversion = summary.conversion.expect("EUR run converts");
+        assert_eq!(conversion.symbol, "EUR");
+        assert_eq!(conversion.source_rows, 7);
+        assert_eq!(conversion.stored, 7);
+        assert_eq!(conversion.skipped, 0);
+        assert_eq!(fx_calls.load(Ordering::SeqCst), 1);
+        for close_time in [quarter_hour, observation, daily_close_time(november_day(5))] {
+            assert_eq!(
+                price_repository::find_price(&database, "EUR", close_time)
+                    .unwrap()
+                    .map(|price| price.close),
+                Some(50.0)
+            );
+        }
+
+        // A second run keeps the target rows and stores nothing new.
+        let second = run_sync(
+            &database,
+            "EUR",
+            from,
+            now,
+            now,
+            PriceSyncPlan::daily(PRICE_HISTORY_START),
+            &daily,
+            &reference,
+            &fx,
+        )
+        .unwrap();
+        let second = second.conversion.expect("EUR run converts");
+        assert_eq!(second.source_rows, 7);
+        assert_eq!(second.stored, 0);
+    }
+
+    #[test]
+    fn sync_prices_range_reports_a_failed_conversion_as_a_warning() {
+        let database = Database::open_in_memory().unwrap();
+        let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
+        let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
+        let (_, daily) = stub_daily(vec![daily_row(5, 100.0)]);
+        let reference = empty_reference();
+        let fx = |_from: String, _to: String| -> FetchSeriesFuture {
+            Box::pin(async move {
+                Err(PriceServiceError::Price(PriceError::InvalidData(
+                    "offline".to_string(),
+                )))
+            })
+        };
+
+        let summary = run_sync(
+            &database,
+            "EUR",
+            from,
+            now,
+            now,
+            PriceSyncPlan::daily(PRICE_HISTORY_START),
+            &daily,
+            &reference,
+            &fx,
+        )
+        .unwrap();
+
+        assert_eq!(summary.daily_stored, 1);
+        assert!(summary.conversion.is_none());
+        assert_eq!(summary.warnings.len(), 1);
+        assert!(summary.warnings[0].contains("Could not convert"));
+        assert_eq!(
+            price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(5)))
+                .unwrap()
+                .map(|price| price.close),
+            Some(100.0)
+        );
+    }
+
+    #[test]
+    fn resolution_prefers_a_recent_intraday_row() {
+        let database = Database::open_in_memory().unwrap();
+        let observation = BEYOND_COVERAGE - 30 * 60;
         price_repository::store_price(
             &database,
             &Price {
                 symbol: USD_SYMBOL.to_string(),
-                close_time: latest,
-                close: 100.0,
+                close_time: observation,
+                close: 123.0,
             },
         )
         .unwrap();
-        let (_, fetch) = stub_daily(vec![Price {
-            symbol: USD_SYMBOL.to_string(),
-            close_time: daily_close_time(civil_time::epoch_seconds(2026, 6, 16, 0, 0, 0)),
-            close: -1.0,
-        }]);
+        price_repository::store_price(
+            &database,
+            &Price {
+                symbol: USD_SYMBOL.to_string(),
+                close_time: daily_close_time(BEYOND_COVERAGE),
+                close: 456.0,
+            },
+        )
+        .unwrap();
+        let stubs = stub_fetchers(66_000.0, 0.9);
+
+        let price = block_on(resolve_price(
+            &database,
+            USD_SYMBOL,
+            BEYOND_COVERAGE,
+            stubs.usd.as_ref(),
+            stubs.fx.as_ref(),
+        ))
+        .unwrap();
+
+        assert_eq!(price.close, 123.0);
+        assert_eq!(price.close_time, observation);
+        assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(stubs.fx_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn resolution_falls_back_to_the_daily_row_without_intraday_data() {
+        let database = Database::open_in_memory().unwrap();
+        price_repository::store_price(
+            &database,
+            &Price {
+                symbol: USD_SYMBOL.to_string(),
+                close_time: daily_close_time(BEYOND_COVERAGE),
+                close: 456.0,
+            },
+        )
+        .unwrap();
+        let stubs = stub_fetchers(66_000.0, 0.9);
+
+        let price = block_on(resolve_price(
+            &database,
+            USD_SYMBOL,
+            BEYOND_COVERAGE,
+            stubs.usd.as_ref(),
+            stubs.fx.as_ref(),
+        ))
+        .unwrap();
+
+        assert_eq!(price.close, 456.0);
+        assert_eq!(price.close_time, daily_close_time(BEYOND_COVERAGE));
+        assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_daily_close_just_before_midnight_does_not_outrank_the_daily_bucket() {
+        let database = Database::open_in_memory().unwrap();
+        let just_after_midnight = civil_time::epoch_seconds(2026, 7, 1, 0, 30, 0);
+        let previous_close = daily_close_time(just_after_midnight - DAY_SECONDS);
+        price_repository::store_price(
+            &database,
+            &Price {
+                symbol: USD_SYMBOL.to_string(),
+                close_time: previous_close,
+                close: 456.0,
+            },
+        )
+        .unwrap();
+        price_repository::store_price(
+            &database,
+            &Price {
+                symbol: USD_SYMBOL.to_string(),
+                close_time: daily_close_time(just_after_midnight),
+                close: 789.0,
+            },
+        )
+        .unwrap();
+        let stubs = stub_fetchers(66_000.0, 0.9);
+
+        let price = block_on(resolve_price(
+            &database,
+            USD_SYMBOL,
+            just_after_midnight,
+            stubs.usd.as_ref(),
+            stubs.fx.as_ref(),
+        ))
+        .unwrap();
+
+        assert_eq!(price.close, 789.0);
+        assert_eq!(price.close_time, daily_close_time(just_after_midnight));
+        assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn delete_stored_prices_validates_and_deduplicates_the_snapshot_batch() {
+        let database = Database::open_in_memory().unwrap();
+        for (symbol, close_time, close) in [
+            ("USD", 100, 1.0),
+            ("EUR", 100, 0.9),
+            ("USD", 200, 2.0),
+            ("GBP", 300, 3.0),
+        ] {
+            price_repository::store_price(
+                &database,
+                &Price {
+                    symbol: symbol.to_string(),
+                    close_time,
+                    close,
+                },
+            )
+            .unwrap();
+        }
 
         assert!(matches!(
-            block_on(sync_prices_to_today(&database, now, &fetch)),
-            Err(PriceServiceError::Price(PriceError::InvalidData(_)))
+            delete_stored_prices(&database, &[]),
+            Err(PriceServiceError::Validation(_))
         ));
+        assert!(matches!(
+            delete_stored_prices(&database, &[0]),
+            Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
+        ));
+
+        // Duplicate close times collapse into one snapshot deletion.
         assert_eq!(
-            price_repository::count_prices(&database, USD_SYMBOL, 0, 0).unwrap(),
+            delete_stored_prices(&database, &[100, 100, 300]).unwrap(),
+            3
+        );
+        assert_eq!(
+            price_repository::count_prices(&database, "USD", 0, 0).unwrap(),
             1
+        );
+        assert_eq!(
+            price_repository::count_prices(&database, "EUR", 0, 0).unwrap(),
+            0
+        );
+        assert_eq!(
+            price_repository::count_prices(&database, "GBP", 0, 0).unwrap(),
+            0
+        );
+        assert_eq!(
+            price_repository::find_price(&database, "USD", 200).unwrap(),
+            Some(Price {
+                symbol: "USD".to_string(),
+                close_time: 200,
+                close: 2.0,
+            })
         );
     }
 }

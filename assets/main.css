@@ -13,6 +13,29 @@
     }
 }
 
+/* The side panel replaces the top app bar from the tablet breakpoint, so the
+   screen fills the full viewport height. Auto switches later, at 64 rem. */
+@media (min-width: 48rem) {
+    .md3-app-shell[data-nav-position="side"] #screens {
+        min-height: 100vh;
+        min-height: 100dvh;
+    }
+}
+
+@media (min-width: 64rem) {
+    .md3-app-shell[data-nav-position="auto"] #screens {
+        min-height: 100vh;
+        min-height: 100dvh;
+    }
+}
+
+/* The mobile drawer is modal: keep the page behind it from scrolling. */
+@media (max-width: 47.99rem) {
+    body:has(.md3-nav-drawer) {
+        overflow: hidden;
+    }
+}
+
 /* Container for ECharts host components. ECharts needs an explicit height to
    size its canvas; the host component handles resizing from there. */
 .md3-chart {
@@ -53,6 +76,17 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
+}
+
+/* Themed palettes may supply an editorial heading face; the default keeps the
+   UI font. */
+.md3-page-header h2 {
+    font-family: var(--font-heading);
+}
+
+:root[data-theme="aurum"] .md3-page-header h2,
+:root[data-theme="sumi"] .md3-page-header h2 {
+    letter-spacing: -0.01em;
 }
 
 /* Modal import dialog. The scrim covers the viewport while the dialog is
@@ -113,8 +147,8 @@ select.md3-input option {
     }
 }
 
-/* KPI row of the addresses page: four cards on wide screens, two columns on
-   narrow ones, matching the grid layout of the UTXO Utils Addresses page. */
+/* Four-card KPI row of the catalog settings page: four cards on wide screens,
+   two columns on narrow ones. */
 .md3-kpi-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -127,8 +161,7 @@ select.md3-input option {
     }
 }
 
-/* Three-card KPI row used by the exchanges page after combining the
-   matched/unmatched cards into OnChain Operations. */
+/* Three-card KPI row shared by the addresses and flow pages. */
 .md3-kpi-grid-three {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -147,7 +180,70 @@ select.md3-input option {
     }
 }
 
+/* Seven-card exchange detail KPI row: one card per requested ledger concept.
+   Every row is balanced so the last row has no empty slot: four cards followed
+   by three on wide screens, and two, two, then three on medium screens.
+   The positional spans share one specificity, so the narrower media queries
+   override the wider ones by source order. */
+.md3-kpi-grid-seven {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+@media (max-width: 96rem) {
+    .md3-kpi-grid-seven {
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .md3-kpi-grid-seven > .md3-kpi:nth-child(-n + 4) {
+        grid-column: span 3;
+    }
+
+    .md3-kpi-grid-seven > .md3-kpi:nth-child(n + 5) {
+        grid-column: span 4;
+    }
+}
+
+@media (max-width: 60rem) {
+    .md3-kpi-grid-seven > .md3-kpi:nth-child(-n + 4) {
+        grid-column: span 6;
+    }
+}
+
+@media (max-width: 40rem) {
+    .md3-kpi-grid-seven {
+        grid-template-columns: 1fr;
+    }
+
+    .md3-kpi-grid-seven > .md3-kpi:nth-child(-n + 4),
+    .md3-kpi-grid-seven > .md3-kpi:nth-child(n + 5) {
+        grid-column: span 1;
+    }
+}
+
+/* Eight-card exchange KPI row on the accounts list: the total exchange count
+   plus the seven ledger cards, laid out as two balanced rows of four. */
+.md3-kpi-grid-eight {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1rem;
+}
+
+@media (max-width: 60rem) {
+    .md3-kpi-grid-eight {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 40rem) {
+    .md3-kpi-grid-eight {
+        grid-template-columns: 1fr;
+    }
+}
+
 .md3-kpi {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -155,10 +251,102 @@ select.md3-input option {
     gap: 0.25rem;
     min-height: 4.5rem;
     text-align: center;
+    touch-action: manipulation;
+}
+
+.md3-kpi-grid-seven .md3-kpi,
+.md3-kpi-grid-eight .md3-kpi {
+    /* Reserve enough height for the two-row details overlay as well as the
+       base value and title. */
+    min-height: 6.5rem;
+    padding-inline: 0.75rem;
 }
 
 .md3-kpi-value {
     white-space: nowrap;
+    font-family: var(--font-numeric);
+    font-variant-numeric: tabular-nums;
+}
+
+.md3-kpi-title {
+    margin-top: 0.25rem;
+}
+
+/* Help button and the overlay it reveals. The overlay covers the base value
+   and title instead of reflowing the card, so the grid keeps its height while
+   the pointer moves between cards. Only the help button previews it on hover
+   and pins it open on click; the pinned overlay keeps pointer events so its
+   values can be selected and copied. */
+.md3-kpi-help {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.3rem;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-full);
+    background-color: var(--md-sys-color-surface-container-low);
+    color: var(--md-sys-color-on-surface-variant);
+    font: inherit;
+    font-size: var(--text-label-small);
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.md3-kpi-help:hover,
+.md3-kpi-help:focus-visible {
+    background-color: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+}
+
+.md3-kpi-help:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+}
+
+.md3-kpi-details {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: inherit;
+    background-color: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
+    pointer-events: auto;
+    user-select: text;
+}
+
+.md3-kpi-details-open .md3-kpi-details {
+    display: flex;
+}
+
+.md3-kpi-detail-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+}
+
+.md3-kpi-detail-value {
+    overflow-wrap: anywhere;
+    font-family: var(--font-numeric);
+    font-size: var(--text-title-large);
+    line-height: var(--text-title-large--line-height);
+    font-variant-numeric: tabular-nums;
+}
+
+.md3-kpi-detail-value-supporting {
+    font-size: var(--text-title-medium);
+    line-height: var(--text-title-medium--line-height);
 }
 
 /* Row actions of the addresses table (sync, edit, remove). */
@@ -278,7 +466,7 @@ select.md3-input option {
     white-space: nowrap;
 }
 
-/* Shared pagination bar of data tables, rendered directly above the table:
+/* Shared pagination bar of data tables, rendered directly below the table:
    Previous/Next around the editable page index and the totals (Section 5.11
    of CONTRIBUTING.md). */
 .md3-pagination {
@@ -298,121 +486,556 @@ select.md3-input option {
     text-align: center;
 }
 
-/* Compact variant of the date-range filter for page headers: the fields
-   keep just the width a date needs. */
-.md3-date-range.md3-date-range-compact > div {
-    width: 9.5rem;
-}
-
-/* Compact date picker: a read-only field whose date only changes through
-   its calendar popup, so the whole control stays 40 px tall and the full
-   surface acts as the calendar button. The popup anchors to the field. */
+/* Single date-selection field: one input displays a from–to range (or one
+   date in Single mode) and opens the Material 3 docked date picker. The
+   trigger keeps the shared 40 px control height; calendar day targets use
+   the M3 48 px minimum. */
 .md3-date-picker {
     position: relative;
+    min-width: 320px;
 }
 
-.md3-date-picker .md3-text-field,
+/* Raise the whole control above the outside-click layer while its popup is
+   open, so the input stays editable beside the calendar. */
+.md3-date-picker.md3-date-picker-open {
+    z-index: 70;
+}
+
+/* A flex row keeps the label's own 16 px line box instead of the parent
+   body line height, so the row matches the label row of the other controls
+   and the field starts at the same offset as a select trigger. */
+.md3-date-picker-label-row {
+    display: flex;
+    margin-bottom: 0.25rem;
+}
+
+.md3-date-picker .md3-text-field {
+    height: var(--md3-control-height);
+    min-height: var(--md3-control-height);
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--radius-md3-xs);
+    background-color: transparent;
+    box-shadow: none;
+}
+
+.md3-date-picker .md3-text-field:hover {
+    border-color: var(--md-sys-color-on-surface);
+    background-color: transparent;
+}
+
+.md3-date-picker .md3-text-field:focus-within {
+    border-color: var(--md-sys-color-primary);
+    box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+}
+
+.md3-date-picker .md3-text-field:has(.md3-input:disabled) {
+    border-color: color-mix(
+        in srgb,
+        var(--md-sys-color-on-surface) 12%,
+        transparent
+    );
+    background-color: transparent;
+}
+
+.md3-date-picker .md3-text-field:has(.md3-date-picker-input[aria-invalid="true"]) {
+    border-color: var(--md-sys-color-error);
+}
+
+/* The Flow filter card puts the range field in a row of filled select
+   triggers, so it adopts the same filled field there: one shared control
+   height, the filled surface, the bottom divider, and top-only rounding.
+   Every other picker keeps the standalone outlined field above. */
+.md3-flow-filter-grid .md3-date-picker .md3-text-field {
+    height: var(--md3-control-height);
+    min-height: var(--md3-control-height);
+    border: 0;
+    border-radius: var(--radius-md3-xs) var(--radius-md3-xs) 0 0;
+    background-color: var(--md-sys-color-surface-container-highest);
+    box-shadow: inset 0 -1px 0 var(--md-sys-color-on-surface-variant);
+}
+
+.md3-flow-filter-grid
+    .md3-date-picker
+    .md3-text-field:hover:not(:has(.md3-input:disabled)) {
+    background-color: color-mix(
+        in srgb,
+        var(--md-sys-color-on-surface) 8%,
+        var(--md-sys-color-surface-container-highest)
+    );
+}
+
+.md3-flow-filter-grid .md3-date-picker .md3-text-field:focus-within {
+    box-shadow: inset 0 -2px 0 var(--md-sys-color-primary);
+}
+
+.md3-flow-filter-grid
+    .md3-date-picker
+    .md3-text-field:has(.md3-input:disabled) {
+    background-color: color-mix(
+        in srgb,
+        var(--md-sys-color-on-surface) 4%,
+        var(--md-sys-color-surface-container-highest)
+    );
+}
+
+.md3-flow-filter-grid
+    .md3-date-picker
+    .md3-text-field:has(.md3-date-picker-input[aria-invalid="true"]) {
+    box-shadow: inset 0 -1px 0 var(--md-sys-color-error);
+}
+
 .md3-date-picker .md3-input {
-    height: 2.5rem;
-    min-height: 2.5rem;
+    height: var(--md3-control-height);
+    padding-block: 0;
+    padding-inline: 1rem 2.75rem;
     font-size: var(--text-body-medium);
 }
 
-.md3-date-picker .md3-input {
-    padding-block: 0;
-    padding-right: 2.5rem;
-    cursor: pointer;
+.md3-date-picker .md3-date-picker-field-with-clear .md3-input {
+    padding-right: 4.6rem;
 }
 
 .md3-date-picker .md3-input:disabled {
     cursor: not-allowed;
 }
 
-/* Calendar affordance overlaid on the field; clicks pass through to the
-   input so the whole field opens the popup. */
-.md3-date-picker .md3-text-field svg {
+/* Trailing clear and calendar buttons inside the field. */
+.md3-date-picker .md3-date-picker-icon {
     position: absolute;
-    right: 0.75rem;
-    pointer-events: none;
+    top: 50%;
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    transform: translateY(-50%);
     color: var(--md-sys-color-on-surface-variant);
 }
 
-/* Transparent layer catching outside clicks while the calendar is open. */
+.md3-date-picker-calendar {
+    right: 0.35rem;
+}
+
+.md3-date-picker-clear {
+    right: 2.45rem;
+}
+
+.md3-date-picker-icon:hover {
+    color: var(--md-sys-color-on-surface);
+}
+
+.md3-date-picker .md3-icon-button:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 1px;
+}
+
+.md3-date-picker-support {
+    margin: 0.25rem 0 0;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.md3-date-picker-error {
+    color: var(--md-sys-color-error);
+}
+
+.md3-date-picker-input[aria-invalid="true"] {
+    color: var(--md-sys-color-error);
+}
+
+/* Transparent layer catching outside clicks while the calendar is open. It
+   sits below the raised field and popup. */
 .md3-date-picker-scrim {
     position: fixed;
     inset: 0;
-    z-index: 70;
+    z-index: 1;
+}
+
+.md3-date-picker-open .md3-date-picker-label-row,
+.md3-date-picker-open .md3-date-picker-field,
+.md3-date-picker-open .md3-date-picker-support {
+    position: relative;
+    z-index: 2;
 }
 
 .md3-date-picker-popup {
     position: absolute;
-    top: calc(100% + 0.25rem);
+    top: calc(100% + 0.35rem);
     left: 0;
     z-index: 71;
-    width: 18rem;
-    max-width: 90vw;
-    padding: 0.75rem;
+    width: 43.5rem;
+    max-width: calc(100vw - 1rem);
+    padding: 0.125rem;
     border: 1px solid var(--md-sys-color-outline-variant);
-    border-radius: var(--radius-md3-md);
-    background-color: var(--md-sys-color-surface-container);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
-}
-
-/* Date fields near the bottom of a modal open their calendar upward: the
-   popup then overlays the dialog content instead of extending the dialog's
-   scrollable height past its lower edge. */
-.md3-date-picker-popup.md3-date-picker-popup-above {
-    top: auto;
-    bottom: calc(100% + 0.25rem);
-}
-
-.md3-date-picker-nav {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.5rem;
-}
-
-.md3-date-picker-month {
+    border-radius: var(--radius-md3-xl);
+    background-color: var(--md-sys-color-surface-container-high);
     color: var(--md-sys-color-on-surface);
 }
 
+.md3-date-picker-popup.md3-date-picker-popup-above {
+    top: auto;
+    bottom: calc(100% + 0.35rem);
+}
+
+.md3-date-picker-popup.md3-date-picker-popup-end {
+    right: 0;
+    left: auto;
+}
+
+.md3-date-picker-popup.md3-date-picker-popup-compact,
+.md3-date-picker-popup.md3-date-picker-popup-single {
+    width: 21.5rem;
+}
+
+.md3-date-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem 0;
+}
+
+.md3-date-picker-heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 0.125rem;
+}
+
+.md3-date-picker-heading-button {
+    display: inline-flex;
+    height: 2rem;
+    align-items: center;
+    gap: 0.125rem;
+    padding-inline: 0.5rem;
+    border: 0;
+    border-radius: var(--radius-md3-full);
+    background: none;
+    color: var(--md-sys-color-on-surface);
+    font-family: inherit;
+    font-size: var(--text-title-small);
+    font-weight: var(--text-title-small--font-weight);
+    cursor: pointer;
+}
+
+.md3-date-picker-heading-button:hover {
+    background-color: var(--md-sys-color-surface-container-highest);
+}
+
+.md3-date-picker-heading-button:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 1px;
+}
+
+.md3-date-picker-month-panel {
+    width: 21rem;
+    flex: 0 0 21rem;
+}
+
+.md3-date-picker-month-panel-secondary {
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.md3-date-picker-month-label {
+    color: var(--md-sys-color-on-surface);
+    font-size: var(--text-title-small);
+    font-weight: var(--text-title-small--font-weight);
+    text-align: center;
+    padding-block: 0.25rem;
+}
+
+.md3-date-picker-month-label-spacer {
+    visibility: hidden;
+}
+
+.md3-date-picker-months {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
 .md3-date-picker-grid {
+    display: flex;
+    flex-direction: column;
+}
+
+.md3-date-picker-week {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 2px;
+    grid-template-columns: repeat(7, 3rem);
 }
 
 .md3-date-picker-weekday {
-    padding-block: 0.25rem;
+    width: 3rem;
+    padding-block: 0.35rem;
     color: var(--md-sys-color-on-surface-variant);
-    font-size: var(--text-label-small);
+    font-size: var(--text-label-large);
+    font-weight: var(--text-label-large--font-weight);
     text-align: center;
 }
 
 .md3-date-picker-day {
-    height: 2rem;
+    width: 3rem;
+    height: 3rem;
     padding: 0;
     border: 0;
-    border-radius: 9999px;
+    border-radius: var(--radius-md3-full);
     background: none;
     color: var(--md-sys-color-on-surface);
-    font-size: var(--text-body-small);
+    font-family: inherit;
+    font-size: var(--text-body-large);
+    line-height: var(--text-body-large--line-height);
     cursor: pointer;
 }
 
-.md3-date-picker-day:hover {
+.md3-date-picker-day:hover:not(:disabled) {
     background-color: var(--md-sys-color-surface-container-highest);
 }
 
-.md3-date-picker-day.md3-date-picker-selected,
-.md3-date-picker-day.md3-date-picker-selected:hover {
-    background-color: var(--md-sys-color-primary);
-    color: var(--md-sys-color-on-primary);
+.md3-date-picker-day:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: -2px;
 }
 
-.md3-date-picker-day.md3-date-picker-today {
+.md3-date-picker-day-outside {
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.md3-date-picker-day-disabled,
+.md3-date-picker-day:disabled {
+    background: none;
+    color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+    cursor: not-allowed;
+}
+
+.md3-date-picker-day-today {
     box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+}
+
+.md3-date-picker-day-selected,
+.md3-date-picker-day-selected:hover:not(:disabled) {
+    background-color: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+    box-shadow: none;
+}
+
+.md3-date-picker-day-disabled.md3-date-picker-day-selected {
+    background: none;
+    color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(
+        in srgb,
+        var(--md-sys-color-on-surface) 38%,
+        transparent
+    );
+}
+
+.md3-date-picker-day-disabled.md3-date-picker-day-in-range {
+    background: none;
+    color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+}
+
+.md3-date-picker-day-in-range {
+    border-radius: 0;
+    background-color: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+}
+
+.md3-date-picker-day-in-range:hover:not(:disabled) {
+    background-color: color-mix(
+        in srgb,
+        var(--md-sys-color-on-secondary-container) 8%,
+        var(--md-sys-color-secondary-container)
+    );
+    color: var(--md-sys-color-on-secondary-container);
+}
+
+.md3-date-picker-day-preview-edge {
+    background-color: var(--md-sys-color-secondary-container);
+    box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-secondary-container);
+}
+
+.md3-date-picker-menu {
+    position: absolute;
+    top: 3rem;
+    right: 0.5rem;
+    left: 0.5rem;
+    z-index: 72;
+    display: flex;
+    max-height: 16rem;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 0.25rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-md);
+    background-color: var(--md-sys-color-surface-container);
+    box-shadow: var(--md-sys-elevation-2);
+}
+
+.md3-date-picker-menu-years {
+    right: 0.5rem;
+    left: auto;
+    width: 8rem;
+}
+
+.md3-date-picker-menu-item {
+    min-height: 2.5rem;
+    padding-inline: 0.75rem;
+    border: 0;
+    border-radius: var(--radius-md3-sm);
+    background: none;
+    color: var(--md-sys-color-on-surface);
+    font-family: inherit;
+    font-size: var(--text-body-medium);
+    text-align: start;
+    cursor: pointer;
+}
+
+.md3-date-picker-menu-item:hover:not(:disabled) {
+    background-color: var(--md-sys-color-surface-container-highest);
+}
+
+.md3-date-picker-menu-item-selected {
+    background-color: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+}
+
+.md3-date-picker-menu-item:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: -2px;
+}
+
+.md3-date-picker-menu-item:disabled {
+    color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+    cursor: not-allowed;
+}
+
+/* Quick preset chips above the range summary and calendar. They reuse the
+   shared chip group so they wrap on narrow and compact popups. */
+.md3-date-picker-quick-ranges {
+    padding: 0.5rem 0.75rem 0.25rem;
+}
+
+.md3-date-picker-range-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem 0;
+}
+
+.md3-date-picker-range-item {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.125rem 0.25rem 0.125rem 0.625rem;
+    border-radius: var(--radius-md3-full);
+    background-color: var(--md-sys-color-surface-container-highest);
+}
+
+.md3-date-picker-range-label {
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: var(--text-label-large);
+    font-weight: var(--text-label-large--font-weight);
+}
+
+.md3-date-picker-range-value {
+    color: var(--md-sys-color-on-surface);
+    font-size: var(--text-body-small);
+    white-space: nowrap;
+}
+
+.md3-date-picker .md3-date-picker-range-clear {
+    width: 1.75rem;
+    height: 1.75rem;
+}
+
+.md3-date-picker-divider {
+    margin-top: 0.5rem;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.md3-date-picker-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.5rem;
+}
+
+.md3-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Historical Prices header: the single range field followed by Reset and
+   Sync Prices. */
+.md3-date-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1rem;
+}
+
+.md3-date-filter-bar .md3-date-picker {
+    width: min(100%, 19rem);
+}
+
+/* Align the trailing actions with the input, not with the supporting text
+   below it: the label row is one text-body-small line plus its margin. */
+.md3-date-filter-bar > .md3-button-tonal {
+    margin-top: 1.25rem;
+}
+
+@media (max-width: 46rem) {
+    .md3-date-picker-popup {
+        width: 21.5rem;
+    }
+
+    .md3-date-picker-month-panel-secondary {
+        display: none;
+    }
+
+    .md3-date-picker-month-label-spacer {
+        display: none;
+    }
+}
+
+/* Very narrow screens (small phones, a date picker inside a dialog) cannot
+   fit a fixed 21 rem month. Keep the picker usable by letting the seven day
+   columns share the available field width. */
+@media (max-width: 27rem) {
+    .md3-date-picker-popup,
+    .md3-date-picker-popup.md3-date-picker-popup-compact,
+    .md3-date-picker-popup.md3-date-picker-popup-single {
+        width: 100%;
+    }
+
+    .md3-date-picker-month-panel {
+        width: 100%;
+        flex: 1 1 auto;
+    }
+
+    .md3-date-picker-grid,
+    .md3-date-picker-week {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+
+    .md3-date-picker-weekday,
+    .md3-date-picker-day {
+        width: 100%;
+    }
+
+    .md3-date-picker-day {
+        height: auto;
+        aspect-ratio: 1;
+    }
 }
 
 /* Prices table: per-column min-widths keep the layout stable when sorting
@@ -505,43 +1128,9 @@ select.md3-input option {
     gap: 0.5rem;
 }
 
-/* Date-range filter of the historical prices table: the two native date
-   fields keep a fixed comfortable width and wrap on narrow screens. */
-.md3-date-range {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 1rem;
-}
-
-.md3-date-range > div {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    width: min(100%, 12rem);
-}
-
 /* --------------------------------------------------------------------------
    Exchanges list and detail
    -------------------------------------------------------------------------- */
-
-.md3-kpi-grid-five {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 1rem;
-}
-
-@media (max-width: 72rem) {
-    .md3-kpi-grid-five {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-}
-
-@media (max-width: 45rem) {
-    .md3-kpi-grid-five {
-        grid-template-columns: 1fr;
-    }
-}
 
 /* Six-card exchange activity row: one card per ledger direction. */
 .md3-kpi-grid-six {
@@ -608,24 +1197,9 @@ select.md3-input option {
     line-height: var(--text-label-small-line-height);
 }
 
-.md3-exchange-detail-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.md3-exchange-back-link {
-    display: inline-flex;
-    margin-bottom: 0.35rem;
-    color: var(--md-sys-color-primary);
+.md3-exchange-back-button {
+    flex: none;
     text-decoration: none;
-    font-size: var(--text-label-large);
-}
-
-.md3-exchange-back-link:hover {
-    text-decoration: underline;
 }
 
 .md3-exchange-title-row {
@@ -648,13 +1222,15 @@ select.md3-input option {
     min-width: 0;
 }
 
-.md3-exchange-table-card {
+.md3-exchange-table-pane {
     grid-column: 1 / -1;
     min-width: 0;
-    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
 }
 
-.md3-exchange-workbench-inspector .md3-exchange-table-card {
+.md3-exchange-workbench-inspector .md3-exchange-table-pane {
     grid-column: 1 / 5;
 }
 
@@ -679,7 +1255,7 @@ select.md3-input option {
         grid-template-columns: 1fr;
     }
 
-    .md3-exchange-workbench-inspector .md3-exchange-table-card,
+    .md3-exchange-workbench-inspector .md3-exchange-table-pane,
     .md3-exchange-inspector {
         grid-column: 1 / -1;
     }
@@ -985,19 +1561,6 @@ select.md3-input option {
     }
 }
 
-.md3-settings-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.65rem;
-    cursor: pointer;
-}
-
-.md3-settings-toggle input {
-    width: 1.15rem;
-    height: 1.15rem;
-    accent-color: var(--md-sys-color-primary);
-}
-
 /* Appearance mode is a cell of the palette grid so every theme choice sits in
    one group; the tile mirrors the palette option cards. It spans two columns
    when the grid has room so the mode chips stay on one line. */
@@ -1010,12 +1573,9 @@ select.md3-input option {
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--radius-md3-md);
     background-color: var(--md-sys-color-surface-container-lowest);
-}
-
-@media (min-width: 48rem) {
-    .md3-theme-appearance {
-        grid-column: span 2;
-    }
+    /* One grid cell, like a theme option, so the appearance selector sits in
+       the same row as the five palette cards when the grid has room. */
+    grid-column: span 1;
 }
 
 .md3-scoring-grid {
@@ -1032,7 +1592,7 @@ select.md3-input option {
 
 .md3-scoring-reset {
     width: 100%;
-    min-height: 3.5rem;
+    min-height: var(--md3-control-height);
     padding-inline: 1rem;
 }
 
@@ -1052,9 +1612,10 @@ select.md3-input option {
     }
 }
 
-/* Long combined BTC/fiat KPI values wrap inside the five- and six-card rows. */
-.md3-kpi-grid-five .md3-kpi-value,
-.md3-kpi-grid-six .md3-kpi-value {
+/* Long BTC KPI values wrap inside the multi-card exchange rows. */
+.md3-kpi-grid-six .md3-kpi-value,
+.md3-kpi-grid-seven .md3-kpi-value,
+.md3-kpi-grid-eight .md3-kpi-value {
     white-space: normal;
     overflow-wrap: anywhere;
 }

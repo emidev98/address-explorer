@@ -28,6 +28,8 @@ pub struct ParsedExchangeTx {
     pub currency: String,
     pub fiat_amount: Option<f64>,
     pub fiat_currency: Option<String>,
+    /// Fee in `fee_currency` units. The import boundary converts BTC/XBT fees
+    /// to satoshis with [`normalize_fee`]; parsers never pre-normalize it.
     pub fee: Option<f64>,
     pub fee_currency: Option<String>,
     pub tx_hash: Option<String>,
@@ -123,6 +125,13 @@ pub fn normalize_amount(amount: f64, currency: &str) -> f64 {
     } else {
         amount
     }
+}
+
+/// Storage units of a fee: satoshis when `fee_currency` is BTC/XBT, the
+/// currency's own units otherwise. This is the single conversion applied at
+/// every import and save boundary.
+pub fn normalize_fee(fee: Option<f64>, fee_currency: Option<&str>) -> Option<f64> {
+    fee.map(|value| normalize_amount(value, fee_currency.unwrap_or_default()))
 }
 
 /// Deterministic duplicate identity of one ledger row.
@@ -230,13 +239,7 @@ pub fn parse_manual_rows(
             let fiat_amount = optional_field_number(row, &mapping.fiat_amount);
             let fiat_currency = optional_field(row, &mapping.fiat_currency);
             let fee_currency = optional_field(row, &mapping.fee_currency);
-            let fee = optional_field_number(row, &mapping.fee).map(|value| {
-                if fee_currency.as_deref().is_some_and(is_bitcoin_currency) {
-                    (value * SATOSHIS_PER_BTC).round()
-                } else {
-                    value
-                }
-            });
+            let fee = optional_field_number(row, &mapping.fee);
             let tx_hash = optional_field(row, &mapping.tx_hash);
             let description = optional_field(row, &mapping.description);
             Some(ParsedExchangeTx {
@@ -907,6 +910,9 @@ fn parse_money(raw: &str) -> (Option<f64>, Option<String>) {
     // Ordered like the UTXO Utils symbol map so multi-character symbols win
     // over the bare dollar sign.
     const SYMBOLS: &[(&str, &str)] = &[
+        ("₿", "BTC"),
+        ("BTC", "BTC"),
+        ("XBT", "XBT"),
         ("€", "EUR"),
         ("A$", "AUD"),
         ("CA$", "CAD"),
@@ -1062,7 +1068,9 @@ mod tests {
         };
         let parsed = parse_manual_rows(&[row], &mapping).remove(0);
         assert_eq!(parsed.amount, 10_000_000.0);
-        assert_eq!(parsed.fee, Some(10_000.0));
+        // Parsers keep the source unit; the import boundary normalizes BTC
+        // fees to satoshis with `normalize_fee`.
+        assert_eq!(parsed.fee, Some(0.0001));
         assert_eq!(parsed.fiat_currency.as_deref(), Some("EUR"));
     }
 
@@ -1083,6 +1091,36 @@ mod tests {
         assert_eq!(parsed.fiat_amount, Some(7500.0));
         assert_eq!(parsed.fiat_currency.as_deref(), Some("EUR"));
         assert_eq!(parsed.fee, Some(10.0));
+        assert_eq!(parsed.fee_currency.as_deref(), Some("EUR"));
+    }
+
+    #[test]
+    fn generic_trade_detects_btc_fee_money() {
+        let row = BTreeMap::from([
+            ("Date".to_string(), "Jul 5, 2023, 08:00:00 AM".to_string()),
+            ("Symbol".to_string(), "BTC".to_string()),
+            ("Type".to_string(), "Buy".to_string()),
+            ("Quantity".to_string(), "0.25".to_string()),
+            ("Price".to_string(), "30000".to_string()),
+            ("Value".to_string(), "€7,500.00".to_string()),
+            ("Fees".to_string(), "₿0.0001".to_string()),
+        ]);
+        let parsed = parse_rows(ParserKind::GenericTrade, &[row]).remove(0);
+        assert_eq!(parsed.fee, Some(0.0001));
+        assert_eq!(parsed.fee_currency.as_deref(), Some("BTC"));
+        assert_eq!(
+            normalize_fee(parsed.fee, parsed.fee_currency.as_deref()),
+            Some(10_000.0)
+        );
+    }
+
+    #[test]
+    fn fee_normalization_is_btc_only() {
+        assert_eq!(normalize_fee(Some(0.0001), Some("BTC")), Some(10_000.0));
+        assert_eq!(normalize_fee(Some(0.0001), Some("xbt")), Some(10_000.0));
+        assert_eq!(normalize_fee(Some(2.5), Some("EUR")), Some(2.5));
+        assert_eq!(normalize_fee(Some(2.5), None), Some(2.5));
+        assert_eq!(normalize_fee(None, Some("BTC")), None);
     }
 
     #[test]

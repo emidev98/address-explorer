@@ -12,8 +12,8 @@ use crate::app::Route;
 use crate::components::format::{format_btc, format_fiat};
 use crate::components::{
     use_fiat_currency, use_table_selection, use_toast, ConfirmDialog, ExchangeInspector,
-    ExchangeLinkDialog, ImportDataDialog, Kpi, SortableHeader, TablePagination, TableSelection,
-    TableSelectionCell, TableSelectionHeader, Toast,
+    ExchangeKpiGrid, ExchangeLinkDialog, ImportDataDialog, SortableHeader, TablePagination,
+    TableSelection, TableSelectionCell, TableSelectionHeader, Toast,
 };
 use crate::domain::civil_time;
 use crate::domain::exchange::csv::is_bitcoin_currency;
@@ -21,9 +21,7 @@ use crate::domain::exchange::{
     ExchangeDetail as ExchangeDetailData, ExchangeTransaction, ExchangeTransactionTableQuery,
     ImportDataSummary,
 };
-use crate::domain::table::{SortDirection, TableQuery};
-
-const PAGE_SIZE: u32 = 25;
+use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
 
 #[component]
 pub fn ExchangeDetail(
@@ -54,8 +52,9 @@ pub fn ExchangeDetail(
     });
 
     let mut detail = use_resource(move || {
-        // The server derives the fiat values from the saved setting; reading
-        // the shared signal keeps the screen reactive to a currency change.
+        // The server derives the default-currency values from the saved
+        // setting; reading the shared signal keeps the screen reactive to a
+        // currency change.
         let _currency = fiat.code();
         async move {
             get_exchange_api(exchange_id)
@@ -73,7 +72,7 @@ pub fn ExchangeDetail(
                 exchange_id,
                 table: TableQuery {
                     page: current_page,
-                    page_size: PAGE_SIZE,
+                    page_size: DEFAULT_PAGE_SIZE,
                     sort_by: sort_key,
                     sort_dir: direction,
                 },
@@ -193,21 +192,14 @@ pub fn ExchangeDetail(
                 )
             };
             rsx! {
-                TablePagination {
-                    page: page(),
-                    page_size: PAGE_SIZE,
-                    total,
-                    on_page: move |next| {
-                        page.set(next);
-                        selection.clear();
-                    },
-                }
                 div { class: "md3-table-container",
                     table { class: "md3-table md3-exchange-transactions-table",
                         thead {
                             tr {
                                 TableSelectionHeader {
                                     all_selected,
+                                    indeterminate: selection.some_selected(&page_ids)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        && !all_selected,
                                     select_all_label: "Select all transactions on this page".to_string(),
                                     disabled: page_ids.is_empty(),
                                     on_toggle_all: move |checked| {
@@ -278,7 +270,7 @@ pub fn ExchangeDetail(
                                         selection.clear();
                                     },
                                 }
-                                th { "Fiat ({table_currency})" }
+                                th { "Value ({table_currency})" }
                                 SortableHeader {
                                     label: "Fee".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("fee")).then_some(sort_dir()),
@@ -365,20 +357,6 @@ pub fn ExchangeDetail(
                                                 div { class: "md3-table-actions",
                                                     button {
                                                         r#type: "button",
-                                                        class: "md3-icon-button",
-                                                        title: "Edit transaction",
-                                                        aria_label: "Edit transaction",
-                                                        onclick: move |event| {
-                                                            event.stop_propagation();
-                                                            editor_transaction.set(Some(edit_action_row.clone()));
-                                                            editor_open.set(true);
-                                                            loaded_query.set(Some(edit_action_row.id.to_string()));
-                                                            navigate_to_detail(navigator, exchange_id, Some(edit_action_row.id));
-                                                        },
-                                                        {icon(ICON_EDIT)}
-                                                    }
-                                                    button {
-                                                        r#type: "button",
                                                         class: "md3-icon-button md3-icon-button-danger",
                                                         title: "Remove transaction",
                                                         aria_label: "Remove transaction",
@@ -404,6 +382,20 @@ pub fn ExchangeDetail(
                                                             }
                                                         },
                                                         {icon(ICON_DELETE)}
+                                                    }
+                                                    button {
+                                                        r#type: "button",
+                                                        class: "md3-icon-button",
+                                                        title: "Edit transaction",
+                                                        aria_label: "Edit transaction",
+                                                        onclick: move |event| {
+                                                            event.stop_propagation();
+                                                            editor_transaction.set(Some(edit_action_row.clone()));
+                                                            editor_open.set(true);
+                                                            loaded_query.set(Some(edit_action_row.id.to_string()));
+                                                            navigate_to_detail(navigator, exchange_id, Some(edit_action_row.id));
+                                                        },
+                                                        {icon(ICON_EDIT)}
                                                     }
                                                 }
                                             }
@@ -451,6 +443,15 @@ pub fn ExchangeDetail(
                         }
                     }
                 }
+                TablePagination {
+                    page: page(),
+                    page_size: DEFAULT_PAGE_SIZE,
+                    total,
+                    on_page: move |next| {
+                        page.set(next);
+                        selection.clear();
+                    },
+                }
             }
         }
     };
@@ -478,9 +479,6 @@ pub fn ExchangeDetail(
         };
     };
 
-    let kpi = kpis.unwrap_or_default();
-    let currency = kpi.fiat_currency.clone();
-    let add_open = editor_open() && editor_transaction().is_none();
     let inspector_key = editor_transaction()
         .as_ref()
         .map(|row| row.id.to_string())
@@ -488,20 +486,20 @@ pub fn ExchangeDetail(
 
     rsx! {
         section { id: "exchange-detail", class: "md3-screen md3-exchange-detail",
-            div { class: "md3-exchange-detail-header",
-                div {
+            div { class: "md3-page-header",
+                div { class: "md3-exchange-title-row",
                     Link {
                         to: Route::Exchanges {},
-                        class: "md3-exchange-back-link",
-                        "← Exchanges"
+                        class: "md3-icon-button md3-exchange-back-button",
+                        aria_label: "Back to exchanges",
+                        title: "Back to exchanges",
+                        {icon(ICON_BACK)}
                     }
-                    div { class: "md3-exchange-title-row",
-                        h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                            "{account.name}"
-                        }
-                        if let Some(provider) = &account.provider_name {
-                            span { class: "md3-exchange-provider", "{provider}" }
-                        }
+                    h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
+                        "{account.name}"
+                    }
+                    if let Some(provider) = &account.provider_name {
+                        span { class: "md3-exchange-provider", "{provider}" }
                     }
                 }
                 div { class: "md3-exchange-toolbar",
@@ -553,49 +551,10 @@ pub fn ExchangeDetail(
                 div { class: "md3-exchange-warning-banner", "{warning}" }
             }
 
-            div { class: "md3-kpi-grid md3-kpi-grid-five",
-                Kpi {
-                    title: "BTC bought / fiat spent".to_string(),
-                    value: Some(
-                        format!(
-                            "{} / {}",
-                            format_btc(kpi.bought_sats),
-                            format_fiat(kpi.fiat_spent, &currency),
-                        ),
-                    ),
-                }
-                Kpi {
-                    title: "BTC sold / fiat received".to_string(),
-                    value: Some(
-                        format!(
-                            "{} / {}",
-                            format_btc(kpi.sold_sats),
-                            format_fiat(kpi.fiat_received, &currency),
-                        ),
-                    ),
-                }
-                Kpi {
-                    title: "Withdrawn / deposited".to_string(),
-                    value: Some(
-                        format!(
-                            "{} / {}",
-                            format_btc(kpi.withdrawn_sats),
-                            format_btc(kpi.deposited_sats),
-                        ),
-                    ),
-                }
-                Kpi {
-                    title: "BTC fees".to_string(),
-                    value: Some(format_btc(kpi.btc_fees_sats)),
-                }
-                Kpi {
-                    title: "Unmatched".to_string(),
-                    value: Some(kpi.unmatched_count.to_string()),
-                }
-            }
+            ExchangeKpiGrid { kpis, loading: false }
 
-            div { class: if add_open || editor_open() { "md3-exchange-workbench md3-exchange-workbench-inspector" } else { "md3-exchange-workbench" },
-                section { class: "md3-card md3-card-elevated md3-exchange-table-card", {table_content} }
+            div { class: if editor_open() { "md3-exchange-workbench md3-exchange-workbench-inspector" } else { "md3-exchange-workbench" },
+                div { class: "md3-exchange-table-pane", {table_content} }
                 if editor_open() {
                     ExchangeInspector {
                         key: "{inspector_key}",
@@ -772,7 +731,7 @@ fn format_fee(fee: Option<f64>, currency: Option<&str>, converted: Option<(f64, 
     }
     match converted {
         Some((amount, target)) => format_fiat(amount, target),
-        None => format_fiat(fee, currency),
+        None => "-".to_string(),
     }
 }
 
@@ -808,6 +767,7 @@ fn import_data_summary_message(summary: &ImportDataSummary) -> String {
     message
 }
 
+const ICON_BACK: &str = "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z";
 const ICON_EDIT: &str = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
 const ICON_DELETE: &str =
     "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
@@ -834,7 +794,7 @@ mod tests {
             format_fee(Some(10.0), Some("EUR"), Some((12.0, "USD"))),
             "$12.00"
         );
-        assert_eq!(format_fee(Some(10.0), Some("EUR"), None), "10.00 EUR");
+        assert_eq!(format_fee(Some(10.0), Some("EUR"), None), "-");
         assert_eq!(
             format_fee(Some(10_000.0), Some("BTC"), Some((1.0, "USD"))),
             "0.0001 ₿"

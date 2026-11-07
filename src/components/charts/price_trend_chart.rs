@@ -72,9 +72,7 @@ fn build_option(points: &[Price], window_start: i64, window_end: i64, symbol: &s
             "type": "time",
             "min": window_start * 1000,
             "max": window_end * 1000,
-            "axisLabel": {
-                "color": theme::ON_SURFACE_VARIANT,
-            },
+            "axisLabel": theme::axis_label(),
             "axisLine": {
                 "lineStyle": {
                     "color": theme::OUTLINE_VARIANT,
@@ -84,9 +82,7 @@ fn build_option(points: &[Price], window_start: i64, window_end: i64, symbol: &s
         "yAxis": {
             "type": "value",
             "scale": true,
-            "axisLabel": {
-                "color": theme::ON_SURFACE_VARIANT,
-            },
+            "axisLabel": theme::axis_label(),
             "splitLine": {
                 "lineStyle": {
                     "color": theme::OUTLINE_VARIANT,
@@ -115,9 +111,7 @@ fn build_option(points: &[Price], window_start: i64, window_end: i64, symbol: &s
                 "moveHandleStyle": {
                     "color": theme::PRIMARY,
                 },
-                "textStyle": {
-                    "color": theme::ON_SURFACE_VARIANT,
-                },
+                "textStyle": theme::axis_label(),
                 "dataBackground": {
                     "lineStyle": {
                         "color": theme::OUTLINE_VARIANT,
@@ -217,5 +211,19 @@ mod tests {
             theme::ON_SURFACE_VARIANT
         );
         assert_eq!(option["tooltip"]["backgroundColor"], theme::INVERSE_SURFACE);
+    }
+
+    #[test]
+    fn axis_labels_use_the_theme_numeric_font() {
+        let option = build_option(&[point(100, 1.5)], 100, 200, "USD");
+
+        assert_eq!(
+            option["xAxis"]["axisLabel"]["fontFamily"],
+            theme::FONT_NUMERIC
+        );
+        assert_eq!(
+            option["yAxis"]["axisLabel"]["fontFamily"],
+            theme::FONT_NUMERIC
+        );
     }
 }

@@ -91,6 +91,7 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
       options: Object.create(null),
       debounces: Object.create(null),
       probe: null,
+      fontProbe: null,
     }};
   }}
   const registry = globalThis.__addressExplorerECharts;
@@ -139,6 +140,45 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
       const resolved = {{}};
       for (const key of Object.keys(node)) {{
         resolved[key] = resolveThemeColors(node[key]);
+      }}
+      return resolved;
+    }}
+    return node;
+  }};
+
+  // Chart typography follows the same `--font-*` tokens as the document.
+  // Canvas fonts do not inherit CSS, and the computed value of a custom
+  // property can remain an unresolved `var()` chain, so each family token is
+  // resolved through a hidden probe's computed `fontFamily`.
+  const FONT_TOKEN = /^var\((--[\w-]+)\)$/;
+
+  const resolveFontFamily = (value) => {{
+    const match = FONT_TOKEN.exec(value);
+    if (!match) {{
+      return value;
+    }}
+    if (!registry.fontProbe) {{
+      const probe = document.createElement("div");
+      probe.style.display = "none";
+      document.body.appendChild(probe);
+      registry.fontProbe = probe;
+    }}
+    registry.fontProbe.style.fontFamily = `var(${{match[1]}})`;
+    return getComputedStyle(registry.fontProbe).fontFamily || value;
+  }};
+
+  const resolveThemeFonts = (node) => {{
+    if (Array.isArray(node)) {{
+      return node.map(resolveThemeFonts);
+    }}
+    if (node && typeof node === "object") {{
+      const resolved = {{}};
+      for (const key of Object.keys(node)) {{
+        const value = node[key];
+        resolved[key] =
+          key === "fontFamily" && typeof value === "string"
+            ? resolveFontFamily(value)
+            : resolveThemeFonts(value);
       }}
       return resolved;
     }}
@@ -213,15 +253,17 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
     const chartOption = registry.options[chartId];
     if (chart && chartOption) {{
       chart.setOption(
-        resolveValueFormatters(resolveThemeColors(chartOption)),
+        resolveValueFormatters(
+          resolveThemeColors(resolveThemeFonts(chartOption))
+        ),
         true
       );
     }}
   }};
 
   // Palette or mode switches restyle the document through the `data-theme`
-  // and `data-mode` attributes (and the system color scheme when the mode is
-  // `system`); re-resolve every chart's colors so they follow.
+  // and `data-mode` attributes; re-resolve every chart's colors so they
+  // follow.
   if (!registry.themeObserver) {{
     const reapplyTheme = () => {{
       for (const chartId of Object.keys(registry.charts)) {{
@@ -233,9 +275,17 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
       attributes: true,
       attributeFilter: ["data-theme", "data-mode"],
     }});
-    globalThis
-      .matchMedia("(prefers-color-scheme: dark)")
-      .addEventListener("change", reapplyTheme);
+  }}
+
+  // Bundled fonts load asynchronously. Canvas text does not automatically
+  // repaint with a font that arrives after the chart was drawn, so re-apply
+  // every option once the font set is ready.
+  if (document.fonts && document.fonts.ready) {{
+    document.fonts.ready.then(() => {{
+      for (const chartId of Object.keys(registry.charts)) {{
+        applyOption(chartId);
+      }}
+    }});
   }}
 
   // Keep the newest option even when the ECharts bundle is still loading.
@@ -293,7 +343,9 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
     }}
 
     chart.setOption(
-      resolveValueFormatters(resolveThemeColors(registry.options[id])),
+      resolveValueFormatters(
+        resolveThemeColors(resolveThemeFonts(registry.options[id]))
+      ),
       true
     );
     chart.resize();
@@ -566,7 +618,20 @@ mod tests {
         assert!(script.contains("const resolveThemeColors = (node) => {"));
         assert!(script.contains("probe.style.display = \"none\";"));
         assert!(script.contains("getComputedStyle(registry.probe).color"));
-        assert!(script.contains("resolveValueFormatters(resolveThemeColors("));
+        assert!(script.contains("resolveThemeColors(resolveThemeFonts("));
+    }
+
+    #[test]
+    fn render_script_resolves_theme_font_tokens_against_a_probe_element() {
+        let script = render_script("echarts-7", "Test chart", "{}");
+
+        // Font tokens are resolved through a hidden probe's computed
+        // `fontFamily`, because canvas text does not inherit document fonts.
+        assert!(script.contains("const FONT_TOKEN = /^var\\((--[\\w-]+)\\)$/;"));
+        assert!(script.contains("const resolveThemeFonts = (node) => {"));
+        assert!(script.contains("getComputedStyle(registry.fontProbe).fontFamily"));
+        assert!(script.contains("key === \"fontFamily\""));
+        assert!(script.contains("document.fonts.ready.then"));
     }
 
     #[test]
@@ -594,7 +659,7 @@ mod tests {
 
         assert!(script.contains("new MutationObserver(reapplyTheme)"));
         assert!(script.contains("attributeFilter: [\"data-theme\", \"data-mode\"]"));
-        assert!(script.contains("matchMedia(\"(prefers-color-scheme: dark)\")"));
+        assert!(!script.contains("prefers-color-scheme"));
     }
 
     #[test]

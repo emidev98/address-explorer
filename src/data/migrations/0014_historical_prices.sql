@@ -5,7 +5,7 @@
 -- the prices service.
 --
 -- The WITHOUT ROWID primary key leads with the symbol. The close-time index
--- serves the "other available exchanges" column and the per-close-time
+-- serves the "other available currencies" column and the per-close-time
 -- conversion endpoint, which both read every symbol stored at one close time.
 CREATE TABLE IF NOT EXISTS historical_prices (
     close_time INTEGER NOT NULL,

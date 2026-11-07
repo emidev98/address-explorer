@@ -3,8 +3,8 @@
 use dioxus::prelude::*;
 
 use crate::domain::price::{
-    BulkSyncSummary, CurrencyHistorySummary, FiatCurrency, Price, PriceConversion, PricePage,
-    PriceSeries, PriceTableQuery, SyncToTodaySummary,
+    CurrencyHistorySummary, FiatCurrency, Price, PriceConversion, PricePage, PriceSeries,
+    PriceSyncSummary, PriceTableQuery, SyncGranularity,
 };
 
 #[cfg(feature = "server")]
@@ -23,8 +23,9 @@ pub async fn get_price_api(symbol: String, timestamp: i64) -> Result<Price, Serv
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
-/// Resolve the most recent BTC price in `symbol`: today's daily close when
-/// published, otherwise yesterday's.
+/// Resolve the most recent BTC price in `symbol`: the freshest stored close
+/// (an intraday observation when one was synced), falling back to the previous
+/// day when today's daily close is not published yet.
 #[server]
 #[get("/api/prices/latest?symbol")]
 pub async fn latest_price_api(symbol: String) -> Result<Price, ServerFnError> {
@@ -66,19 +67,22 @@ pub async fn list_prices_api(query: PriceTableQuery) -> Result<PricePage, Server
     .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
-/// Convert the stored USD history of `[from_time, to_time]` into `symbol`
-/// and persist it. The sync only populates close times that already exist
-/// in USD, matching the granularity of the table; existing rows are left
-/// untouched.
+/// Synchronize the stored BTC price history of `[from_time, to_time]`.
+///
+/// The run always fills the BTC/USD daily closes of the range and adds the
+/// finest intraday closes the free source still serves for its recent days.
+/// A non-USD `symbol` is then converted from every stored USD close time of
+/// the range with Frankfurter's daily rates. Existing rows are left untouched.
 #[server]
 #[post("/api/prices/sync")]
 pub async fn sync_prices_api(
     symbol: String,
     from_time: i64,
     to_time: i64,
-) -> Result<BulkSyncSummary, ServerFnError> {
+    granularity: SyncGranularity,
+) -> Result<PriceSyncSummary, ServerFnError> {
     PriceService::connect(open_database()?)
-        .sync_prices(&symbol, from_time, to_time)
+        .sync_prices(&symbol, from_time, to_time, granularity)
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -96,18 +100,6 @@ pub async fn ensure_currency_history_api(
 ) -> Result<CurrencyHistorySummary, ServerFnError> {
     PriceService::connect(open_database()?)
         .ensure_currency_history(&symbol)
-        .await
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
-/// Fetch BTC/USD daily closes from the latest stored close through the
-/// current day, refilling the gaps of more than one day in the stored
-/// history. Existing rows are left untouched.
-#[server]
-#[post("/api/prices/sync-to-today")]
-pub async fn sync_prices_to_today_api() -> Result<SyncToTodaySummary, ServerFnError> {
-    PriceService::connect(open_database()?)
-        .sync_prices_to_today()
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -134,6 +126,17 @@ pub async fn update_price_api(
     close: f64,
 ) -> Result<Price, ServerFnError> {
     prices::update_stored_price(&open_database()?, &symbol, close_time, close)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+/// Delete every stored price at the given close times in one transaction.
+///
+/// A close time removes the whole snapshot, including every currency stored
+/// at that moment. Returns the number of deleted rows.
+#[server]
+#[post("/api/prices/delete")]
+pub async fn delete_prices_api(close_times: Vec<i64>) -> Result<usize, ServerFnError> {
+    prices::delete_stored_prices(&open_database()?, &close_times)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 

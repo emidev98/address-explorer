@@ -21,9 +21,9 @@ use crate::domain::csv::parse_csv_text;
 pub const MAX_IMPORT_BYTES: usize = 1024 * 1024;
 /// Largest number of data rows accepted by the importer.
 pub const MAX_IMPORT_ROWS: usize = 5_000;
-/// Rows included in the preview payload. The import still processes every
+/// Rows included in the preview table. The import still processes every
 /// valid row.
-pub const MAX_PREVIEW_ROWS: usize = 200;
+pub const MAX_PREVIEW_ROWS: usize = 10;
 
 /// Preview plus the normalized rows that a successful import would insert.
 #[derive(Debug, Clone, PartialEq, Eq)]

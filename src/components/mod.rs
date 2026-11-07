@@ -1,16 +1,19 @@
 mod catalog;
 mod catalog_select;
 mod charts;
+mod checkbox;
 mod clipboard;
 mod confirm_dialog;
 mod date_picker;
 mod edit_price_dialog;
+mod exchange_kpis;
 mod exchanges;
 mod fiat_currency;
 mod file_dropzone;
 mod filter_multiselect;
 pub mod format;
 mod import_address_dialog;
+mod interface_settings;
 mod kpi;
 mod provider_badge;
 mod sync_prices_dialog;
@@ -27,10 +30,12 @@ pub use catalog_select::{CatalogOptionsSelect, CatalogSelect};
 pub use charts::{
     FlowFiatContext, FundsFlowChart, HoldingSlice, HoldingsDistributionChart, PriceTrendChart,
 };
+pub use checkbox::Checkbox;
 pub use clipboard::{read_clipboard_text, write_clipboard_text};
 pub use confirm_dialog::ConfirmDialog;
 pub use date_picker::DatePicker;
 pub use edit_price_dialog::EditPriceDialog;
+pub use exchange_kpis::{ExchangeCountKpi, ExchangeKpiGrid};
 pub use exchanges::{
     ExchangeAccountDialog, ExchangeInspector, ExchangeLinkDialog, ImportDataDialog,
 };
@@ -38,7 +43,8 @@ pub use fiat_currency::{use_fiat_currency, FiatCurrency};
 pub use file_dropzone::CsvDropzone;
 pub use filter_multiselect::{MultiSelect, MultiSelectOption};
 pub use import_address_dialog::{AddressEditData, ImportAddressDialog, ImportAddressDialogMode};
-pub use kpi::Kpi;
+pub use interface_settings::{use_interface_settings, InterfaceSettingsContext};
+pub use kpi::{BalanceKpi, Kpi};
 pub use provider_badge::{BadgeSize, ProviderBadge};
 pub use sync_prices_dialog::SyncPricesDialog;
 pub use table_controls::{

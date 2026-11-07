@@ -32,3 +32,108 @@ pub struct TransactionSyncSummary {
     /// oldest indexed transaction.
     pub rate_limited: bool,
 }
+
+/// Result of syncing the transaction history of several addresses at once.
+///
+/// A bulk sync is sequential and continues past a failing address, so one
+/// unreachable or unknown address never discards the progress made for the
+/// others. The `synced` field holds the summaries of the addresses that
+/// completed, `failed` the per-address failures.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransactionSyncBatchSummary {
+    /// Summaries of the addresses whose sync completed.
+    pub synced: Vec<TransactionSyncSummary>,
+    /// Failures of the addresses whose sync did not complete.
+    pub failed: Vec<TransactionSyncFailure>,
+}
+
+impl TransactionSyncBatchSummary {
+    /// Total transactions stored across the successfully synced addresses.
+    pub fn stored(&self) -> usize {
+        self.synced.iter().map(|summary| summary.stored).sum()
+    }
+
+    /// Transactions that were new across the successfully synced addresses.
+    pub fn inserted(&self) -> usize {
+        self.synced.iter().map(|summary| summary.inserted).sum()
+    }
+
+    /// Number of successfully synced addresses that paused on the mempool
+    /// rate limit and can resume on a later sync.
+    pub fn rate_limited_count(&self) -> usize {
+        self.synced
+            .iter()
+            .filter(|summary| summary.rate_limited)
+            .count()
+    }
+
+    /// Number of successfully synced addresses that reached the page limit.
+    pub fn truncated_count(&self) -> usize {
+        self.synced
+            .iter()
+            .filter(|summary| summary.truncated)
+            .count()
+    }
+}
+
+/// One address that failed inside a bulk transaction sync.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransactionSyncFailure {
+    pub address: String,
+    /// User-facing description of the failure.
+    pub error: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn summary(
+        address: &str,
+        stored: usize,
+        inserted: usize,
+        truncated: bool,
+        rate_limited: bool,
+    ) -> TransactionSyncSummary {
+        TransactionSyncSummary {
+            address: address.to_string(),
+            fetched: stored,
+            inserted,
+            stored,
+            truncated,
+            rate_limited,
+        }
+    }
+
+    #[test]
+    fn batch_summary_aggregates_only_the_successful_addresses() {
+        let batch = TransactionSyncBatchSummary {
+            synced: vec![
+                summary("bc1qone", 10, 2, false, false),
+                summary("bc1qtwo", 5, 0, true, false),
+                summary("bc1qthree", 7, 1, false, true),
+            ],
+            failed: vec![TransactionSyncFailure {
+                address: "bc1qfour".to_string(),
+                error: "address not found".to_string(),
+            }],
+        };
+
+        assert_eq!(batch.stored(), 22);
+        assert_eq!(batch.inserted(), 3);
+        assert_eq!(batch.truncated_count(), 1);
+        assert_eq!(batch.rate_limited_count(), 1);
+        assert_eq!(batch.synced.len(), 3);
+        assert_eq!(batch.failed.len(), 1);
+    }
+
+    #[test]
+    fn empty_batch_has_zero_totals() {
+        let batch = TransactionSyncBatchSummary::default();
+
+        assert_eq!(batch.stored(), 0);
+        assert_eq!(batch.inserted(), 0);
+        assert_eq!(batch.truncated_count(), 0);
+        assert_eq!(batch.rate_limited_count(), 0);
+    }
+}

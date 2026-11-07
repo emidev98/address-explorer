@@ -54,12 +54,13 @@ The persisted `default_fiat_currency` setting (the SQLite `setting` table) is th
   - persists one target row per stored USD close time at full granularity;
   - never overwrites existing target rows, including manual edits;
   - is idempotent and retryable, and reports non-fatal failures as warnings.
+- The "Sync Prices" action (`sync_prices_api`, `src/components/sync_prices_dialog.rs`) extends that workflow with one unified range sync: every run fills the BTC/USD daily closes of the range from Coin Metrics `PriceUSD`, USD optionally adds the finer recent closes the free tier still serves, and any other currency refreshes USD first and then converts every stored USD close time of the range through `sync_prices_bulk`. The daily stage is mandatory; a failing intraday or conversion stage is a warning, never a silent success.
 - A new feature that needs historical prices in the default currency **MUST** use this preparation path, not ad-hoc conversion in a screen or repository.
 - Saving the preference and preparing its history are separate concerns: the preference **MUST** be persisted first. If preparation fails, the saved preference **MUST** remain, the failure **MUST** be visible to the user, and a retry path **MUST** exist (opening Historical Prices or using Sync Prices). A conversion failure **MUST NOT** silently roll back the preference or be presented as success.
 
 **Data and external sources**
 
-- `historical_prices` is a multi-symbol table. USD remains the reference series imported by the data migrations; Frankfurter supplies USD → fiat rates and Coin Metrics supplies BTC/USD prices.
+- `historical_prices` is a multi-symbol table. USD remains the reference series imported by the data migrations; Coin Metrics supplies the BTC/USD `PriceUSD` daily closes and the recent `ReferenceRateUSD` observations behind finer closes, and Frankfurter supplies the daily USD → fiat rates.
 - Fiat symbols **MUST** be derived from those sources through the existing clients. No SQL query, domain type, or view may assume that USD is the only display currency; the USD constant is reserved for the reference/source series and the documented fallback.
 
 ### 3.2 Suggested project layout
@@ -217,13 +218,30 @@ The theme provides:
 - Shape tokens (`rounded-md3-md`), elevation (`shadow-md3-1`), and motion
   easings (`ease-md3-standard`).
 - Component classes used by the views, including `md3-top-app-bar`,
-  `md3-screen`, `md3-button-filled`, `md3-text-field`, `md3-table`,
-  `md3-card`, and `md3-fab`.
+  `md3-side-nav`, `md3-nav-drawer`, `md3-screen`, `md3-button-filled`,
+  `md3-text-field`, `md3-checkbox`, `md3-date-picker`,
+  `md3-date-picker-popup`, `md3-table`, `md3-card`, and `md3-fab`.
 
-The available palettes are Ocean, Forest, Sunset, Orchid (the default), and
-Graphite Lime. `data-theme` selects the palette and `data-mode` selects
-`light`, `dark`, or `system`; both are applied to the document root. When no
-mode has been stored yet, the theme follows `prefers-color-scheme`.
+Every checkbox **MUST** use the shared `Checkbox` component in
+`src/components/checkbox.rs` instead of styling a native input in a view. It
+renders a native input with the Material 3 18 px container, 40 px state layer,
+48 px interaction target, optional label, and selected/unselected/indeterminate
+and disabled states. Table selection stays behind `TableSelectionHeader` and
+`TableSelectionCell`, which use the same component.
+
+Single-line form controls share one height token: `--md3-control-height`
+(2.5rem / 40 px), declared in the shared dimensions block of `tailwind.css`.
+`.md3-text-field`, `.md3-input`, `.md3-multiselect-trigger`, and
+`.md3-date-picker` consume it, and a base-layer rule applies it to native
+`input` and single-select elements, so a new control inherits the height
+without extra markup. A new input or dropdown **MUST** use those shared
+classes instead of hardcoding a height; a control that intentionally needs a
+different size (for example a multi-line textarea) **MUST** document why.
+
+The available palettes are Ocean (the default), Forest, Aurum, Sumi, and
+Orange. `data-theme` selects the palette and `data-mode` selects `light` or
+`dark`; both are applied to the document root. Dark is the default appearance
+until a stored preference is applied.
 
 The palette and appearance are changed in **Settings → Theme**. Preferences
 are saved automatically to the SQLite `setting` table, created by
@@ -237,12 +255,56 @@ so palette changes affect both the component classes and the Tailwind color
 utilities. Changes that alter palettes, color roles, or component classes
 **MUST** be verified in both light and dark appearance modes before review.
 
+Primary navigation is owned by the `Topbar` layout in
+`src/components/topbar.rs` and is configured by the persisted
+`navigation_position` interface setting:
+
+- **Auto** (the default) shows the side panel from 64 rem upward and the top
+  app bar below that.
+- **Top** always uses the top app bar on tablet and wider windows.
+- **Side** shows the side panel from 48 rem upward.
+- Below 48 rem, every option uses the compact top app bar, a 48 px menu
+  button, and the modal slide-in drawer. A change to the shell **MUST** keep
+  that phone behavior usable with keyboard, Escape, the scrim, and the close
+  button.
+
+The persistent side panel is compressible through the footer button at its
+bottom. The `side_nav_collapsed` interface setting stores that state; it
+defaults to expanded and requires no schema migration because it lives in the
+existing `setting` key/value table. Expanded and compact presentations share
+`FullNavPanel` / `CompactNavPanel` in `src/components/topbar.rs`; new
+destinations **MUST** be added to `screens()` or `settings_sections()` there
+so every presentation stays in sync, including an icon for each top-level
+destination.
+
+- The expanded panel shows icon + label links, pins the Settings group to the
+  bottom with a flexible gap above it, and places the compress button below
+  Settings in a dedicated footer.
+- The compact panel is a 5 rem icon rail. Settings becomes a bottom gear whose
+  flyout exposes the four subsections. The flyout closes on Escape, outside
+  click, route change, or selection.
+- The mobile drawer always stays expanded and never shows the compress button;
+  it keeps the destination links followed by the Settings subsections.
+- The top app bar keeps its hover/tap Settings dropdown. Contributors
+  **SHOULD** verify expanded and compact side panels, Top mode, and the mobile
+  drawer at phone, tablet, and wide widths in both appearance modes when
+  changing the shell.
+
 Charts draw on a canvas and cannot consume the component classes or Tailwind
 utilities: when a new style is added it **MUST** also be available for the
 charts. New color roles and visual treatments **MUST** be expressed through
 the chart theme tokens in `src/components/charts/theme.rs`, which reference
 the same `--md-sys-color-*` variables (Section 5.10); chart styling **MUST
 NOT** fork the theme with hardcoded colors.
+
+The bundled typefaces live in `assets/fonts/` and are injected through the
+`FontFaces` component in `src/components/theme.rs`; the app **MUST NOT**
+request a remote font. Themes may override `--font-sans`, `--font-heading`,
+`--font-numeric`, and the radius scale in `tailwind.css`. Charts **MUST** use
+the `FONT_FAMILY`, `FONT_HEADING`, and `FONT_NUMERIC` tokens from
+`src/components/charts/theme.rs` so canvas text follows the active theme; the
+ECharts host resolves those tokens and re-applies options when the fonts
+finish loading or the theme changes.
 
 ### 5.4 Signals, derived state, context, and hooks
 
@@ -368,7 +430,7 @@ Apache ECharts is the default charting library for this project. The browser bun
 - Chart components **MUST NOT** fetch, persist, or own business records. Loading, empty, and error states belong to the screen or application layer that supplies the data. Pure helpers such as layout calculation and option construction **SHOULD** be separate functions with unit tests.
 - The shared hosts in `src/components/charts/echarts.rs` — `EChartsHost`, plus `EChartsZoomHost` for charts that forward ECharts interaction events such as `datazoom` back to Rust — are the only place that may initialize, update, resize, or dispose ECharts. A chart component passes its serialized option to one of those hosts instead of manipulating the DOM or JavaScript directly.
 - Options **MUST** be generated with typed serialization such as `serde_json`, never by concatenating untrusted values into JavaScript source. Any custom JavaScript **MUST** escape data with the same care.
-- Chart elements that should follow the app theme **MUST** use the color tokens from `src/components/charts/theme.rs` instead of hardcoded colors. A token is a `var(--md-sys-color-*)` string referencing the same Material 3 color role the CSS uses, with an optional `~alpha` suffix (for example `var(--md-sys-color-primary~0.15)`) for translucent fills the canvas cannot express through CSS. The host resolves every token in the option against the computed page style when it applies the option, and re-applies all options when `data-theme`, `data-mode`, or the system color scheme changes, so charts track palette and appearance switches without a reload. When filling a shape that carries text, the fill and label colors **MUST** be a paired role and its `on-*` counterpart (for example `primary` with `on-primary`) so the palette keeps the contrast it guarantees.
+- Chart elements that should follow the app theme **MUST** use the color tokens from `src/components/charts/theme.rs` instead of hardcoded colors. A token is a `var(--md-sys-color-*)` string referencing the same Material 3 color role the CSS uses, with an optional `~alpha` suffix (for example `var(--md-sys-color-primary~0.15)`) for translucent fills the canvas cannot express through CSS. The host resolves every token in the option against the computed page style when it applies the option, and re-applies all options when `data-theme` or `data-mode` changes, so charts track palette and appearance switches without a reload. When filling a shape that carries text, the fill and label colors **MUST** be a paired role and its `on-*` counterpart (for example `primary` with `on-primary`) so the palette keeps the contrast it guarantees.
 - Charts **MUST** provide an accessible label and remain legible in the supported light and dark appearance modes. Contributors **SHOULD** verify the rendered chart, resizing, and both modes before requesting review.
 - When updating ECharts, replace the vendored bundle and license files together, record the new version in this guide or the vendoring README, and run the checks in Section 4.
 
@@ -409,11 +471,12 @@ Every screen that lists rows in a table **MUST** use the shared backend-driven t
 
 - A table listing endpoint **MUST** be a server function taking a single query struct that flattens the shared [`TableQuery`](src/domain/table.rs) (`#[serde(flatten)]`) and adds the table's specific filters as typed fields (for example `PriceTableQuery` adds `symbol`, `from_time`, `to_time`). It **MUST** return the shared `TablePage<T>` (`items` plus the filtered `total` across all pages).
 - `TableQuery` carries the 0-based `page`, the `page_size`, and the optional `sort_by` key with its `sort_dir`. Page numbers are 0-based in the query and 1-based in the UI. Services **MUST** clamp `page_size` to a documented maximum.
+- Every listing table **MUST** send the shared `DEFAULT_PAGE_SIZE` from `src/domain/table.rs` (10 rows) as its `page_size`, so all tables display at most 10 rows per page. Screens **MUST NOT** define their own page-size constant.
 - Any change to filters or sorting **MUST** reset the page to 0.
 
 **Pagination bar.**
 
-- Screens **MUST** render the shared `TablePagination` component (from `src/components/table_controls.rs`) directly above the table: Previous and Next buttons around an editable 1-based page index and the totals (` of N · M entries`).
+- Screens **MUST** render the shared `TablePagination` component (from `src/components/table_controls.rs`) directly below the table, so the data stays the first thing the page shows: Previous and Next buttons around an editable 1-based page index and the totals (` of N · M entries`).
 - The page index **MUST** be editable: entering a number navigates to that page, clamped to the valid range. The endpoint **MUST** therefore accept arbitrary page indexes, not only previous/next steps.
 
 **Sorting.**
@@ -429,10 +492,10 @@ Every screen that lists rows in a table **MUST** use the shared backend-driven t
 
 **Multi-select and bulk actions.**
 
-- Multi-selection is opt-in per table. A table with a bulk action (currently deletion) uses `use_table_selection` and renders `TableSelectionHeader` as its first header cells and `TableSelectionCell` as the first body cell of every row. Tables without a bulk action **MUST NOT** render selection cells. Screens **MUST NOT** hand-roll checkboxes, select-all state, or selected-row classes.
-- `TableSelectionHeader` owns the select-all checkbox and the `th` directly next to it. Bulk action buttons (the delete action today, other actions later) **MUST** be passed as its children so they read as applying to the selection; row-level actions stay in the second body cell.
+- Multi-selection is opt-in per table. A table with one or more bulk actions uses `use_table_selection` and renders `TableSelectionHeader` as its first header cells and `TableSelectionCell` as the first body cell of every row. Tables without a bulk action **MUST NOT** render selection cells. Screens **MUST NOT** hand-roll checkboxes, select-all state, or selected-row classes; the shared `Checkbox` component provides the control, including the indeterminate state when only some rows are selected.
+- `TableSelectionHeader` owns the select-all checkbox and the `th` directly next to it. Bulk action buttons (for example deletion or transaction sync) **MUST** be passed as its children so they read as applying to the selection; row-level actions stay in the second body cell.
 - The selector `th`/`td` use `.md3-table-select-cell` and the bulk-action header uses `.md3-table-select-actions`; these cells shrink to their content. A row whose checkbox is checked carries `.md3-table-row-selected` so CSS can mark the whole row.
-- Selection **MUST** be cleared whenever the page, sort, or filter changes and after a successful bulk action. Bulk commands **MUST** call one batch endpoint that performs the change in a single transaction, reject an empty selection, deduplicate ids, and return the affected count.
+- Selection **MUST** be cleared whenever the page, sort, or filter changes and after a successful bulk action. Bulk commands **MUST** call one batch endpoint that rejects an empty selection and deduplicates ids. A batch that only performs local writes **MUST** apply them in a single transaction and return the affected count. A batch that performs external I/O per item (for example syncing each address) **MUST NOT** hold a database transaction across those requests; each item changes atomically and the endpoint returns a per-item summary that the UI reports, including partial failures.
 
 ### 5.12 Catalog settings (Wallet Types and Exchange Types)
 
@@ -445,6 +508,70 @@ The Settings area has two provider-catalog sub-settings built on one generic pat
 - **Listings.** Provider tables follow Section 5.11 through the shared `TableQuery`, `CatalogTypePage` with global KPI totals, an allowlisted sort enum, a clamped page size, and the shared `TablePagination` / `SortableHeader` controls.
 - **Deletion is a cascade.** Deleting providers removes their addresses (and the addresses' stored transactions) and, for exchanges, their ledger accounts (and the accounts' ledger rows) in one transaction. The UI **MUST** preview the affected counts and require confirmation; a category delete that still has providers **MUST** require typing the category name. The "Confirm destructive actions" setting may skip a dialog only when no related rows exist.
 - **CSV import is create-only and partial.** Valid rows are inserted, duplicate names/slugs and invalid rows are skipped and reported, and an unknown category falls back to Uncategorized. The preview and the apply path **MUST** re-run the same pure planner against fresh database state.
+
+### 5.13 Date selection fields
+
+Every date or date-range filter **MUST** use the shared `DatePicker` component
+in `src/components/date_picker.rs`. Views **MUST NOT** add a second date picker,
+style a native `<input type="date">`, or implement their own calendar markup.
+
+- **One compact field.** A range is displayed in one input as
+  `YYYY-MM-DD – YYYY-MM-DD`; an open side is shown as `…`, and `Single` mode
+  displays one date. The popup is the only part that may grow on screen.
+- **Controlled value.** `value: DateSelection` supplies the committed or
+  default selection and is rendered directly while the field is idle, so a
+  screen prefill appears as soon as its data arrives. `on_change` emits a
+  validated replacement as soon as a complete range (or a single date in
+  Single mode) is picked, after OK for open-ended ranges, after Enter or a
+  valid blur for typed input, and on Clear. Incomplete calendar edits remain a
+  draft; Cancel, Escape, or an outside click discards them.
+- **Validated values.** `src/domain/date_selection.rs` owns `IsoDate`,
+  `DateSelection`, `DateSelectionMode`, `DateBounds`, typed input parsing, and
+  the range selection state machine. Dates are strict UTC `YYYY-MM-DD` civil
+  dates; impossible dates such as `2026-02-30` are rejected before they can
+  reach a query.
+- **Bounds and ordering.** `min_date` and `max_date` are inclusive bounds for
+  both endpoints. Out-of-bounds days are disabled, typed out-of-bounds values
+  are rejected, and a second calendar click before the start date swaps into a
+  valid range rather than producing a reversed one. Defaults and bounds
+  **SHOULD** be derived from the same data span so a screen cannot open with an
+  invalid default. Clearing the field resets to the configured `min..max`
+  range when both bounds exist (or to the available open-ended side) instead
+  of emptying a bounded filter.
+- **Modes.** `DateSelectionMode::Range` permits both, one, or neither endpoint
+  (open-ended ranges). `DateSelectionMode::Single` stores only `from` and is
+  used when a filter needs one date rather than a range.
+- **Quick presets.** Above the range summary, the popup offers `Last week`,
+  `Last month`, `Last year`, `This week`, `This month`, and `This year` in
+  Range mode, and `Start of week`, `Start of month`, `Start of year`, and
+  `Today` in Single mode. Weeks are Monday-first. "This" presets run from the
+  period start through today; "Last" presets cover the full previous period.
+  Presets clip to `min_date`/`max_date`, are disabled when unavailable, apply
+  immediately, and close the popup.
+- **Material 3 behavior.** The popup follows the M3 docked date-picker anatomy:
+  labeled input, calendar icon button, month/year menu buttons, previous/next
+  month controls, weekday column headers, a six-week grid, adjacent-month days,
+  today/selected/in-range/disabled states, and Cancel/OK text actions. Wide
+  layouts show two months; narrow layouts and `compact` show one. Calendar day
+  targets are 48 px even though the single-line input keeps the shared 40 px
+  control height.
+- **Accessibility.** The field has a visible label, supporting text for the
+  format or a validation error, and an inline error state. Supporting text is
+  hidden by default across the application and is opted into through General
+  Settings; the persisted `InterfaceSettings::show_date_range_support` value is
+  loaded once by the app root and shared through context. Hidden supporting
+  text stays available to assistive technology, and the field keeps its
+  `aria-invalid` state. The dialog exposes grid and columnheader roles, full
+  `"Monday, January 5, 2026"` day labels, `aria-selected`, `aria-current`, and
+  `aria-disabled`. Arrow keys, Home/End, Page Up/Down, Shift+Page Up/Down,
+  Enter/Space, Escape, and Shift+M/Y are supported. Focus returns to the input
+  after closing, and range changes are announced through a polite live region.
+- **Tests.** Pure parsing, bounds, ordering, open-ended states, selection
+  transitions, calendar math, and preset periods live in
+  `src/domain/date_selection.rs`, `src/domain/calendar.rs`, and
+  `src/domain/date_presets.rs`. A change to the
+  picker **SHOULD** add or update tests there instead of relying only on manual
+  screen checks.
 
 ## 6. SQLite and `rusqlite` conventions
 
@@ -647,8 +774,9 @@ entry under `src/data/migrations/`.
 | 19 | `0019_addresses_data` (Rust seed) | data |
 | 20 | `0020_provider_brand_colors.sql` | data backfill |
 | 21 | `0021_flow_indexes.sql` | read-path indexes |
+| 22 | `0022_exchange_transactions_btc_fee_sats.sql` | data backfill + triggers |
 
-The current `CURRENT_SCHEMA_VERSION` is `21`.
+The current `CURRENT_SCHEMA_VERSION` is `22`.
 
 ## 7. Single Responsibility Principle and module design
 
@@ -812,7 +940,7 @@ Reviewers **SHOULD** evaluate correctness, readability, error handling, concurre
 
 ## 12. Current database schema
 
-A database at `CURRENT_SCHEMA_VERSION = 21` has the tables, indexes, and
+A database at `CURRENT_SCHEMA_VERSION = 22` has the tables, indexes, and
 triggers below. The statements are the consolidated migration files applied in
 version order; `src/data/migrations/` is authoritative and this section **MUST**
 be updated in the same change as a migration.
@@ -1030,6 +1158,22 @@ CREATE INDEX idx_exchange_transactions_timestamp
     ON exchange_transactions(timestamp);
 CREATE INDEX idx_exchange_transactions_on_chain_txid
     ON exchange_transactions(on_chain_txid);
+CREATE TRIGGER exchange_transactions_btc_fee_sats_insert
+BEFORE INSERT ON exchange_transactions
+WHEN UPPER(TRIM(COALESCE(NEW.fee_currency, ''))) IN ('BTC', 'XBT')
+  AND NEW.fee IS NOT NULL
+  AND NEW.fee <> ROUND(NEW.fee)
+BEGIN
+    SELECT RAISE(ABORT, 'exchange_transactions.fee must be satoshis for BTC/XBT');
+END;
+CREATE TRIGGER exchange_transactions_btc_fee_sats_update
+BEFORE UPDATE OF fee, fee_currency ON exchange_transactions
+WHEN UPPER(TRIM(COALESCE(NEW.fee_currency, ''))) IN ('BTC', 'XBT')
+  AND NEW.fee IS NOT NULL
+  AND NEW.fee <> ROUND(NEW.fee)
+BEGIN
+    SELECT RAISE(ABORT, 'exchange_transactions.fee must be satoshis for BTC/XBT');
+END;
 CREATE TABLE fiat_exchange_rates (
     base TEXT NOT NULL,
     quote TEXT NOT NULL,
@@ -1050,6 +1194,10 @@ Notes that are easy to miss when reading the schema:
   checks it again before writing.
 - `addresses.exchange_balance_sats` and `addresses.tx_index_rate_limited` are
   derived state maintained by the exchange and address repositories.
+- `exchange_transactions.amount_sats` is always satoshis.
+  `exchange_transactions.fee` is satoshis when `fee_currency` is BTC/XBT and
+  the fee currency's own units otherwise; the `0022` triggers reject fractional
+  BTC/XBT fees so a source-unit value can never be stored again.
 - Foreign-key enforcement is a connection pragma (`PRAGMA foreign_keys = ON` in
   `src/data/database.rs`), not a schema property, so it must stay enabled on
   every connection.

@@ -13,9 +13,10 @@ use std::hash::Hash;
 
 use dioxus::prelude::*;
 
+use crate::components::Checkbox;
 use crate::domain::table::SortDirection;
 
-/// Pagination bar of a data table, rendered directly above it: Previous and
+/// Pagination bar of a data table, rendered directly below it: Previous and
 /// Next around an editable 1-based page index and the totals. `page` is the
 /// 0-based current page; `on_page` receives the 0-based page to show.
 /// Entering an index outside the valid range clamps to it.
@@ -200,6 +201,12 @@ where
         ids.iter().all(|id| guard.contains(id))
     }
 
+    /// Whether any id in the list is checked.
+    pub fn some_selected(&self, ids: &[T]) -> bool {
+        let guard = self.selected.read();
+        ids.iter().any(|id| guard.contains(id))
+    }
+
     /// Drop the whole selection.
     pub fn clear(&mut self) {
         self.selected.write().clear();
@@ -215,6 +222,7 @@ where
 #[component]
 pub fn TableSelectionHeader(
     all_selected: bool,
+    #[props(default)] indeterminate: bool,
     select_all_label: String,
     on_toggle_all: EventHandler<bool>,
     #[props(default)] disabled: bool,
@@ -222,12 +230,12 @@ pub fn TableSelectionHeader(
 ) -> Element {
     rsx! {
         th { class: "md3-table-select-cell",
-            input {
-                r#type: "checkbox",
-                aria_label: "{select_all_label}",
+            Checkbox {
                 checked: all_selected,
+                indeterminate,
+                aria_label: select_all_label,
                 disabled,
-                onchange: move |event| on_toggle_all.call(event.checked()),
+                on_change: move |checked| on_toggle_all.call(checked),
             }
         }
         th { class: "md3-table-select-actions", {children} }
@@ -245,11 +253,10 @@ pub fn TableSelectionCell(checked: bool, label: String, on_change: EventHandler<
         td {
             class: "md3-table-select-cell",
             onclick: move |event| event.stop_propagation(),
-            input {
-                r#type: "checkbox",
-                aria_label: "{label}",
+            Checkbox {
                 checked,
-                onchange: move |event| on_change.call(event.checked()),
+                aria_label: label,
+                on_change: move |checked| on_change.call(checked),
             }
         }
     }

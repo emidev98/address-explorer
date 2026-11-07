@@ -158,6 +158,7 @@ fn node_data(node: &FlowNode, fiat: Option<&FlowFiatContext>) -> Value {
             "formatter": label_text,
             "position": label_position,
             "color": label_color,
+            "fontFamily": theme::FONT_FAMILY,
             "fontSize": 11,
             "lineHeight": 16,
             "width": 180,
@@ -421,5 +422,19 @@ mod tests {
             .unwrap();
         assert!(text.contains("0.0000005"));
         assert!(text.contains("EUR"));
+    }
+
+    #[test]
+    fn labels_use_the_theme_ui_font() {
+        let option = build_option(&graph(), None);
+
+        assert_eq!(
+            option["series"][0]["label"]["fontFamily"],
+            theme::FONT_FAMILY
+        );
+        assert_eq!(
+            option["series"][0]["data"][0]["label"]["fontFamily"],
+            theme::FONT_FAMILY
+        );
     }
 }

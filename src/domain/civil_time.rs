@@ -66,6 +66,20 @@ pub fn format_datetime(epoch_second: i64) -> String {
     )
 }
 
+/// Format an epoch timestamp as an ISO 8601 UTC instant accepted by the
+/// Coin Metrics `start_time`/`end_time` parameters, e.g.
+/// `2026-10-30T18:05:00Z`.
+pub fn format_iso_timestamp(epoch_second: i64) -> String {
+    let (year, month, day) = civil_from_days(epoch_second.div_euclid(86_400));
+    let seconds_of_day = epoch_second.rem_euclid(86_400);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        seconds_of_day / 3_600,
+        seconds_of_day % 3_600 / 60,
+        seconds_of_day % 60,
+    )
+}
+
 /// Parse a UTC ISO 8601 date-time such as `2026-10-27T13:00:00.000000000Z`
 /// into epoch seconds, truncating sub-second precision.
 ///
@@ -100,8 +114,8 @@ pub fn parse_iso_timestamp(raw: &str) -> Option<i64> {
     Some(day_start + hour * 3_600 + minute * 60 + second)
 }
 
-/// Parse a `YYYY-MM-DD` calendar date (the value of a native
-/// `<input type="date">`) into UTC epoch seconds at the start of that day.
+/// Parse a `YYYY-MM-DD` UTC calendar date into epoch seconds at the start of
+/// that day. Impossible dates such as `2026-02-30` are rejected.
 pub fn parse_date(raw: &str) -> Option<i64> {
     let raw = raw.trim();
     if raw.len() != 10 || raw.get(4..5) != Some("-") || raw.get(7..8) != Some("-") {
@@ -115,7 +129,13 @@ pub fn parse_date(raw: &str) -> Option<i64> {
         return None;
     }
 
-    Some(epoch_seconds(year, month, day, 0, 0, 0))
+    let epoch = epoch_seconds(year, month, day, 0, 0, 0);
+    // Reject dates that normalize into another month, such as 2026-02-30.
+    if civil_from_days(epoch.div_euclid(86_400)) != (year, month, day) {
+        return None;
+    }
+
+    Some(epoch)
 }
 
 /// Parse the `Close time` cell of a Binance-style kline CSV row.
@@ -184,6 +204,17 @@ mod tests {
         );
         // Negative timestamps stay on the proleptic calendar.
         assert_eq!(format_datetime(-1), "1969-12-31 23:59:59");
+    }
+
+    #[test]
+    fn format_iso_timestamp_round_trips_through_the_parser() {
+        let instant = epoch_seconds(2026, 10, 30, 18, 5, 42);
+        assert_eq!(format_iso_timestamp(instant), "2026-10-30T18:05:42Z");
+        assert_eq!(
+            parse_iso_timestamp(&format_iso_timestamp(instant)),
+            Some(instant)
+        );
+        assert_eq!(format_iso_timestamp(0), "1970-01-01T00:00:00Z");
     }
 
     #[test]
@@ -262,6 +293,9 @@ mod tests {
             "2026/06/15",
             "2026-13-01",
             "2026-06-00",
+            "2026-02-30",
+            "2026-04-31",
+            "2023-02-29",
             "not a date",
         ] {
             assert_eq!(parse_date(raw), None, "accepted {raw:?}");

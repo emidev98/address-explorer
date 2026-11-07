@@ -7,9 +7,10 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Default rows per page when a client does not say otherwise; services still
-/// clamp to their own maximum.
-pub const DEFAULT_PAGE_SIZE: u32 = 50;
+/// Rows per page of every data table in the application. Screens send it as
+/// the table query's `page_size`; services still clamp it to their own
+/// maximum.
+pub const DEFAULT_PAGE_SIZE: u32 = 10;
 
 /// Sort direction of a table query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -73,7 +74,7 @@ impl Default for TableQuery {
 }
 
 /// One page of a table listing.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TablePage<T> {
     pub items: Vec<T>,
     /// Total rows matching the query's filters, across all pages.
@@ -88,6 +89,7 @@ mod tests {
     fn table_query_defaults_to_the_first_unsorted_page() {
         let query = TableQuery::default();
 
+        assert_eq!(DEFAULT_PAGE_SIZE, 10);
         assert_eq!(query.page, 0);
         assert_eq!(query.page_size, DEFAULT_PAGE_SIZE);
         assert_eq!(query.sort_by, None);

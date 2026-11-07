@@ -137,6 +137,12 @@ pub(crate) const MIGRATIONS: &[(&str, Migration)] = &[
         "0021_flow_indexes",
         Migration::Sql(include_str!("migrations/0021_flow_indexes.sql")),
     ),
+    (
+        "0022_exchange_transactions_btc_fee_sats",
+        Migration::Sql(include_str!(
+            "migrations/0022_exchange_transactions_btc_fee_sats.sql"
+        )),
+    ),
 ];
 
 /// `user_version` of a database with every migration applied.
@@ -222,6 +228,18 @@ mod tests {
     /// touching `user_version`. Used to simulate a fully migrated database.
     fn apply_sql(connection: &Connection) {
         for (_, migration) in MIGRATIONS {
+            if let Migration::Sql(sql) = migration {
+                connection.execute_batch(sql).unwrap();
+            }
+        }
+    }
+
+    /// Apply the SQL entries up to and including `version`.
+    fn apply_sql_through(connection: &Connection, version: i32) {
+        for (index, (_, migration)) in MIGRATIONS.iter().enumerate() {
+            if index as i32 + 1 > version {
+                break;
+            }
             if let Migration::Sql(sql) = migration {
                 connection.execute_batch(sql).unwrap();
             }
@@ -321,7 +339,10 @@ mod tests {
         }
         assert_eq!(names.len(), MIGRATIONS.len());
         assert_eq!(MIGRATIONS[0].0, "0001_setting");
-        assert_eq!(MIGRATIONS[MIGRATIONS.len() - 1].0, "0021_flow_indexes");
+        assert_eq!(
+            MIGRATIONS[MIGRATIONS.len() - 1].0,
+            "0022_exchange_transactions_btc_fee_sats"
+        );
         assert_eq!(CURRENT_SCHEMA_VERSION, MIGRATIONS.len() as i32);
     }
 
@@ -417,6 +438,119 @@ mod tests {
         connection
             .execute_batch(include_str!("migrations/0021_flow_indexes.sql"))
             .unwrap();
+    }
+
+    #[test]
+    fn btc_fee_migration_normalizes_legacy_fees_and_rebuilds_balances() {
+        let connection = Connection::open_in_memory().unwrap();
+        apply_sql_through(&connection, 21);
+        connection
+            .execute_batch(
+                "INSERT INTO addresses (
+                     address, chain_funded_txo_count, chain_funded_txo_sum,
+                     chain_spent_txo_count, chain_spent_txo_sum, chain_tx_count,
+                     mempool_funded_txo_count, mempool_funded_txo_sum,
+                     mempool_spent_txo_count, mempool_spent_txo_sum,
+                     mempool_tx_count, exchange_id, exchange_balance_sats
+                 ) VALUES ('bc1qlegacy', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 42);
+                 INSERT INTO exchange_accounts (
+                     id, name, provider_id, created_at, last_modified_at
+                 ) VALUES (1, 'Legacy', 1, 0, 0);
+                 INSERT INTO exchange_transactions (
+                     id, exchange_id, fingerprint, timestamp, tx_type,
+                     amount_sats, currency, fee, fee_currency, raw_data,
+                     match_state, created_at, updated_at
+                 ) VALUES
+                     (1, 1, 'legacy-btc-fee', 1, 'buy', 100000000, 'BTC',
+                      0.0001, 'BTC', '{}', 'unmatched', 0, 0),
+                     (2, 1, 'legacy-fiat-fee', 2, 'buy', 0, 'BTC',
+                      2.5, 'EUR', '{}', 'unmatched', 0, 0);",
+            )
+            .unwrap();
+
+        connection
+            .execute_batch(include_str!(
+                "migrations/0022_exchange_transactions_btc_fee_sats.sql"
+            ))
+            .unwrap();
+
+        let fee: f64 = connection
+            .query_row(
+                "SELECT fee FROM exchange_transactions WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let fiat_fee: f64 = connection
+            .query_row(
+                "SELECT fee FROM exchange_transactions WHERE id = 2",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let balance: i64 = connection
+            .query_row(
+                "SELECT exchange_balance_sats FROM addresses WHERE address = 'bc1qlegacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(fee, 10_000.0);
+        assert_eq!(fiat_fee, 2.5);
+        assert_eq!(balance, 99_990_000);
+
+        // The repair and the derived balance are idempotent.
+        connection
+            .execute_batch(include_str!(
+                "migrations/0022_exchange_transactions_btc_fee_sats.sql"
+            ))
+            .unwrap();
+        let fee_after: f64 = connection
+            .query_row(
+                "SELECT fee FROM exchange_transactions WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let balance_after: i64 = connection
+            .query_row(
+                "SELECT exchange_balance_sats FROM addresses WHERE address = 'bc1qlegacy'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(fee_after, 10_000.0);
+        assert_eq!(balance_after, 99_990_000);
+    }
+
+    #[test]
+    fn btc_fee_triggers_reject_fractional_fees() {
+        let database = Database::open_in_memory().unwrap();
+        let connection = database.connection().unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO exchanges_types (id, name, slug) VALUES (900, 'Test', 'test');
+                 INSERT INTO exchange_accounts (
+                     id, name, provider_id, created_at, last_modified_at
+                 ) VALUES (1, 'Test', 900, 0, 0);",
+            )
+            .unwrap();
+        let insert = |fee: f64, currency: &str| {
+            connection.execute(
+                "INSERT INTO exchange_transactions (
+                     exchange_id, fingerprint, timestamp, tx_type, amount_sats,
+                     currency, fee, fee_currency, raw_data, match_state,
+                     created_at, updated_at
+                 ) VALUES (1, ?1, 1, 'buy', 100000000, 'BTC', ?2, ?3, '{}',
+                           'unmatched', 0, 0)",
+                rusqlite::params![format!("{fee}-{currency}"), fee, currency],
+            )
+        };
+
+        assert!(insert(0.0001, "BTC").is_err());
+        assert!(insert(10_000.0, "BTC").is_ok());
+        assert!(insert(2.5, "EUR").is_ok());
     }
 
     #[test]

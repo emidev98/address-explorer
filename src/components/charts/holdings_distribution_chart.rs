@@ -99,6 +99,7 @@ fn build_option(entries: &[HoldingSlice]) -> Value {
                 "label": {
                     "formatter": format!("{{b}}\n{value}"),
                     "color": label_color,
+                    "fontFamily": theme::FONT_FAMILY,
                 },
                 "tooltip": {
                     "formatter": format!("{}\n{value}", entry.label),
@@ -121,6 +122,7 @@ fn build_option(entries: &[HoldingSlice]) -> Value {
             "top": 0,
             "textStyle": {
                 "fontSize": 14,
+                "fontFamily": theme::FONT_HEADING,
                 "color": theme::ON_SURFACE,
             },
         },
@@ -148,6 +150,7 @@ fn build_option(entries: &[HoldingSlice]) -> Value {
                 "show": true,
                 "position": "inside",
                 "fontSize": 12,
+                "fontFamily": theme::FONT_FAMILY,
                 // The treemap default line height equals the font size, which
                 // stacks the name and the amount on top of each other. A taller
                 // line box keeps a visible gap between the two lines.
@@ -276,5 +279,19 @@ mod tests {
 
         assert!(data.is_empty());
         assert_eq!(option["title"]["text"], CHART_TITLE);
+    }
+
+    #[test]
+    fn chart_text_uses_the_theme_font_tokens() {
+        let option = build_option(&[slice("Wallet", 1)]);
+
+        assert_eq!(
+            option["title"]["textStyle"]["fontFamily"],
+            theme::FONT_HEADING
+        );
+        assert_eq!(
+            option["series"][0]["label"]["fontFamily"],
+            theme::FONT_FAMILY
+        );
     }
 }

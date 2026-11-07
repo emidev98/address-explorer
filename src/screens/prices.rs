@@ -3,21 +3,23 @@ use std::collections::BTreeMap;
 use dioxus::prelude::*;
 
 use crate::api::prices::{
-    ensure_currency_history_api, list_prices_api, price_conversions_api, price_series_api,
+    delete_prices_api, ensure_currency_history_api, list_prices_api, price_conversions_api,
+    price_series_api,
 };
+use crate::api::settings::get_exchange_settings_api;
 use crate::components::format::format_fiat;
 use crate::components::{
-    use_fiat_currency, use_toast, DatePicker, EditPriceDialog, PriceTrendChart, SortableHeader,
-    SyncPricesDialog, TablePagination, Toast,
+    use_fiat_currency, use_table_selection, use_toast, ConfirmDialog, DatePicker, EditPriceDialog,
+    PriceTrendChart, SortableHeader, SyncPricesDialog, TablePagination, TableSelection,
+    TableSelectionCell, TableSelectionHeader, Toast,
 };
-use crate::domain::civil_time::{format_date, format_datetime, parse_date};
+use crate::domain::civil_time::format_datetime;
+use crate::domain::date_selection::{DateSelection, IsoDate};
 use crate::domain::price::{
-    CurrencyHistorySummary, Price, PriceSeries, PriceSyncOutcome, PriceTableQuery, USD_SYMBOL,
+    CurrencyHistorySummary, Price, PricePage, PriceSeries, PriceSyncSummary, PriceTableQuery,
+    USD_SYMBOL,
 };
 use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
-
-/// Rows per page of the historical prices table.
-const PAGE_SIZE: u32 = DEFAULT_PAGE_SIZE;
 
 /// Seconds in a day; the inclusive end bound of the date-range filter.
 const DAY_SECONDS: i64 = 86_400;
@@ -38,18 +40,18 @@ fn day_end(time: i64) -> i64 {
 /// (`(0, 0)` = the full stored span), the stored span itself, and whether
 /// the user has edited the calendar — the guard that keeps the full-range
 /// prefill from clobbering dates typed before the first series response
-/// arrived. The table page is part of the state because every filter or
-/// window change restarts it.
+/// arrived. The table page and row selection are part of the state because
+/// every filter or window change restarts the page and clears the selection.
 #[derive(Clone, Copy)]
 struct DateRangeState {
-    from_input: Signal<String>,
-    to_input: Signal<String>,
+    selection: Signal<DateSelection>,
     from_time: Signal<i64>,
     to_time: Signal<i64>,
     touched: Signal<bool>,
     page: Signal<u32>,
     chart_window: Signal<(i64, i64)>,
     full_span: Signal<(i64, i64)>,
+    table_selection: TableSelection<i64>,
     /// One-shot token the Reset action bumps so the chart restores its
     /// visible window even when the requested window does not change.
     zoom_reset: Signal<u64>,
@@ -75,10 +77,11 @@ enum ConversionState {
 /// by the Date and Price columns. The date-range calendar and the trend
 /// chart are bound bidirectionally: editing the calendar moves the chart to
 /// those boundaries, and zooming the chart rewrites the calendar dates,
-/// which also filters the table. Row actions modify the stored price or
-/// reveal the already stored conversions, and the "Sync Prices" action opens
-/// the dialog that converts a range into another currency or fetches the
-/// daily history up to the current day.
+/// which also filters the table. Row actions modify or delete the stored
+/// price or reveal the already stored conversions, and the checkbox column
+/// supports deleting several price snapshots at once. The "Sync Prices"
+/// action opens the unified dialog that refreshes the BTC/USD history and
+/// converts it into the selected currency for a date range.
 #[component]
 pub fn Prices() -> Element {
     let mut toast = use_toast();
@@ -106,8 +109,7 @@ pub fn Prices() -> Element {
     });
 
     let mut page = use_signal(|| 0_u32);
-    let mut from_input = use_signal(String::new);
-    let mut to_input = use_signal(String::new);
+    let date_selection = use_signal(DateSelection::default);
     let from_time = use_signal(|| 0_i64);
     let to_time = use_signal(|| 0_i64);
     let touched = use_signal(|| false);
@@ -116,6 +118,17 @@ pub fn Prices() -> Element {
     let mut conversions = use_signal(BTreeMap::<i64, ConversionState>::new);
     let mut edit_target = use_signal(|| Option::<Price>::None);
     let mut sync_open = use_signal(|| false);
+    let mut selection = use_table_selection::<i64>();
+    let mut delete_target = use_signal(|| Option::<Vec<i64>>::None);
+    let deleting = use_signal(|| false);
+    let mut confirm_destructive = use_signal(|| true);
+
+    let settings = use_resource(|| async move { get_exchange_settings_api().await.ok() });
+    use_effect(move || {
+        if let Some(Some(settings)) = settings() {
+            confirm_destructive.set(settings.confirm_destructive_actions);
+        }
+    });
 
     // (0, 0) requests the full stored span. `chart_window` is the requested
     // window driving both the series fetch and — through the mirror effect
@@ -131,14 +144,14 @@ pub fn Prices() -> Element {
     let zoom_reset = use_signal(|| 0_u64);
 
     let date_filter = DateRangeState {
-        from_input,
-        to_input,
+        selection: date_selection,
         from_time,
         to_time,
         touched,
         page,
         chart_window,
         full_span,
+        table_selection: selection,
         zoom_reset,
     };
 
@@ -158,7 +171,7 @@ pub fn Prices() -> Element {
             let query = PriceTableQuery {
                 table: TableQuery {
                     page: current_page,
-                    page_size: PAGE_SIZE,
+                    page_size: DEFAULT_PAGE_SIZE,
                     sort_by: sort_key,
                     sort_dir: direction,
                 },
@@ -190,9 +203,32 @@ pub fn Prices() -> Element {
                 // `first_close_time`/`last_close_time` describe the full
                 // stored span regardless of the requested window.
                 full_span.set((series.first_close_time, series.last_close_time));
+            } else if matches!(&result, Ok(None)) {
+                // Deleting every stored row leaves no span to filter against.
+                applied_window.set((0, 0));
+                full_span.set((0, 0));
             }
             zoom_in_flight.set(false);
             result
+        }
+    });
+
+    // Checked rows belong to the currency that was on display when they were
+    // selected; switching currencies replaces every row, so drop the stale
+    // selection instead of letting it target rows that are no longer shown.
+    let selection_symbol = fiat.code();
+    use_effect(use_reactive((&selection_symbol,), move |(_symbol,)| {
+        selection.clear();
+    }));
+
+    // A deletion can empty the current page while earlier pages still have
+    // rows; step back until the page has content again.
+    use_effect(move || {
+        if let Some(Ok(Some(data))) = prices() {
+            if data.items.is_empty() && page() > 0 {
+                page.set(page() - 1);
+                selection.clear();
+            }
         }
     });
 
@@ -204,14 +240,14 @@ pub fn Prices() -> Element {
     // full range — but never over a filter the user already applied.
     use_effect(move || {
         let DateRangeState {
-            mut from_input,
-            mut to_input,
+            mut selection,
             mut from_time,
             mut to_time,
             touched,
             mut page,
             chart_window,
             full_span,
+            mut table_selection,
             zoom_reset: _,
         } = date_filter;
         let window = chart_window();
@@ -227,8 +263,8 @@ pub fn Prices() -> Element {
         } else {
             window
         };
-        from_input.set(format_date(from));
-        to_input.set(format_date(to));
+        table_selection.clear();
+        selection.set(DateSelection::from_epoch_bounds(Some(from), Some(to)));
         from_time.set(day_start(from));
         to_time.set(day_end(to));
         page.set(0);
@@ -245,6 +281,13 @@ pub fn Prices() -> Element {
         None => None,
     };
     let sort_direction_for = |key: &str| (sort_by().as_deref() == Some(key)).then_some(sort_dir());
+    let stored_span = full_span();
+    let date_bounds = (stored_span.0 > 0).then(|| {
+        (
+            IsoDate::from_epoch(stored_span.0),
+            IsoDate::from_epoch(stored_span.1),
+        )
+    });
 
     rsx! {
         section { id: "prices", class: "md3-screen",
@@ -252,38 +295,19 @@ pub fn Prices() -> Element {
                 h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
                     "Historical Prices"
                 }
-                section { class: "md3-date-range md3-date-range-compact",
-                    div {
-                        label {
-                            class: "text-body-small text-on-surface-variant",
-                            r#for: "prices-filter-from",
-                            "From"
-                        }
-                        DatePicker {
-                            id: "prices-filter-from".to_string(),
-                            value: from_input(),
-                            aria_label: "From date".to_string(),
-                            on_change: move |value: String| {
-                                from_input.set(value);
-                                apply_date_filter(date_filter, toast);
-                            },
-                        }
-                    }
-                    div {
-                        label {
-                            class: "text-body-small text-on-surface-variant",
-                            r#for: "prices-filter-to",
-                            "To"
-                        }
-                        DatePicker {
-                            id: "prices-filter-to".to_string(),
-                            value: to_input(),
-                            aria_label: "To date".to_string(),
-                            on_change: move |value: String| {
-                                to_input.set(value);
-                                apply_date_filter(date_filter, toast);
-                            },
-                        }
+                section { class: "md3-date-filter-bar",
+                    DatePicker {
+                        id: "prices-date-range".to_string(),
+                        label: "Date range".to_string(),
+                        value: date_selection(),
+                        min_date: date_bounds.as_ref().map(|(min, _)| *min),
+                        max_date: date_bounds.as_ref().map(|(_, max)| *max),
+                        popup_align_end: true,
+                        on_change: move |value: DateSelection| {
+                            let mut selection = date_selection;
+                            selection.set(value);
+                            apply_date_filter(date_filter);
+                        },
                     }
                     button {
                         r#type: "button",
@@ -328,6 +352,7 @@ pub fn Prices() -> Element {
                             chart_window,
                             zoom_in_flight,
                             zoom_reset,
+                            preparing,
                         )
                     }
                 }
@@ -348,80 +373,166 @@ pub fn Prices() -> Element {
                         "No prices stored for {symbol} matching this filter. Prices in other currencies appear here once they have been resolved or synced."
                     }
                 },
-                Some(Ok(Some(page_data))) => rsx! {
-                    TablePagination {
-                        page: page(),
-                        page_size: PAGE_SIZE,
-                        total: page_data.total,
-                        on_page: move |next_page| page.set(next_page),
-                    }
-                    div { class: "md3-table-container",
-                        table { class: "md3-table",
-                            thead {
-                                tr {
-                                    th {}
-                                    SortableHeader {
-                                        label: "Date".to_string(),
-                                        active_direction: sort_direction_for("date"),
-                                        on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
-                                            page.set(0);
-                                        },
+                Some(Ok(Some(page_data))) => {
+                    let page_ids = page_data
+                        .items
+                        .iter()
+                        .map(|row| row.price.close_time)
+                        .collect::<Vec<_>>();
+                    let selected_snapshot = selection.snapshot();
+                    let selected_count = selection.len();
+                    let all_selected = selection.all_selected(&page_ids);
+                    let selectable_ids = page_ids.clone();
+                    let delete_action_label = if selected_count == 0 {
+                        "Select prices to delete".to_string()
+                    } else {
+                        format!(
+                            "Delete {selected_count} {}",
+                            if selected_count == 1 {
+                                "price snapshot"
+                            } else {
+                                "price snapshots"
+                            },
+                        )
+                    };
+                    rsx! {
+                        div { class: "md3-table-container",
+                            table { class: "md3-table",
+                                thead {
+                                    tr {
+                                        TableSelectionHeader {
+                                            all_selected,
+                                            indeterminate: selection.some_selected(&page_ids) && !all_selected,
+                                            select_all_label: "Select all prices on this page".to_string(),
+                                            disabled: page_ids.is_empty() || deleting(),
+                                            on_toggle_all: move |checked| {
+                                                selection.set_many(&selectable_ids, checked);
+                                            },
+                                            button {
+                                                r#type: "button",
+                                                class: "md3-icon-button md3-icon-button-danger",
+                                                disabled: selection.is_empty() || deleting(),
+                                                title: "{delete_action_label}",
+                                                aria_label: "{delete_action_label}",
+                                                onclick: move |_| {
+                                                    let close_times = selection.selected_ids();
+                                                    if close_times.is_empty() {
+                                                        return;
+                                                    }
+                                                    if confirm_destructive() {
+                                                        delete_target.set(Some(close_times));
+                                                    } else {
+                                                        remove_prices(
+                                                            toast,
+                                                            deleting,
+                                                            selection,
+                                                            prices,
+                                                            series,
+                                                            conversions,
+                                                            close_times,
+                                                        );
+                                                    }
+                                                },
+                                                {icon(ICON_DELETE)}
+                                            }
+                                        }
+                                        SortableHeader {
+                                            label: "Date".to_string(),
+                                            active_direction: sort_direction_for("date"),
+                                            on_sort: move |_| {
+                                                toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
+                                                page.set(0);
+                                                selection.clear();
+                                            },
+                                        }
+                                        SortableHeader {
+                                            label: format!("Price ({symbol})"),
+                                            active_direction: sort_direction_for("price"),
+                                            on_sort: move |_| {
+                                                toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
+                                                page.set(0);
+                                                selection.clear();
+                                            },
+                                        }
+                                        th { "Other available currencies" }
                                     }
-                                    SortableHeader {
-                                        label: format!("Price ({symbol})"),
-                                        active_direction: sort_direction_for("price"),
-                                        on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
-                                            page.set(0);
-                                        },
-                                    }
-                                    th { "Other available exchanges" }
                                 }
-                            }
-                            tbody {
-                                for price in &page_data.items {
-                                    {
-                                        let row = price.clone();
-                                        let close_time = row.price.close_time;
-                                        let state = conversions.read().get(&close_time).cloned();
-                                        let hover_symbol = symbol.clone();
-                                        let focus_symbol = symbol.clone();
-                                        let edit_row = row.price.clone();
-                                        let other_exchanges = row.other_symbols.join(", ");
-                                        rsx! {
-                                            tr {
-                                                td {
-                                                    div { class: "md3-table-actions",
-                                                        button {
-                                                            r#type: "button",
-                                                            class: "md3-icon-button",
-                                                            title: "Modify price",
-                                                            aria_label: "Modify the price at {format_datetime(close_time)}",
-                                                            onclick: move |_| edit_target.set(Some(edit_row.clone())),
-                                                            {icon(ICON_EDIT)}
+                                tbody {
+                                    for price in &page_data.items {
+                                        {
+                                            let row = price.clone();
+                                            let close_time = row.price.close_time;
+                                            let row_selected = selected_snapshot.contains(&close_time);
+                                            let state = conversions.read().get(&close_time).cloned();
+                                            let hover_symbol = symbol.clone();
+                                            let focus_symbol = symbol.clone();
+                                            let edit_row = row.price.clone();
+                                            let other_exchanges = row.other_symbols.join(", ");
+                                            rsx! {
+                                                tr { class: if row_selected { "md3-table-row-selected" } else { "" },
+                                                    TableSelectionCell {
+                                                        checked: row_selected,
+                                                        label: format!("Select every stored price at {}", format_datetime(close_time)),
+                                                        on_change: move |checked| {
+                                                            selection.set(close_time, checked);
+                                                        },
+                                                    }
+                                                    td {
+                                                        div { class: "md3-table-actions",
+                                                            button {
+                                                                r#type: "button",
+                                                                class: "md3-icon-button md3-icon-button-danger",
+                                                                title: "Delete price snapshot",
+                                                                aria_label: "Delete every stored price at {format_datetime(close_time)}",
+                                                                disabled: deleting(),
+                                                                onclick: move |_| {
+                                                                    let close_times = vec![close_time];
+                                                                    if confirm_destructive() {
+                                                                        delete_target.set(Some(close_times));
+                                                                    } else {
+                                                                        remove_prices(
+                                                                            toast,
+                                                                            deleting,
+                                                                            selection,
+                                                                            prices,
+                                                                            series,
+                                                                            conversions,
+                                                                            close_times,
+                                                                        );
+                                                                    }
+                                                                },
+                                                                {icon(ICON_DELETE)}
+                                                            }
+                                                            button {
+                                                                r#type: "button",
+                                                                class: "md3-icon-button",
+                                                                title: "Modify price",
+                                                                aria_label: "Modify the price at {format_datetime(close_time)}",
+                                                                onclick: move |_| edit_target.set(Some(edit_row.clone())),
+                                                                {icon(ICON_EDIT)}
+                                                            }
                                                         }
                                                     }
-                                                }
-                                                td { "{format_datetime(close_time)}" }
-                                                td { "{format_fiat(row.price.close, &row.price.symbol)}" }
-                                                td {
-                                                    if row.other_symbols.is_empty() {
-                                                        "-"
-                                                    } else {
-                                                        div {
-                                                            class: "md3-price-info",
-                                                            tabindex: "0",
-                                                            onmouseenter: move |_| {
-                                                                ensure_conversions(conversions, hover_symbol.clone(), close_time);
-                                                            },
-                                                            onfocus: move |_| {
-                                                                ensure_conversions(conversions, focus_symbol.clone(), close_time);
-                                                            },
-                                                            span { "{other_exchanges}" }
-                                                            div { class: "md3-price-tooltip", role: "tooltip",
-                                                                span { class: "text-label-large text-on-surface-variant", "Other conversions" }
-                                                                {conversion_tooltip(state)}
+                                                    td { "{format_datetime(close_time)}" }
+                                                    td { "{format_fiat(row.price.close, &row.price.symbol)}" }
+                                                    td {
+                                                        if row.other_symbols.is_empty() {
+                                                            "-"
+                                                        } else {
+                                                            div {
+                                                                class: "md3-price-info",
+                                                                tabindex: "0",
+                                                                onmouseenter: move |_| {
+                                                                    ensure_conversions(conversions, hover_symbol.clone(), close_time);
+                                                                },
+                                                                onfocus: move |_| {
+                                                                    ensure_conversions(conversions, focus_symbol.clone(), close_time);
+                                                                },
+                                                                span { "{other_exchanges}" }
+                                                                div { class: "md3-price-tooltip", role: "tooltip",
+                                                                    span { class: "text-label-large text-on-surface-variant", "Other conversions" }
+                                                                    {conversion_tooltip(state)}
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -432,8 +543,17 @@ pub fn Prices() -> Element {
                                 }
                             }
                         }
+                        TablePagination {
+                            page: page(),
+                            page_size: DEFAULT_PAGE_SIZE,
+                            total: page_data.total,
+                            on_page: move |next_page| {
+                                page.set(next_page);
+                                selection.clear();
+                            },
+                        }
                     }
-                },
+                }
             }
 
             if let Some(target) = edit_target() {
@@ -455,38 +575,63 @@ pub fn Prices() -> Element {
                 }
             }
 
+            if let Some(close_times) = delete_target() {
+                {
+                    let count = close_times.len();
+                    let (title, message) = if count == 1 {
+                        (
+                            "Delete price snapshot".to_string(),
+                            format!(
+                                "Delete all stored prices at {}? This removes every currency at that close time and cannot be undone.",
+                                format_datetime(close_times[0]),
+                            ),
+                        )
+                    } else {
+                        (
+                            "Delete price snapshots".to_string(),
+                            format!(
+                                "Delete all stored prices at {count} selected close times? This removes every stored currency at those times and cannot be undone.",
+                            ),
+                        )
+                    };
+                    rsx! {
+                        ConfirmDialog {
+                            title,
+                            message,
+                            confirm_text: "Delete".to_string(),
+                            cancel_text: "Cancel".to_string(),
+                            on_cancel: move |_| delete_target.set(None),
+                            on_confirm: move |_| {
+                                let close_times = close_times.clone();
+                                delete_target.set(None);
+                                remove_prices(
+                                    toast,
+                                    deleting,
+                                    selection,
+                                    prices,
+                                    series,
+                                    conversions,
+                                    close_times,
+                                );
+                            },
+                        }
+                    }
+                }
+            }
+
             if sync_open() {
                 SyncPricesDialog {
-                    initial_from: from_input(),
-                    initial_to: to_input(),
                     on_close: move |_| sync_open.set(false),
-                    on_synced: move |outcome: PriceSyncOutcome| {
+                    on_synced: move |summary: PriceSyncSummary| {
                         // The tooltip cache can hold stale conversions for
                         // the synced close times; drop it so hovers refetch.
                         conversions.write().clear();
-                        match &outcome {
-                            PriceSyncOutcome::Historical(summary) => {
-                                toast
-                                    .success(
-                                        format!(
-                                            "Synced {} prices: {} stored, {} skipped.",
-                                            summary.symbol,
-                                            summary.stored,
-                                            summary.skipped,
-                                        ),
-                                    );
-                            }
-                            PriceSyncOutcome::ToToday(summary) => {
-                                toast
-                                    .success(
-                                        format!(
-                                            "Synced BTC/USD daily prices: {} stored ({} fetched).",
-                                            summary.stored,
-                                            summary.fetched,
-                                        ),
-                                    );
-                            }
+                        selection.clear();
+                        let mut rows = summary.daily_stored + summary.granular_stored;
+                        if let Some(conversion) = &summary.conversion {
+                            rows += conversion.stored;
                         }
+                        toast.success(format!("Synced {rows} price rows for {}.", summary.symbol));
                         prepared.restart();
                         prices.restart();
                         series.restart();
@@ -495,6 +640,58 @@ pub fn Prices() -> Element {
             }
         }
     }
+}
+
+/// Delete the selected price snapshots, refresh the table and chart, and
+/// report the outcome in a toast.
+///
+/// A close time removes every currency stored at that moment, so the tooltip
+/// cache entries for those times are dropped as well. The preparation
+/// resource is intentionally not restarted: deletion is a direct edit of the
+/// stored table, not a gap for the conversion workflow to fill.
+fn remove_prices(
+    mut toast: Toast,
+    mut deleting: Signal<bool>,
+    mut selection: TableSelection<i64>,
+    mut prices: Resource<Result<Option<PricePage>, String>>,
+    mut series: Resource<Result<Option<PriceSeries>, String>>,
+    mut conversions: Signal<BTreeMap<i64, ConversionState>>,
+    close_times: Vec<i64>,
+) {
+    if close_times.is_empty() {
+        return;
+    }
+    deleting.set(true);
+    spawn(async move {
+        let count = close_times.len();
+        match delete_prices_api(close_times.clone()).await {
+            Ok(deleted) => {
+                if deleted == 0 {
+                    toast.error("No stored prices were found to delete.");
+                } else if count == 1 {
+                    toast.success(format!(
+                        "Deleted all stored prices at {}.",
+                        format_datetime(close_times[0]),
+                    ));
+                } else {
+                    toast.success(format!(
+                        "Deleted {deleted} price rows across {count} close times.",
+                    ));
+                }
+                selection.clear();
+                {
+                    let mut cache = conversions.write();
+                    for close_time in &close_times {
+                        cache.remove(close_time);
+                    }
+                }
+                prices.restart();
+                series.restart();
+            }
+            Err(error) => toast.error(format!("Could not delete the prices: {error}")),
+        }
+        deleting.set(false);
+    });
 }
 
 /// Apply a header click to the sort state: clicking the active column
@@ -523,6 +720,7 @@ fn chart_content(
     chart_window: Signal<(i64, i64)>,
     zoom_in_flight: Signal<bool>,
     zoom_reset: Signal<u64>,
+    preparing: bool,
 ) -> Element {
     match series() {
         None => rsx! {
@@ -531,8 +729,13 @@ fn chart_content(
         Some(Err(error)) => rsx! {
             p { class: "text-body-medium text-on-surface-variant", "Error loading the chart: {error}" }
         },
-        Some(Ok(None)) => rsx! {
+        Some(Ok(None)) if preparing => rsx! {
             p { class: "text-body-medium text-on-surface-variant", "Loading chart..." }
+        },
+        Some(Ok(None)) => rsx! {
+            p { class: "text-body-medium text-on-surface-variant",
+                "No prices stored for {symbol} yet."
+            }
         },
         Some(Ok(Some(series))) if series.points.is_empty() => rsx! {
             p { class: "text-body-medium text-on-surface-variant",
@@ -606,54 +809,35 @@ fn handle_chart_zoom(
     chart_window.set((from, to));
 }
 
-/// Validate and apply a calendar edit: each side parses independently, an
-/// empty side leaves the range open on that end, and the table restarts
-/// from the first page. The chart follows the same boundaries (the
-/// bidirectional binding): the window is resolved against the stored span,
-/// and a filter covering the whole span reopens the chart instead of
-/// zooming it. Invalid input is reported in a toast.
-fn apply_date_filter(filter: DateRangeState, mut toast: Toast) {
+/// Validate and apply a calendar edit: an empty side leaves the range open on
+/// that end, and the table restarts from the first page. The chart follows the
+/// same boundaries (the bidirectional binding): the window is resolved against
+/// the stored span, and a filter covering the whole span reopens the chart
+/// instead of zooming it. The picker only emits validated values.
+fn apply_date_filter(filter: DateRangeState) {
     let DateRangeState {
-        from_input,
-        to_input,
+        selection,
         mut from_time,
         mut to_time,
         mut touched,
         mut page,
         mut chart_window,
         full_span,
+        mut table_selection,
         zoom_reset: _,
     } = filter;
     // The user touched the calendar: the full-range prefill must not
     // override their choice.
     touched.set(true);
-    let from_raw = from_input();
-    let to_raw = to_input();
-
-    let from = if from_raw.is_empty() {
-        Some(0)
-    } else {
-        parse_date(&from_raw)
-    };
-    let to = if to_raw.is_empty() {
-        Some(0)
-    } else {
-        // The To date includes its whole day.
-        parse_date(&to_raw).map(day_end)
-    };
-
-    let (Some(from), Some(to)) = (from, to) else {
-        toast.error("Enter dates as YYYY-MM-DD.");
-        return;
-    };
-    if from > 0 && to > 0 && from > to {
-        toast.error("The start date must not be after the end date.");
-        return;
-    }
+    let (from, to) = selection().epoch_bounds();
+    // The table query uses 0 for an open side.
+    let from = from.unwrap_or(0);
+    let to = to.unwrap_or(0);
 
     from_time.set(from);
     to_time.set(to);
     page.set(0);
+    table_selection.clear();
 
     // Move the chart to the same boundaries. An open side resolves against
     // the stored span; until the span is known the chart keeps its current
@@ -682,13 +866,13 @@ fn apply_date_filter(filter: DateRangeState, mut toast: Toast) {
 /// only the chart itself can restore the visible window.
 fn reset_date_filter(filter: DateRangeState) {
     let DateRangeState {
-        mut from_input,
-        mut to_input,
+        mut selection,
         mut from_time,
         mut to_time,
         mut page,
         mut chart_window,
         full_span,
+        mut table_selection,
         mut zoom_reset,
         ..
     } = filter;
@@ -696,11 +880,14 @@ fn reset_date_filter(filter: DateRangeState) {
     if span_first <= 0 {
         return;
     }
-    from_input.set(format_date(span_first));
-    to_input.set(format_date(span_last));
+    selection.set(DateSelection::from_epoch_bounds(
+        Some(span_first),
+        Some(span_last),
+    ));
     from_time.set(day_start(span_first));
     to_time.set(day_end(span_last));
     page.set(0);
+    table_selection.clear();
     chart_window.set((0, 0));
     zoom_reset.set(zoom_reset() + 1);
 }
@@ -754,8 +941,10 @@ fn ensure_conversions(
     });
 }
 
-// Material icon path (24px viewBox): edit.
+// Material icon paths (24px viewBox): edit and delete.
 const ICON_EDIT: &str = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
+const ICON_DELETE: &str =
+    "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
 
 /// Render one Material icon path as an inline SVG.
 fn icon(path: &str) -> Element {

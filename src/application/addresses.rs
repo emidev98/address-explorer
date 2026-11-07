@@ -16,6 +16,10 @@ use crate::domain::address::{
     AddressImportResult, AddressListItem, AddressOverview, AddressOverviewItem,
     AddressOverviewQuery, AddressScope,
 };
+use crate::domain::table::TablePage;
+
+/// Largest table page the addresses overview may return.
+const MAX_PAGE_SIZE: u32 = 100;
 
 /// Failures of the address service.
 #[derive(Debug, thiserror::Error)]
@@ -60,23 +64,26 @@ impl AddressService {
         Ok(address_repository::list_address_items(&self.database)?)
     }
 
-    /// Addresses overview: the page rows plus the KPI totals.
+    /// Addresses overview: the table page, all rows for the charts, and the
+    /// KPI totals.
     ///
-    /// The rows are sorted and scope-filtered in the backend (Section 5.11
-    /// of CONTRIBUTING.md); the sort key is validated against the
-    /// repository's allowlist before any SQL is built. The KPI totals cover
-    /// the same filtered population, so the cards follow the scope filter.
-    /// No network access.
+    /// The rows are sorted, scope-filtered, and paged in the backend
+    /// (Section 5.11 of CONTRIBUTING.md); the sort key is validated against
+    /// the repository's allowlist before any SQL is built. The overview
+    /// still returns every listed row because the KPI cards and the holdings
+    /// chart derive from the full listing, while `page` is just the requested
+    /// table slice. The KPI totals cover the same filtered population, so the
+    /// cards follow the scope filter. No network access.
     pub fn addresses_overview(
         &self,
         query: &AddressOverviewQuery,
     ) -> Result<AddressOverview, AddressServiceError> {
-        let sort = match query.sort_by.as_deref() {
+        let sort = match query.table.sort_by.as_deref() {
             None => None,
             Some(key) => Some((
                 address_repository::AddressSortColumn::from_key(key)
                     .ok_or_else(|| AddressServiceError::InvalidSortColumn(key.to_string()))?,
-                query.sort_dir,
+                query.table.sort_dir,
             )),
         };
 
@@ -90,8 +97,29 @@ impl AddressService {
         let (address_count, tx_count, spendable_balance_sats) =
             address_repository::overview_totals(&self.database, query.scope)?;
 
+        let items = rows
+            .iter()
+            .map(overview_item)
+            .filter(AddressOverviewItem::is_listed)
+            .collect::<Vec<_>>();
+        let total = items.len() as u64;
+        let page_size = query.table.page_size.clamp(1, MAX_PAGE_SIZE);
+        let offset = u64::from(query.table.page)
+            .saturating_mul(u64::from(page_size))
+            .min(usize::MAX as u64) as usize;
+        let page_items = items
+            .iter()
+            .skip(offset)
+            .take(page_size as usize)
+            .cloned()
+            .collect();
+
         Ok(AddressOverview {
-            items: rows.iter().map(overview_item).collect(),
+            items,
+            page: TablePage {
+                items: page_items,
+                total,
+            },
             address_count,
             tx_count,
             spendable_balance_sats,
@@ -337,6 +365,8 @@ fn validate_owner(
 mod tests {
     use super::*;
     use crate::clients::mempool::bitcoin::types::StatsInfo;
+    use crate::domain::address::AddressScopeFilter;
+    use crate::domain::table::TableQuery;
 
     #[test]
     fn overview_item_maps_the_repository_row() {
@@ -426,6 +456,83 @@ mod tests {
         assert!(item.scope.is_exchange());
         assert_eq!(item.spendable_balance_sats, 0);
         assert_eq!(item.confirmed_tx_count, 4);
+    }
+
+    #[test]
+    fn overview_pages_the_listing_and_clamps_the_page_size() {
+        let database = Database::open_in_memory().unwrap();
+        for index in 0..15 {
+            address_repository::insert_address(
+                &database,
+                &AddressEntity {
+                    address: format!("bc1qpage{index:02}"),
+                    chain_funded_txo_sum: index,
+                    ..AddressEntity::default()
+                },
+            )
+            .unwrap();
+        }
+        let service = AddressService::connect(database);
+
+        let query = AddressOverviewQuery {
+            table: TableQuery {
+                page: 0,
+                page_size: 10,
+                ..TableQuery::default()
+            },
+            scope: AddressScopeFilter::All,
+        };
+        let first = service.addresses_overview(&query).unwrap();
+        assert_eq!(first.items.len(), 15);
+        assert_eq!(first.page.total, 15);
+        assert_eq!(first.page.items.len(), 10);
+
+        let second = service
+            .addresses_overview(&AddressOverviewQuery {
+                table: TableQuery {
+                    page: 1,
+                    page_size: 10,
+                    ..TableQuery::default()
+                },
+                scope: AddressScopeFilter::All,
+            })
+            .unwrap();
+        assert_eq!(second.page.items.len(), 5);
+        assert!(!first.page.items.iter().any(|first_item| {
+            second
+                .page
+                .items
+                .iter()
+                .any(|second_item| second_item.address == first_item.address)
+        }));
+
+        // A page size of zero clamps to one row; a page past the end is
+        // empty while the total keeps describing the whole listing.
+        let clamped = service
+            .addresses_overview(&AddressOverviewQuery {
+                table: TableQuery {
+                    page: 0,
+                    page_size: 0,
+                    ..TableQuery::default()
+                },
+                scope: AddressScopeFilter::All,
+            })
+            .unwrap();
+        assert_eq!(clamped.page.items.len(), 1);
+        assert_eq!(clamped.page.total, 15);
+
+        let past_end = service
+            .addresses_overview(&AddressOverviewQuery {
+                table: TableQuery {
+                    page: 9,
+                    page_size: 10,
+                    ..TableQuery::default()
+                },
+                scope: AddressScopeFilter::All,
+            })
+            .unwrap();
+        assert!(past_end.page.items.is_empty());
+        assert_eq!(past_end.page.total, 15);
     }
 
     #[test]

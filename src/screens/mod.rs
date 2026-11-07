@@ -10,4 +10,6 @@ pub use exchange_detail::ExchangeDetail;
 pub use exchanges::Exchanges;
 pub use flow::Flow;
 pub use prices::Prices;
-pub use settings::{SettingsExchangeTypes, SettingsGeneral, SettingsLayout, SettingsWalletTypes};
+pub use settings::{
+    SettingsExchangeTypes, SettingsExchanges, SettingsGeneral, SettingsLayout, SettingsWalletTypes,
+};

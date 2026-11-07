@@ -6,25 +6,26 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Color palettes provided by `assets/material3-tailwind-palettes.css`.
+/// Visual themes provided by `assets/material3-tailwind-palettes.css` and the
+/// per-theme type/shape overrides in `tailwind.css`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemePalette {
+    #[default]
     Ocean,
     Forest,
-    Sunset,
-    #[default]
-    Orchid,
-    GraphiteLime,
+    Aurum,
+    Sumi,
+    Orange,
 }
 
 impl ThemePalette {
     pub const ALL: [Self; 5] = [
         Self::Ocean,
         Self::Forest,
-        Self::Sunset,
-        Self::Orchid,
-        Self::GraphiteLime,
+        Self::Aurum,
+        Self::Sumi,
+        Self::Orange,
     ];
 
     /// Stable value used in SQLite and in `data-theme`.
@@ -32,9 +33,9 @@ impl ThemePalette {
         match self {
             Self::Ocean => "ocean",
             Self::Forest => "forest",
-            Self::Sunset => "sunset",
-            Self::Orchid => "orchid",
-            Self::GraphiteLime => "graphite-lime",
+            Self::Aurum => "aurum",
+            Self::Sumi => "sumi",
+            Self::Orange => "orange",
         }
     }
 
@@ -43,9 +44,9 @@ impl ThemePalette {
         match self {
             Self::Ocean => "Ocean",
             Self::Forest => "Forest",
-            Self::Sunset => "Sunset",
-            Self::Orchid => "Orchid",
-            Self::GraphiteLime => "Graphite Lime",
+            Self::Aurum => "Aurum",
+            Self::Sumi => "Sumi",
+            Self::Orange => "Orange",
         }
     }
 
@@ -71,20 +72,18 @@ impl std::fmt::Display for ThemePalette {
 #[serde(rename_all = "lowercase")]
 pub enum ThemeMode {
     Light,
-    Dark,
     #[default]
-    System,
+    Dark,
 }
 
 impl ThemeMode {
-    pub const ALL: [Self; 3] = [Self::Light, Self::Dark, Self::System];
+    pub const ALL: [Self; 2] = [Self::Light, Self::Dark];
 
     /// Stable value used in SQLite and in `data-mode`.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Light => "light",
             Self::Dark => "dark",
-            Self::System => "system",
         }
     }
 
@@ -93,7 +92,6 @@ impl ThemeMode {
         match self {
             Self::Light => "Light",
             Self::Dark => "Dark",
-            Self::System => "System",
         }
     }
 
@@ -118,10 +116,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_preference_is_orchid_system() {
+    fn default_preference_is_ocean_dark() {
         let preference = ThemePreference::default();
-        assert_eq!(preference.palette, ThemePalette::Orchid);
-        assert_eq!(preference.mode, ThemeMode::System);
+        assert_eq!(preference.palette, ThemePalette::Ocean);
+        assert_eq!(preference.mode, ThemeMode::Dark);
     }
 
     #[test]
@@ -130,6 +128,28 @@ mod tests {
             assert_eq!(ThemePalette::from_value(palette.as_str()), Some(palette));
         }
         assert_eq!(ThemePalette::from_value("unknown"), None);
+        assert_eq!(ThemePalette::from_value("orchid"), None);
+        assert_eq!(ThemePalette::from_value("graphite-lime"), None);
+        assert_eq!(ThemePalette::from_value("sunset"), None);
+        assert_eq!(ThemePalette::from_value("ledger"), None);
+    }
+
+    #[test]
+    fn five_palettes_are_available() {
+        assert_eq!(ThemePalette::ALL.len(), 5);
+        assert_eq!(ThemePalette::Aurum.as_str(), "aurum");
+        assert_eq!(ThemePalette::Sumi.as_str(), "sumi");
+        assert_eq!(ThemePalette::Orange.as_str(), "orange");
+    }
+
+    #[test]
+    fn palette_labels_are_unique() {
+        let labels: Vec<&str> = ThemePalette::ALL
+            .into_iter()
+            .map(ThemePalette::label)
+            .collect();
+        let unique: std::collections::HashSet<&str> = labels.iter().copied().collect();
+        assert_eq!(unique.len(), labels.len());
     }
 
     #[test]
@@ -138,5 +158,6 @@ mod tests {
             assert_eq!(ThemeMode::from_value(mode.as_str()), Some(mode));
         }
         assert_eq!(ThemeMode::from_value("unknown"), None);
+        assert_eq!(ThemeMode::from_value("system"), None);
     }
 }

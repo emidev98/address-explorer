@@ -95,7 +95,6 @@ pub fn MultiSelect(
                     id: "{field_id}",
                     r#type: "button",
                     class: "md3-multiselect-trigger",
-                    style: "height: 2.5rem; min-height: 2.5rem;",
                     aria_haspopup: "listbox",
                     aria_expanded: open().to_string(),
                     aria_controls: "{list_id}",

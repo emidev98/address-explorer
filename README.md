@@ -9,6 +9,8 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
 - Import exchange CSV ledgers, reconcile them with cached on-chain data, and review provider balances
 - Display fiat prices and balances in the default currency chosen in Settings
 - Switch between Material 3 color palettes and appearance modes in Settings
+- Choose automatic, top, or side primary navigation; phones use a slide-in drawer
+- Compress the side panel into an icon rail, with Settings and the toggle pinned to the bottom
 
 ## Installation
 

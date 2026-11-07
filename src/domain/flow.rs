@@ -228,13 +228,28 @@ pub struct FlowOutput {
 impl FlowOutput {
     /// Whether the output can carry value into the graph.
     pub fn is_spendable(&self) -> bool {
-        self.value_sats > 0
-            && self.scriptpubkey_type != "op_return"
-            && self
-                .address
-                .as_deref()
-                .is_some_and(|address| !address.trim().is_empty())
+        is_spendable_output(
+            self.value_sats,
+            &self.scriptpubkey_type,
+            self.address.as_deref(),
+        )
     }
+}
+
+/// Whether a Bitcoin output can carry value through a transaction graph.
+///
+/// OP_RETURN outputs and outputs without an address cannot transfer value, and
+/// zero-value outputs never contribute to a balance. This rule is shared by
+/// the flow graph and exchange reconciliation so both agree on which outputs
+/// are meaningful.
+pub(crate) fn is_spendable_output(
+    value_sats: i64,
+    scriptpubkey_type: &str,
+    address: Option<&str>,
+) -> bool {
+    value_sats > 0
+        && scriptpubkey_type != "op_return"
+        && address.is_some_and(|address| !address.trim().is_empty())
 }
 
 /// A deduplicated on-chain transaction prepared for graph construction.

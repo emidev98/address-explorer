@@ -162,6 +162,8 @@ pub struct ExchangeTransaction {
     /// default currency. Never stored; BTC/XBT fees keep their BTC amount.
     pub converted_fee_amount: Option<f64>,
     pub converted_fee_currency: Option<String>,
+    /// Fee amount in storage units: satoshis when `fee_currency` is BTC/XBT,
+    /// the fee currency's own units otherwise.
     pub fee: Option<f64>,
     pub fee_currency: Option<String>,
     pub tx_hash: Option<String>,
@@ -195,50 +197,59 @@ pub struct ExchangeAccountRow {
     pub last_modified_at: i64,
 }
 
-/// Aggregate ledger activity across every exchange account.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct ExchangeActivityTotals {
-    pub bought_sats: i64,
-    pub sold_sats: i64,
-    pub rewarded_sats: i64,
-    pub withdrawn_sats: i64,
-    pub deposited_sats: i64,
-    pub net_ledger_sats: i64,
+/// One exchange KPI: the BTC amount, its default-currency value, and the
+/// number of ledger entries that contributed to it.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct ExchangeKpiMetric {
+    pub sats: i64,
+    pub fiat: f64,
+    pub count: i64,
 }
 
-/// Global KPI totals of the exchanges list.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct ExchangeOverviewTotals {
-    pub exchange_count: i64,
-    /// All ledger rows across every exchange account.
-    pub total_transactions: i64,
-    /// Matched withdrawals/deposits across every account.
-    pub onchain_matched_count: i64,
-    /// All withdrawals/deposits across every account.
+/// Ledger fields needed to value exchange KPIs. The full transaction rows are
+/// only loaded for the tables; keeping this projection small avoids carrying
+/// raw CSV data through the KPI calculation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeKpiTransaction {
+    pub timestamp: i64,
+    pub tx_type: ExchangeTxType,
+    pub amount_sats: i64,
+    pub fiat_amount: Option<f64>,
+    pub fiat_currency: Option<String>,
+    pub fee: Option<f64>,
+    pub fee_currency: Option<String>,
+    pub match_state: MatchState,
+    /// Derived at read time in the current default currency. Never stored.
+    pub converted_fiat_amount: Option<f64>,
+    /// Derived at read time in the current default currency. Never stored;
+    /// BTC/XBT fees keep their satoshi amount.
+    pub converted_fee_amount: Option<f64>,
+}
+
+/// The seven exchange KPIs shared by the list and detail screens.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ExchangeKpis {
+    pub bought: ExchangeKpiMetric,
+    pub sold: ExchangeKpiMetric,
+    pub rewarded: ExchangeKpiMetric,
+    pub withdrawn: ExchangeKpiMetric,
+    pub deposited: ExchangeKpiMetric,
+    /// All fees expressed in BTC-equivalent satoshis; `fiat` is the historical
+    /// default-currency fee total and `count` the number of fee-bearing rows.
+    pub fees: ExchangeKpiMetric,
+    /// Deposits/withdrawals with a non-unmatched reconciliation state.
+    pub onchain_matched: ExchangeKpiMetric,
+    /// All deposits/withdrawals, matched or not.
     pub onchain_total_count: i64,
-    /// Ledger activity totals across every account.
-    pub activity: ExchangeActivityTotals,
+    pub fiat_currency: String,
 }
 
-/// One page of exchange accounts plus the global totals.
+/// One page of exchange accounts plus the global KPIs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExchangeAccountList {
     pub page: TablePage<ExchangeAccountRow>,
-    pub totals: ExchangeOverviewTotals,
-}
-
-/// Exchange detail KPIs.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct ExchangeKpis {
-    pub bought_sats: i64,
-    pub fiat_spent: f64,
-    pub sold_sats: i64,
-    pub fiat_received: f64,
-    pub withdrawn_sats: i64,
-    pub deposited_sats: i64,
-    pub btc_fees_sats: i64,
-    pub unmatched_count: i64,
-    pub fiat_currency: String,
+    pub kpis: ExchangeKpis,
+    pub conversion_warning: Option<String>,
 }
 
 /// Account detail header plus the KPIs that are independent of the current
@@ -248,6 +259,25 @@ pub struct ExchangeDetail {
     pub account: ExchangeAccount,
     pub kpis: ExchangeKpis,
     pub conversion_warning: Option<String>,
+}
+
+/// Outcome of reconciling several exchange accounts in one request.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExchangeReconcileBatchSummary {
+    /// Number of exchange accounts reconciled successfully.
+    pub reconciled: usize,
+    /// Accounts that could not be reconciled, with their error.
+    pub failed: Vec<ExchangeReconcileFailure>,
+}
+
+/// One exchange account that could not be reconciled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExchangeReconcileFailure {
+    pub exchange_id: i64,
+    /// Account name when it could still be resolved.
+    pub name: Option<String>,
+    /// User-facing description of the failure.
+    pub error: String,
 }
 
 /// Query of the exchanges list table.
@@ -342,6 +372,8 @@ pub struct ExchangeTransactionDraft {
     pub currency: String,
     pub fiat_amount: Option<f64>,
     pub fiat_currency: Option<String>,
+    /// Fee in `fee_currency` units; the service converts BTC/XBT fees to
+    /// satoshis before storing them.
     pub fee: Option<f64>,
     pub fee_currency: Option<String>,
     pub tx_hash: Option<String>,
@@ -420,6 +452,8 @@ impl Default for ExchangeSettings {
 /// Relative weights and tolerances of the on-chain matching score.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OnChainLinkScoringSettings {
+    /// Penalty weight applied when the ledger row names a txid that does not
+    /// match a candidate. Exact hash matches bypass scoring and always win.
     pub hash_weight: f64,
     pub amount_weight: f64,
     pub payment_output_weight: f64,

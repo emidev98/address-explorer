@@ -1,10 +1,12 @@
 //! Settings service: load and persist the user's preferences — the theme
-//! palette and appearance mode, and the default fiat currency prices are
-//! displayed in.
+//! palette and appearance mode, the default fiat currency prices are displayed
+//! in, exchange safety/scoring settings, interface hints, and the primary
+//! navigation placement.
 
 use crate::data::repositories::settings as settings_repository;
 use crate::data::{Database, DatabaseError};
 use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
+use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
 use crate::domain::price::{normalize_symbol, PriceError, USD_SYMBOL};
 use crate::domain::theme::ThemePreference;
 
@@ -70,6 +72,28 @@ pub fn save_on_chain_link_scoring(
     settings: &OnChainLinkScoringSettings,
 ) -> Result<OnChainLinkScoringSettings, DatabaseError> {
     settings_repository::save_on_chain_link_scoring(database, settings)
+}
+
+pub fn load_interface_settings(database: &Database) -> Result<InterfaceSettings, DatabaseError> {
+    settings_repository::load_interface_settings(database)
+}
+
+pub fn save_show_date_range_support(
+    database: &Database,
+    enabled: bool,
+) -> Result<(), DatabaseError> {
+    settings_repository::save_show_date_range_support(database, enabled)
+}
+
+pub fn save_navigation_position(
+    database: &Database,
+    position: NavigationPosition,
+) -> Result<(), DatabaseError> {
+    settings_repository::save_navigation_position(database, position)
+}
+
+pub fn save_side_nav_collapsed(database: &Database, collapsed: bool) -> Result<(), DatabaseError> {
+    settings_repository::save_side_nav_collapsed(database, collapsed)
 }
 
 #[cfg(test)]

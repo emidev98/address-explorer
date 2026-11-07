@@ -72,6 +72,41 @@ pub fn find_price(
         .map_err(Into::into)
 }
 
+/// Newest stored close of `symbol` within the inclusive `[from_time,
+/// to_time]` window.
+///
+/// Price resolution uses it after the imported 15-minute coverage to prefer a
+/// recent intraday close over the daily one, without changing the daily-close
+/// semantics outside the granular window.
+pub fn find_latest_price_between(
+    database: &Database,
+    symbol: &str,
+    from_time: i64,
+    to_time: i64,
+) -> Result<Option<Price>, DatabaseError> {
+    if from_time > to_time {
+        return Ok(None);
+    }
+    let connection = database.connection()?;
+    connection
+        .query_row(
+            "SELECT close_time, close, symbol FROM historical_prices
+             WHERE symbol = ?1 AND close_time >= ?2 AND close_time <= ?3
+             ORDER BY close_time DESC
+             LIMIT 1",
+            params![symbol, from_time, to_time],
+            |row| {
+                Ok(Price {
+                    close_time: row.get(0)?,
+                    close: row.get(1)?,
+                    symbol: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
+
 /// Persist a price. The primary key keeps the first value for a
 /// `(symbol, close_time)` pair; `Ok(true)` reports an actual insert.
 pub fn store_price(database: &Database, price: &Price) -> Result<bool, DatabaseError> {
@@ -235,6 +270,31 @@ pub fn update_price(database: &Database, price: &Price) -> Result<bool, Database
     Ok(updated == 1)
 }
 
+/// Delete every stored price at the given close times in one transaction.
+///
+/// A close time identifies a whole snapshot: `historical_prices` stores one
+/// row per symbol at the same moment, so deleting the close time removes every
+/// currency stored there, not only the row selected in the table. Other close
+/// times are untouched. Returns the number of deleted rows.
+pub fn delete_prices(database: &Database, close_times: &[i64]) -> Result<usize, DatabaseError> {
+    if close_times.is_empty() {
+        return Ok(0);
+    }
+
+    let mut connection = database.connection()?;
+    let transaction = connection.transaction()?;
+    let mut deleted = 0_usize;
+    {
+        let mut statement =
+            transaction.prepare("DELETE FROM historical_prices WHERE close_time = ?1")?;
+        for close_time in close_times {
+            deleted += statement.execute([close_time])?;
+        }
+    }
+    transaction.commit()?;
+    Ok(deleted)
+}
+
 /// Time span of the stored history of `symbol`: the oldest and newest close
 /// time, or `None` when the symbol has no rows.
 pub fn price_series_range(
@@ -249,40 +309,6 @@ pub fn price_series_range(
         |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, Option<i64>>(1)?)),
     )?;
     Ok(first.zip(last))
-}
-
-/// Consecutive stored closes of `symbol` that are more than `min_gap_seconds`
-/// apart, as `(previous_close_time, next_close_time)` pairs, oldest first.
-///
-/// The imported USD history mixes daily and 15-minute rows, so a gap only
-/// identifies ranges where the series is missing entirely: no row exists
-/// between the pair, which is what the "sync to today" run refills.
-pub fn price_gaps(
-    database: &Database,
-    symbol: &str,
-    min_gap_seconds: i64,
-) -> Result<Vec<(i64, i64)>, DatabaseError> {
-    let connection = database.connection()?;
-    let mut statement = connection.prepare(
-        "SELECT previous_close_time, close_time
-         FROM (
-             SELECT close_time,
-                    LAG(close_time) OVER (ORDER BY close_time) AS previous_close_time
-             FROM historical_prices
-             WHERE symbol = ?1
-         )
-         WHERE previous_close_time IS NOT NULL
-           AND close_time - previous_close_time > ?2
-         ORDER BY close_time",
-    )?;
-    let rows = statement.query_map(params![symbol, min_gap_seconds], |row| {
-        Ok((row.get(0)?, row.get(1)?))
-    })?;
-    let mut gaps = Vec::new();
-    for row in rows {
-        gaps.push(row.map_err(|error| DatabaseError::new(error.to_string()))?);
-    }
-    Ok(gaps)
 }
 
 /// Bounds of the source close times that are missing from `target_symbol`.
@@ -405,23 +431,35 @@ mod tests {
     }
 
     #[test]
-    fn price_gaps_lists_ranges_without_stored_rows() {
+    fn find_latest_price_between_reads_the_newest_row_in_the_window() {
         let database = Database::open_in_memory().unwrap();
-        let day_close = |day: i64| day * 86_400 + 86_399;
-        // Days 1-3 are consecutive; days 4-5 are missing.
-        for day in [1, 2, 3, 6, 7] {
-            store_price(&database, &store("USD", day_close(day), 100.0)).unwrap();
+        for (close_time, close) in [(100, 1.0), (200, 2.0), (500, 5.0)] {
+            store_price(&database, &store("USD", close_time, close)).unwrap();
         }
-        // Another symbol never contributes to the gap.
-        store_price(&database, &store("EUR", day_close(4), 90.0)).unwrap();
+        store_price(&database, &store("EUR", 450, 4.5)).unwrap();
 
-        let gaps = price_gaps(&database, "USD", 86_400).unwrap();
-        assert_eq!(gaps, vec![(day_close(3), day_close(6))]);
-
-        // Closes exactly one day apart are not gaps.
-        assert!(price_gaps(&database, "USD", 3 * 86_400).unwrap().is_empty());
-        // Unknown symbols have no gaps.
-        assert!(price_gaps(&database, "GBP", 86_400).unwrap().is_empty());
+        assert_eq!(
+            find_latest_price_between(&database, "USD", 100, 500).unwrap(),
+            Some(store("USD", 500, 5.0))
+        );
+        // Bounds are inclusive and stale rows outside the window are ignored.
+        assert_eq!(
+            find_latest_price_between(&database, "USD", 150, 250).unwrap(),
+            Some(store("USD", 200, 2.0))
+        );
+        assert_eq!(
+            find_latest_price_between(&database, "USD", 501, 900).unwrap(),
+            None
+        );
+        // A reversed window and an unknown symbol are empty.
+        assert_eq!(
+            find_latest_price_between(&database, "USD", 500, 100).unwrap(),
+            None
+        );
+        assert_eq!(
+            find_latest_price_between(&database, "GBP", 0, 500).unwrap(),
+            None
+        );
     }
 
     fn row(symbol: &str, close_time: i64, close: f64, other_symbols: &[&str]) -> PriceRow {
@@ -668,6 +706,31 @@ mod tests {
 
         // Updating a missing row reports false and inserts nothing.
         assert!(!update_price(&database, &store("USD", 999, 2.5)).unwrap());
+        assert_eq!(count_prices(&database, "USD", 0, 0).unwrap(), 1);
+    }
+
+    #[test]
+    fn delete_prices_removes_every_symbol_at_the_selected_close_times() {
+        let database = Database::open_in_memory().unwrap();
+        store_price(&database, &store("USD", 100, 1.0)).unwrap();
+        store_price(&database, &store("EUR", 100, 0.9)).unwrap();
+        store_price(&database, &store("GBP", 100, 0.8)).unwrap();
+        store_price(&database, &store("USD", 200, 2.0)).unwrap();
+        store_price(&database, &store("EUR", 300, 2.7)).unwrap();
+
+        // Two close times are removed as complete snapshots; the missing
+        // third one is ignored.
+        assert_eq!(delete_prices(&database, &[100, 300, 999]).unwrap(), 4);
+        assert_eq!(count_prices(&database, "USD", 0, 0).unwrap(), 1);
+        assert_eq!(count_prices(&database, "EUR", 0, 0).unwrap(), 0);
+        assert_eq!(count_prices(&database, "GBP", 0, 0).unwrap(), 0);
+        assert_eq!(
+            find_price(&database, "USD", 200).unwrap(),
+            Some(store("USD", 200, 2.0))
+        );
+
+        // An empty batch deletes nothing.
+        assert_eq!(delete_prices(&database, &[]).unwrap(), 0);
         assert_eq!(count_prices(&database, "USD", 0, 0).unwrap(), 1);
     }
 

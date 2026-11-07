@@ -18,9 +18,7 @@ use crate::domain::catalog::{
     CatalogCategory, CatalogDeleteOutcome, CatalogDeletePreview, CatalogKind, CatalogType,
     CatalogTypePage,
 };
-use crate::domain::table::{SortDirection, TableQuery};
-
-const PAGE_SIZE: u32 = 25;
+use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
 
 #[component]
 pub fn SettingsWalletTypes() -> Element {
@@ -80,7 +78,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     let mut list = use_resource(move || {
         let query = TableQuery {
             page: page(),
-            page_size: PAGE_SIZE,
+            page_size: DEFAULT_PAGE_SIZE,
             sort_by: sort_by(),
             sort_dir: sort_dir(),
         };
@@ -168,21 +166,14 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
             let total = data.page.total;
             let selectable_ids = page_ids.clone();
             let table = rsx! {
-                TablePagination {
-                    page: page(),
-                    page_size: PAGE_SIZE,
-                    total,
-                    on_page: move |next| {
-                        page.set(next);
-                        selection.clear();
-                    },
-                }
                 div { class: "md3-table-container",
                     table { class: "md3-table md3-catalog-table",
                         thead {
                             tr {
                                 TableSelectionHeader {
                                     all_selected,
+                                    indeterminate: selection.some_selected(&page_ids)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    && !all_selected,
                                     select_all_label: "Select all types on this page".to_string(),
                                     disabled: page_ids.is_empty(),
                                     on_toggle_all: move |checked| {
@@ -223,7 +214,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 SortableHeader {
                                     label: "Name".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("name"))
-                                                                                                                                                    .then_some(sort_dir()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
                                     on_sort: move |_| {
                                         apply_sort(sort_by, sort_dir, page, selection, "name", SortDirection::Asc);
                                     },
@@ -231,7 +222,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 SortableHeader {
                                     label: "Category".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("category"))
-                                                                                                                                                    .then_some(sort_dir()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
                                     on_sort: move |_| {
                                         apply_sort(sort_by, sort_dir, page, selection, "category", SortDirection::Asc);
                                     },
@@ -239,7 +230,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 SortableHeader {
                                     label: "Custody".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("custody"))
-                                                                                                                                                    .then_some(sort_dir()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
                                     on_sort: move |_| {
                                         apply_sort(sort_by, sort_dir, page, selection, "custody", SortDirection::Asc);
                                     },
@@ -248,7 +239,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                     SortableHeader {
                                         label: "Platform".to_string(),
                                         active_direction: (sort_by().as_deref() == Some("platform"))
-                                                                                                                                                                    .then_some(sort_dir()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .then_some(sort_dir()),
                                         on_sort: move |_| {
                                             apply_sort(sort_by, sort_dir, page, selection, "platform", SortDirection::Asc);
                                         },
@@ -257,7 +248,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 SortableHeader {
                                     label: "Addresses".to_string(),
                                     active_direction: (sort_by().as_deref() == Some("addresses"))
-                                                                                                                                                    .then_some(sort_dir()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
                                     on_sort: move |_| {
                                         apply_sort(sort_by, sort_dir, page, selection, "addresses", SortDirection::Desc);
                                     },
@@ -289,17 +280,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                 div { class: "md3-table-actions",
                                                     button {
                                                         r#type: "button",
-                                                        class: "md3-icon-button",
-                                                        title: "Edit {row_name}",
-                                                        aria_label: "Edit {row_name}",
-                                                        onclick: move |_| {
-                                                            edit_target.set(Some(edit_row.clone()));
-                                                            show_type_dialog.set(true);
-                                                        },
-                                                        {icon(ICON_EDIT)}
-                                                    }
-                                                    button {
-                                                        r#type: "button",
                                                         class: "md3-icon-button md3-icon-button-danger",
                                                         title: "Delete {row_name}",
                                                         aria_label: "Delete {row_name}",
@@ -318,6 +298,17 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                             );
                                                         },
                                                         {icon(ICON_DELETE)}
+                                                    }
+                                                    button {
+                                                        r#type: "button",
+                                                        class: "md3-icon-button",
+                                                        title: "Edit {row_name}",
+                                                        aria_label: "Edit {row_name}",
+                                                        onclick: move |_| {
+                                                            edit_target.set(Some(edit_row.clone()));
+                                                            show_type_dialog.set(true);
+                                                        },
+                                                        {icon(ICON_EDIT)}
                                                     }
                                                 }
                                             }
@@ -352,6 +343,15 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                             }
                         }
                     }
+                }
+                TablePagination {
+                    page: page(),
+                    page_size: DEFAULT_PAGE_SIZE,
+                    total,
+                    on_page: move |next| {
+                        page.set(next);
+                        selection.clear();
+                    },
                 }
             };
             rsx! {

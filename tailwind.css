@@ -6,7 +6,7 @@
  * 1. Material 3 system tokens (`--md-sys-*`) for color, elevation, motion,
  *    and state layers. Color roles alias the palettes from
  *    `assets/material3-tailwind-palettes.css`, which `data-theme` (palette)
- *    and `data-mode` (light, dark, or system) select on the root element.
+ *    and `data-mode` (light or dark) select on the root element.
  * 2. Tailwind theme mappings (`@theme static`) so the tokens are available
  *    as utilities such as `bg-primary`, `text-on-surface-variant`,
  *    `rounded-md3-md`, `shadow-md3-1`, and `text-headline-medium`.
@@ -41,8 +41,12 @@
   --font-sans:
     "Roboto", "Roboto Flex", "Segoe UI", system-ui, -apple-system,
     BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  /* Themes may override the heading and numeric faces; the defaults keep the
+     existing palettes on the Roboto stack. */
+  --font-heading: var(--font-sans);
+  --font-numeric: var(--font-sans);
   --font-mono:
-    "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
 
   /* ------------------------------------------------------------------
@@ -238,14 +242,68 @@
 }
 
 /* ==========================================================================
+   Per-theme type and shape identity
+
+   These rules are deliberately unlayered: they override the variables emitted
+   by `@theme static` above. Existing palettes keep the default Roboto stack;
+   the themed palettes use the bundled Inter/Fraunces/IBM Plex Mono faces.
+   ========================================================================== */
+
+:root[data-theme="aurum"] {
+  --font-sans:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
+    BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-numeric:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --radius-md3-md: 0.875rem;
+  --radius-md3-lg: 1.125rem;
+}
+
+:root[data-theme="sumi"] {
+  --font-sans:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
+    BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-numeric:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius-md3-xs: 0.375rem;
+  --radius-md3-sm: 0.625rem;
+  --radius-md3-md: 1rem;
+  --radius-md3-lg: 1.375rem;
+  --radius-md3-xl: 2rem;
+}
+
+:root[data-theme="orange"] {
+  --font-sans:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
+    BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-heading:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-numeric:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius-md3-xs: 0.125rem;
+  --radius-md3-sm: 0.1875rem;
+  --radius-md3-md: 0.25rem;
+  --radius-md3-lg: 0.375rem;
+  --radius-md3-xl: 0.625rem;
+}
+
+/* ==========================================================================
    Material 3 system tokens
    ========================================================================== */
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
   /* Shared dimensions, motion, and state layers. */
   --md3-top-app-bar-height: 4rem;
+  --md3-side-nav-width: 15rem;
+  --md3-side-nav-rail-width: 5rem;
+
+  /* Single-line form controls (text inputs and dropdowns) share one height
+     so every screen matches. Change it here, not in a view. */
+  --md3-control-height: 2.5rem;
 
   --md-sys-state-hover-state-layer-opacity: 0.08;
   --md-sys-state-focus-state-layer-opacity: 0.1;
@@ -286,7 +344,7 @@
 
   /* Color roles. The values come from
      assets/material3-tailwind-palettes.css, where `data-theme` selects the
-     palette and `data-mode` selects light, dark, or system. These aliases
+     palette and `data-mode` selects light or dark. These aliases
      keep the component rules below independent of the palette variable
      names. */
   --md-sys-color-primary: var(--md-primary);
@@ -362,12 +420,6 @@
   --md-sys-color-on-tertiary-fixed-variant: var(--md-on-tertiary);
 }
 
-/* Follow the system preference until the stored mode is applied to the
-   document root. */
-:root:not([data-mode]) {
-  color-scheme: light dark;
-}
-
 /* ==========================================================================
    Base styles
    ========================================================================== */
@@ -394,6 +446,23 @@
   :focus-visible {
     outline: 3px solid var(--md-sys-color-primary);
     outline-offset: 2px;
+  }
+
+  /* Every single-line native control inherits the shared height, including
+     controls added later without a component class. Multi-line and non-text
+     controls keep their own sizing. */
+  :where(
+    input:not(
+        [type="checkbox"],
+        [type="radio"],
+        [type="file"],
+        [type="range"],
+        [type="hidden"]
+      ),
+    select:not([multiple], [size])
+  ) {
+    height: var(--md3-control-height);
+    min-height: var(--md3-control-height);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -426,8 +495,22 @@
   }
 
   /* ------------------------------------------------------------------
+     Navigation shell
+     The top app bar and side panel are both rendered so only CSS decides
+     which presentation is visible at each breakpoint.
+     ------------------------------------------------------------------ */
+  .md3-app-shell {
+    min-height: 100vh;
+  }
+
+  .md3-app-shell[data-side-nav-collapsed="true"] {
+    --md3-side-nav-width: var(--md3-side-nav-rail-width);
+  }
+
+  /* ------------------------------------------------------------------
      Top app bar (small)
-     The navigation links are styled as primary tabs.
+     The navigation links are styled as primary tabs on tablet and wider
+     windows. Phones show the menu button and active-screen title instead.
      ------------------------------------------------------------------ */
   .md3-top-app-bar {
     position: sticky;
@@ -435,6 +518,7 @@
     z-index: 40;
     display: flex;
     align-items: stretch;
+    gap: 0.5rem;
     height: var(--md3-top-app-bar-height);
     padding-inline: 1rem;
     background-color: var(--md-sys-color-surface-container);
@@ -442,20 +526,61 @@
     box-shadow: var(--md-sys-elevation-1);
   }
 
-  .md3-top-app-bar nav {
-    display: flex;
+  .md3-nav-menu-button {
+    display: inline-flex;
+    flex: none;
+    align-self: center;
+    align-items: center;
+    justify-content: center;
+    width: 3rem;
+    height: 3rem;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-md3-full);
+    background-color: transparent;
+    color: var(--md-sys-color-on-surface-variant);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-nav-menu-button:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-nav-menu-button:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: -2px;
+  }
+
+  .md3-top-app-bar-title {
+    flex: 1;
+    min-width: 0;
+    align-self: center;
+    overflow: hidden;
+    color: var(--md-sys-color-on-surface);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    @apply text-title-large;
+  }
+
+  .md3-top-app-bar-nav {
+    display: none;
     align-items: stretch;
     gap: 0.25rem;
     width: 100%;
-    overflow-x: auto;
-    scrollbar-width: none;
   }
 
-  .md3-top-app-bar nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .md3-top-app-bar a {
+  .md3-top-app-bar-nav a {
     position: relative;
     display: inline-flex;
     flex: 0 0 auto;
@@ -476,7 +601,7 @@
         var(--md-sys-motion-easing-standard);
   }
 
-  .md3-top-app-bar a::before {
+  .md3-top-app-bar-nav a::before {
     content: "";
     position: absolute;
     inset: 0.5rem 0.25rem;
@@ -488,27 +613,27 @@
       var(--md-sys-motion-easing-standard);
   }
 
-  .md3-top-app-bar a:hover::before {
+  .md3-top-app-bar-nav a:hover::before {
     opacity: var(--md-sys-state-hover-state-layer-opacity);
   }
 
-  .md3-top-app-bar a:focus-visible::before {
+  .md3-top-app-bar-nav a:focus-visible::before {
     opacity: var(--md-sys-state-focus-state-layer-opacity);
   }
 
-  .md3-top-app-bar a:active::before {
+  .md3-top-app-bar-nav a:active::before {
     opacity: var(--md-sys-state-pressed-state-layer-opacity);
   }
 
-  .md3-top-app-bar a:hover {
+  .md3-top-app-bar-nav a:hover {
     color: var(--md-sys-color-on-surface);
   }
 
-  .md3-top-app-bar a.active {
+  .md3-top-app-bar-nav a.active {
     color: var(--md-sys-color-primary);
   }
 
-  .md3-top-app-bar a.active::after {
+  .md3-top-app-bar-nav a.active::after {
     content: "";
     position: absolute;
     right: 0.75rem;
@@ -707,13 +832,388 @@
     background-color: transparent;
   }
 
+  /* ------------------------------------------------------------------
+     Side navigation and mobile drawer
+     Both presentations share the vertical NavPanel link styling.
+     ------------------------------------------------------------------ */
+  .md3-side-nav {
+    display: none;
+    position: sticky;
+    top: 0;
+    /* Sticky positioning creates a stacking context. Without a z-index the
+       compact Settings flyout (z-index 50) is trapped inside it and table
+       controls such as the checkbox hit area (z-index 1) paint over it. */
+    z-index: 40;
+    flex-direction: column;
+    gap: 1.25rem;
+    width: var(--md3-side-nav-width);
+    height: 100vh;
+    height: 100dvh;
+    padding: 1.25rem 0.75rem;
+    overflow: visible;
+    border-inline-end: 1px solid var(--md-sys-color-outline-variant);
+    background-color: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-side-nav-brand {
+    flex: none;
+    padding-inline: 1rem;
+    color: var(--md-sys-color-on-surface);
+    @apply text-title-medium;
+  }
+
+  .md3-side-nav-brand-compact {
+    display: flex;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .md3-side-nav-monogram {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: var(--radius-md3-full);
+    background-color: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+    @apply text-label-large;
+    font-weight: 600;
+  }
+
+  .md3-nav-panel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-height: 0;
+  }
+
+  .md3-side-nav .md3-nav-panel {
+    overflow-y: auto;
+  }
+
+  .md3-nav-panel-primary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+
+  .md3-nav-panel-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3rem;
+    padding-inline: 1rem;
+    border-radius: var(--radius-md3-full);
+    color: var(--md-sys-color-on-surface-variant);
+    text-decoration: none;
+    touch-action: manipulation;
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-nav-panel-link:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-nav-panel-link.active {
+    background-color: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+
+  .md3-nav-panel-link-nested {
+    min-height: 2.75rem;
+    padding-inline-start: 1.5rem;
+  }
+
+  .md3-nav-panel-link-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .md3-nav-icon {
+    flex: none;
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .md3-nav-panel-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+  }
+
+  .md3-nav-panel-settings-bottom .md3-nav-panel-settings {
+    margin-top: auto;
+  }
+
+  .md3-nav-panel-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 1rem 0.25rem;
+    color: var(--md-sys-color-on-surface-variant);
+    text-transform: uppercase;
+    @apply text-label-small;
+    letter-spacing: 0.06em;
+  }
+
+  .md3-nav-panel-label .md3-nav-icon {
+    width: 1rem;
+    height: 1rem;
+  }
+
+  .md3-nav-panel-label.active {
+    color: var(--md-sys-color-primary);
+  }
+
+  /* Compact icon rail */
+  .md3-nav-panel-compact .md3-nav-panel-primary {
+    width: 100%;
+  }
+
+  .md3-nav-panel-compact .md3-nav-panel-link,
+  .md3-nav-compact-settings-toggle {
+    justify-content: center;
+    width: 3rem;
+    margin-inline: auto;
+    padding-inline: 0;
+  }
+
+  .md3-nav-compact-settings-toggle {
+    padding-block: 0;
+    border: 0;
+    background-color: transparent;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .md3-nav-panel-compact-settings {
+    display: flex;
+    flex-direction: column;
+    margin-top: auto;
+    padding-top: 1rem;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+  }
+
+  .md3-side-nav-footer {
+    display: flex;
+    flex: none;
+  }
+
+  .md3-side-nav-compress {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 3rem;
+    padding-block: 0;
+    padding-inline: 1rem;
+    border: 0;
+    border-radius: var(--radius-md3-full);
+    background-color: transparent;
+    color: var(--md-sys-color-on-surface-variant);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+    touch-action: manipulation;
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-side-nav-compress:hover:not(:disabled) {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-side-nav-compress:disabled {
+    cursor: not-allowed;
+    opacity: 0.38;
+  }
+
+  .md3-side-nav-compress-rail {
+    justify-content: center;
+    width: 3rem;
+    margin-inline: auto;
+    padding-inline: 0;
+  }
+
+  /* Compact Settings flyout. It is rendered outside the scrolling side panel
+     so its fixed position is never clipped by the panel overflow. */
+  .md3-nav-compact-settings-backdrop {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: var(--md3-side-nav-rail-width);
+    inset-inline-end: 0;
+    z-index: 49;
+    background-color: transparent;
+  }
+
+  .md3-nav-compact-settings-menu {
+    position: fixed;
+    bottom: calc(1.25rem + 3rem + 1.25rem);
+    inset-inline-start: calc(var(--md3-side-nav-rail-width) + 0.5rem);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    width: 14rem;
+    max-height: min(20rem, calc(100dvh - 7rem));
+    overflow-y: auto;
+    padding: 0.5rem;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--radius-md3-lg);
+    background-color: var(--md-sys-color-surface-container-high);
+    box-shadow: var(--md-sys-elevation-2);
+  }
+
+  .md3-nav-compact-settings-item {
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0.5rem 0.85rem;
+    border-radius: var(--radius-md3-full);
+    color: var(--md-sys-color-on-surface);
+    text-decoration: none;
+    white-space: nowrap;
+    @apply text-label-large;
+  }
+
+  .md3-nav-compact-settings-item:hover {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
+    color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-nav-compact-settings-item.active {
+    background-color: var(--md-sys-color-primary-container);
+    color: var(--md-sys-color-on-primary-container);
+  }
+
+  .md3-nav-drawer-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background-color: rgb(0 0 0 / 32%);
+  }
+
+  .md3-nav-drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    z-index: 61;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    width: min(20rem, 88vw);
+    height: 100vh;
+    height: 100dvh;
+    padding: 1.25rem 0.75rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-inline-end: 1px solid var(--md-sys-color-outline-variant);
+    background-color: var(--md-sys-color-surface-container);
+    color: var(--md-sys-color-on-surface);
+    box-shadow: var(--md-sys-elevation-2);
+    animation: md3-nav-drawer-in var(--md-sys-motion-duration-medium2)
+      var(--ease-md3-emphasized-decelerate);
+  }
+
+  @keyframes md3-nav-drawer-in {
+    from {
+      opacity: 0;
+      transform: translateX(-100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .md3-nav-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-inline: 1rem 0.25rem;
+  }
+
+  .md3-nav-drawer-header .md3-side-nav-brand {
+    padding-inline: 0;
+  }
+
+  .md3-nav-drawer-close {
+    flex: none;
+    width: 3rem;
+    height: 3rem;
+  }
+
+  @media (max-width: 47.99rem) {
+    .md3-nav-compact-settings-backdrop,
+    .md3-nav-compact-settings-menu {
+      display: none;
+    }
+  }
+
   @media (min-width: 48rem) {
     .md3-top-app-bar {
       padding-inline: 1.5rem;
     }
 
-    .md3-top-app-bar nav {
+    .md3-top-app-bar-nav {
+      display: flex;
       overflow: visible;
+    }
+
+    .md3-nav-menu-button,
+    .md3-top-app-bar-title {
+      display: none;
+    }
+
+    .md3-app-shell[data-nav-position="side"] {
+      display: grid;
+      grid-template-columns: var(--md3-side-nav-width) minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .md3-app-shell[data-nav-position="side"] .md3-top-app-bar {
+      display: none;
+    }
+
+    .md3-app-shell[data-nav-position="side"] .md3-side-nav {
+      display: flex;
+    }
+
+    .md3-nav-drawer,
+    .md3-nav-drawer-scrim {
+      display: none;
     }
 
     .md3-nav-dropdown-menu {
@@ -723,6 +1223,22 @@
       left: auto;
       width: max-content;
       min-width: 14rem;
+    }
+  }
+
+  @media (min-width: 64rem) {
+    .md3-app-shell[data-nav-position="auto"] {
+      display: grid;
+      grid-template-columns: var(--md3-side-nav-width) minmax(0, 1fr);
+      align-items: start;
+    }
+
+    .md3-app-shell[data-nav-position="auto"] .md3-top-app-bar {
+      display: none;
+    }
+
+    .md3-app-shell[data-nav-position="auto"] .md3-side-nav {
+      display: flex;
     }
   }
 
@@ -915,6 +1431,261 @@
   }
 
   /* ------------------------------------------------------------------
+     Checkbox
+     Markup:
+       label.md3-checkbox
+         span.md3-checkbox-control
+           input.md3-checkbox-input
+           span.md3-checkbox-state-layer
+           span.md3-checkbox-box > svg.md3-checkbox-icon
+         span.md3-checkbox-label (optional)
+     ------------------------------------------------------------------ */
+  .md3-checkbox {
+    --md3-checkbox-state-color: var(--md-sys-color-on-surface);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: fit-content;
+    color: var(--md-sys-color-on-surface);
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:checked),
+  .md3-checkbox-indeterminate {
+    --md3-checkbox-state-color: var(--md-sys-color-primary);
+  }
+
+  .md3-checkbox-control {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+  }
+
+  .md3-checkbox-control::after {
+    content: "";
+    position: absolute;
+    inset: -11px;
+    border-radius: var(--radius-md3-full);
+    pointer-events: none;
+  }
+
+  /* The native input supplies the 48 px touch target and all interaction
+     semantics; the visible box and state layer are drawn underneath it. */
+  .md3-checkbox-input {
+    position: absolute;
+    inset: -15px;
+    z-index: 1;
+    width: 48px;
+    height: 48px;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+  }
+
+  .md3-checkbox-input:focus-visible {
+    outline: none;
+  }
+
+  .md3-checkbox-state-layer {
+    position: absolute;
+    top: -11px;
+    left: -11px;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md3-full);
+    background-color: var(--md3-checkbox-state-color);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
+  }
+
+  .md3-checkbox-box {
+    position: relative;
+    box-sizing: border-box;
+    display: block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--md-sys-color-on-surface-variant);
+    border-radius: 2px;
+    background-color: transparent;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      border-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
+  }
+
+  /* Anchor the 18 px mark to the border box rather than the 14 px content box
+     inside the 2 px border, so the check and dash stay optically centered. */
+  .md3-checkbox-icon {
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    display: block;
+    width: 18px;
+    height: 18px;
+    fill: var(--md-sys-color-on-primary);
+  }
+
+  .md3-checkbox-check,
+  .md3-checkbox-dash {
+    opacity: 0;
+    transform: scale(0.6);
+    transform-box: fill-box;
+    transform-origin: center;
+    transition:
+      opacity var(--md-sys-motion-duration-short1) linear,
+      transform var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-emphasized-accelerate);
+  }
+
+  .md3-checkbox-input:checked ~ .md3-checkbox-box,
+  .md3-checkbox-indeterminate .md3-checkbox-box {
+    border-color: var(--md-sys-color-primary);
+    background-color: var(--md-sys-color-primary);
+  }
+
+  .md3-checkbox-input:checked ~ .md3-checkbox-box .md3-checkbox-check,
+  .md3-checkbox-indeterminate .md3-checkbox-box .md3-checkbox-dash {
+    opacity: 1;
+    transform: scale(1);
+    transition:
+      opacity var(--md-sys-motion-duration-short1) linear,
+      transform var(--md-sys-motion-duration-medium3)
+        var(--md-sys-motion-easing-emphasized-decelerate);
+  }
+
+  .md3-checkbox-indeterminate .md3-checkbox-box .md3-checkbox-check {
+    opacity: 0;
+  }
+
+  /* Hover, focus, and pressed state layers. The unselected and selected
+     pressed layers use a different color in the M3 token set. */
+  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):hover
+    .md3-checkbox-state-layer {
+    opacity: var(--md-sys-state-hover-state-layer-opacity);
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:focus-visible)
+    .md3-checkbox-state-layer {
+    opacity: var(--md-sys-state-focus-state-layer-opacity);
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:focus-visible)
+    .md3-checkbox-control::after {
+    outline: 3px solid var(--md-sys-color-primary);
+    outline-offset: 0;
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):active
+    .md3-checkbox-state-layer {
+    background-color: var(--md-sys-color-primary);
+    opacity: var(--md-sys-state-pressed-state-layer-opacity);
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):has(
+      .md3-checkbox-input:checked
+    ):active
+    .md3-checkbox-state-layer,
+  .md3-checkbox-indeterminate:has(
+      .md3-checkbox-input:not(:disabled)
+    ):active
+    .md3-checkbox-state-layer {
+    background-color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-checkbox:not(.md3-checkbox-indeterminate):has(
+      .md3-checkbox-input:not(:checked, :disabled)
+    ):is(:hover, :focus-within, :active)
+    .md3-checkbox-box {
+    border-color: var(--md-sys-color-on-surface);
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled) {
+    cursor: default;
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled)
+    .md3-checkbox-label {
+    color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled):not(
+      .md3-checkbox-indeterminate
+    ):not(:has(.md3-checkbox-input:checked))
+    .md3-checkbox-box {
+    border-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled):has(
+      .md3-checkbox-input:checked
+    )
+    .md3-checkbox-box,
+  .md3-checkbox-indeterminate:has(.md3-checkbox-input:disabled)
+    .md3-checkbox-box {
+    border-color: transparent;
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
+  }
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled) .md3-checkbox-icon {
+    fill: var(--md-sys-color-surface);
+  }
+
+  .md3-checkbox-label {
+    @apply text-body-large;
+    color: var(--md-sys-color-on-surface);
+  }
+
+  @media (forced-colors: active) {
+    .md3-checkbox-box {
+      border-color: CanvasText;
+    }
+
+    .md3-checkbox-input:checked ~ .md3-checkbox-box,
+    .md3-checkbox-indeterminate .md3-checkbox-box {
+      border-color: CanvasText;
+      background-color: CanvasText;
+    }
+
+    .md3-checkbox-icon {
+      fill: Canvas;
+    }
+
+    .md3-checkbox:has(.md3-checkbox-input:disabled) .md3-checkbox-box {
+      border-color: GrayText;
+    }
+
+    .md3-checkbox:has(.md3-checkbox-input:disabled):has(
+        .md3-checkbox-input:checked
+      )
+      .md3-checkbox-box,
+    .md3-checkbox-indeterminate:has(.md3-checkbox-input:disabled)
+      .md3-checkbox-box {
+      border-color: GrayText;
+      background-color: GrayText;
+    }
+  }
+
+  /* ------------------------------------------------------------------
      Settings controls
      ------------------------------------------------------------------ */
   .md3-settings-section {
@@ -987,16 +1758,16 @@
     background-image: linear-gradient(135deg, #2f6654 0 50%, #9fd5bf 50% 100%);
   }
 
-  .md3-theme-swatch-sunset {
-    background-image: linear-gradient(135deg, #9c4435 0 50%, #ffb4a5 50% 100%);
+  .md3-theme-swatch-aurum {
+    background-image: linear-gradient(135deg, #815512 0 50%, #f7bc70 50% 100%);
   }
 
-  .md3-theme-swatch-orchid {
-    background-image: linear-gradient(135deg, #6750a4 0 50%, #d0bcff 50% 100%);
+  .md3-theme-swatch-sumi {
+    background-image: linear-gradient(135deg, #4d699b 0 50%, #e6c384 50% 100%);
   }
 
-  .md3-theme-swatch-graphite-lime {
-    background-image: linear-gradient(135deg, #4d5f00 0 50%, #c4d57c 50% 100%);
+  .md3-theme-swatch-orange {
+    background-image: linear-gradient(135deg, #1f2124 0 50%, #ff7a4d 50% 100%);
   }
 
   .md3-chip-group {
@@ -1014,7 +1785,7 @@
     position: relative;
     display: flex;
     align-items: center;
-    min-height: 3.5rem;
+    min-height: var(--md3-control-height);
     overflow: hidden;
     border-radius: var(--radius-md3-xs) var(--radius-md3-xs) 0 0;
     background-color: var(--md-sys-color-surface-container-highest);
@@ -1040,7 +1811,7 @@
 
   .md3-input {
     width: 100%;
-    height: 3.5rem;
+    height: var(--md3-control-height);
     padding-inline: 1rem;
     border: 0;
     outline: none;
@@ -1114,6 +1885,7 @@
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     vertical-align: middle;
     text-align: start;
+    font-variant-numeric: tabular-nums;
   }
 
   .md3-table tbody tr {
@@ -1133,20 +1905,25 @@
     border-bottom: 0;
   }
 
-  /* Multi-select table cells: the checkbox and bulk-action columns shrink
-     to their content so the selector never widens the table. */
+  /* Multi-select table cells: the checkbox column shrinks to its content so
+     the selector never widens the table. */
   .md3-table th.md3-table-select-cell,
-  .md3-table td.md3-table-select-cell,
-  .md3-table th.md3-table-select-actions {
+  .md3-table td.md3-table-select-cell {
     width: 1%;
-    padding-inline: 0.45rem;
     white-space: nowrap;
     padding: 0 1rem;
   }
 
-  .md3-table th.md3-table-select-cell input,
-  .md3-table td.md3-table-select-cell input {
-    display: block;
+  /* Bulk-action header and per-row action cells contain only icon buttons:
+     remove the cell padding so they align with the selector column. */
+  .md3-table th.md3-table-select-actions,
+  .md3-table td:has(.md3-table-actions) {
+    padding: 0;
+  }
+
+  .md3-table th.md3-table-select-cell .md3-checkbox,
+  .md3-table td.md3-table-select-cell .md3-checkbox {
+    display: flex;
     margin: 0;
   }
 
@@ -1288,7 +2065,7 @@
 
   .md3-catalog-color-input {
     width: 3.5rem;
-    height: 3rem;
+    height: var(--md3-control-height);
     padding: 0.25rem;
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--radius-md3-md);
@@ -1396,10 +2173,6 @@
 
   .md3-category-rename .md3-text-field {
     flex: 1 1 auto;
-  }
-
-  .md3-category-rename .md3-input {
-    height: 2.75rem;
   }
 
   .md3-import-format {
@@ -1728,8 +2501,8 @@
 
   .md3-flow-filter-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: end;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
     gap: 0.75rem;
   }
 
@@ -1749,8 +2522,8 @@
   .md3-multiselect-trigger {
     display: flex;
     width: 100%;
-    height: 2.5rem;
-    min-height: 2.5rem;
+    height: var(--md3-control-height);
+    min-height: var(--md3-control-height);
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
@@ -2044,8 +2817,7 @@
     min-height: 34rem;
   }
 
-  .md3-flow-quality-card,
-  .md3-flow-evidence-card {
+  .md3-flow-quality-card {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -2074,10 +2846,6 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
-  }
-
-  .md3-flow-evidence-card {
-    gap: 0.75rem;
   }
 
   .md3-flow-label-cell {

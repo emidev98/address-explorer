@@ -4,9 +4,9 @@ use dioxus::prelude::*;
 
 use crate::domain::exchange::{
     ExchangeAccount, ExchangeAccountList, ExchangeAccountTableQuery, ExchangeDetail,
-    ExchangeLinkOutcome, ExchangeTransaction, ExchangeTransactionSaveOutcome,
-    ExchangeTransactionSaveRequest, ExchangeTransactionTableQuery, ImportDataMapping,
-    ImportDataPreview, ImportDataSummary, OnChainLinkCandidateView,
+    ExchangeLinkOutcome, ExchangeReconcileBatchSummary, ExchangeTransaction,
+    ExchangeTransactionSaveOutcome, ExchangeTransactionSaveRequest, ExchangeTransactionTableQuery,
+    ImportDataMapping, ImportDataPreview, ImportDataSummary, OnChainLinkCandidateView,
 };
 use crate::domain::table::TablePage;
 
@@ -22,6 +22,7 @@ pub async fn list_exchanges_api(
 ) -> Result<ExchangeAccountList, ServerFnError> {
     ExchangeService::connect(open_database()?)
         .list_accounts(&query)
+        .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
@@ -176,6 +177,18 @@ pub async fn reconcile_exchange_api(exchange_id: i64) -> Result<(), ServerFnErro
     ExchangeService::connect(open_database()?)
         .reconcile(exchange_id)
         .await
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+/// Reconcile several exchange accounts in one request. Each account is
+/// reconciled independently; the summary reports partial failures.
+#[server]
+#[post("/api/exchanges/reconcile")]
+pub async fn reconcile_exchanges_api(
+    ids: Vec<i64>,
+) -> Result<ExchangeReconcileBatchSummary, ServerFnError> {
+    ExchangeService::connect(open_database()?)
+        .reconcile_many(&ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 

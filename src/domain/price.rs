@@ -39,12 +39,28 @@ const DAY_SECONDS: i64 = 24 * 60 * 60;
 /// the live sources publish daily data.
 pub const CSV_COVERAGE_END: i64 = civil_time::epoch_seconds(2026, 6, 15, 23, 29, 59);
 
+/// First day Coin Metrics serves the `PriceUSD` daily metric (2010-07-18).
+/// It is the historical floor of every sync and the default lower bound of the
+/// sync dialog; the live catalogue remains authoritative when it is reachable.
+pub const PRICE_HISTORY_START: i64 = civil_time::epoch_seconds(2010, 7, 18, 0, 0, 0);
+
 /// Convert a satoshi balance into its fiat value at `btc_price`.
 ///
 /// `btc_price` is the BTC unit price in the target currency, so the result is
 /// quoted in that same currency.
 pub fn sats_to_fiat(satoshis: i64, btc_price: f64) -> f64 {
     satoshis as f64 / 100_000_000.0 * btc_price
+}
+
+/// Convert a fiat amount into its BTC-equivalent satoshis at `btc_price`.
+///
+/// Returns `None` when the price is not finite or not positive, because a
+/// non-positive BTC price cannot express a meaningful conversion.
+pub fn fiat_to_sats(amount: f64, btc_price: f64) -> Option<i64> {
+    if !amount.is_finite() || !btc_price.is_finite() || btc_price <= 0.0 {
+        return None;
+    }
+    Some((amount / btc_price * 100_000_000.0).round() as i64)
 }
 
 /// A BTC price in `symbol` at a point in time.
@@ -137,40 +153,110 @@ pub struct CurrencyHistorySummary {
     pub warning: Option<String>,
 }
 
-/// Outcome of a "sync to today" run: BTC/USD daily closes recovered from Coin
-/// Metrics for the gaps of the stored series and for the days between the
-/// latest stored close and the current day.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SyncToTodaySummary {
-    /// Start of the earliest range the sync tried to fill: the first gap when
-    /// one exists, otherwise the latest stored close when the sync started.
-    pub from_time: i64,
-    /// Current time the sync ran up to.
-    pub to_time: i64,
-    /// Gaps of more than one day found between consecutive stored closes.
-    pub gaps_found: u64,
-    /// Daily closes missing from the stored series across those gaps and the
-    /// days since the latest stored close.
-    pub missing_days: u64,
-    /// Daily closes returned by Coin Metrics within the ranges.
-    pub fetched: u64,
-    /// Rows actually inserted; existing `close_time` rows are left untouched
-    /// and do not count.
-    pub stored: u64,
-    /// Missing days Coin Metrics had no price for, so they stay unfilled.
-    pub unavailable_days: u64,
-    /// Ranges whose request failed while another range succeeded. The run
-    /// stored what it could and can be re-run to retry the failed ranges.
-    pub warning: Option<String>,
+/// Resolution of the closes fetched for the most recent days of a sync.
+///
+/// Coin Metrics serves BTC/USD daily closes for the whole history and a
+/// reference rate at finer frequencies only for a short rolling window, so the
+/// granularity of a sync only ever applies to the newest slice of the range;
+/// older days always come from the daily series.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SyncGranularity {
+    /// Pick the finest resolution the source can serve for the selected range.
+    #[default]
+    Auto,
+    /// Daily closes only, from the `PriceUSD` metric.
+    Daily,
+    /// One observation every 15 minutes, derived from the 1-minute reference
+    /// rate (Coin Metrics has no `15m` frequency of its own).
+    FifteenMinutes,
+    /// Hourly reference-rate observations.
+    Hourly,
 }
 
-/// Outcome of one run of the "Sync Prices" dialog, whichever mode was used.
-#[derive(Debug, Clone, PartialEq)]
-pub enum PriceSyncOutcome {
-    /// The stored USD history of a range was converted into another currency.
-    Historical(BulkSyncSummary),
-    /// BTC/USD daily closes were fetched up to the current day.
-    ToToday(SyncToTodaySummary),
+impl SyncGranularity {
+    /// Human-readable label of the option.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Daily => "Daily",
+            Self::FifteenMinutes => "15 minutes",
+            Self::Hourly => "Hourly",
+        }
+    }
+
+    /// Adjective used in status and warning sentences.
+    pub fn resolution_label(self) -> &'static str {
+        match self {
+            Self::Auto => "intraday",
+            Self::Daily => "daily",
+            Self::FifteenMinutes => "15-minute",
+            Self::Hourly => "hourly",
+        }
+    }
+
+    /// Stable key used by the dialog's selector.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Daily => "1d",
+            Self::FifteenMinutes => "15m",
+            Self::Hourly => "1h",
+        }
+    }
+
+    /// Parse the selector key.
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "auto" => Some(Self::Auto),
+            "1d" => Some(Self::Daily),
+            "15m" => Some(Self::FifteenMinutes),
+            "1h" => Some(Self::Hourly),
+            _ => None,
+        }
+    }
+
+    /// Coin Metrics frequency the intraday stage requests; `None` when the
+    /// option needs no intraday fetch.
+    pub fn source_frequency(self) -> Option<&'static str> {
+        match self {
+            Self::Auto | Self::Daily => None,
+            Self::FifteenMinutes => Some("1m"),
+            Self::Hourly => Some("1h"),
+        }
+    }
+
+    /// Whether the option fetches closes finer than one day.
+    pub fn is_intraday(self) -> bool {
+        matches!(self, Self::FifteenMinutes | Self::Hourly)
+    }
+}
+
+/// Outcome of one run of the unified "Sync Prices" action.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PriceSyncSummary {
+    /// Currency the run prepared, e.g. `USD` or `EUR`.
+    pub symbol: String,
+    /// Inclusive bounds of the requested range (clamped to the source span).
+    pub from_time: i64,
+    pub to_time: i64,
+    /// Resolution actually applied to the recent window; `Auto` never appears.
+    pub granularity: SyncGranularity,
+    /// Inclusive bounds of the intraday window, when one was synced.
+    pub granular_from_time: Option<i64>,
+    pub granular_to_time: Option<i64>,
+    /// BTC/USD daily closes returned by the source and inserted.
+    pub daily_fetched: u64,
+    pub daily_stored: u64,
+    /// Intraday closes returned by the source and inserted.
+    pub granular_fetched: u64,
+    pub granular_stored: u64,
+    /// Complete days of the range the daily source had no price for.
+    pub unavailable_days: u64,
+    /// Conversion into `symbol` when it is not USD; `None` for USD runs.
+    pub conversion: Option<BulkSyncSummary>,
+    /// Non-fatal problems (catalogue, intraday stage, conversion). The run
+    /// stored everything else it could.
+    pub warnings: Vec<String>,
 }
 
 /// The stored price series of a symbol for the trend chart: the full span of
@@ -226,14 +312,23 @@ pub fn normalize_symbol(symbol: &str) -> Result<String, PriceError> {
     }
 }
 
+/// Close time of the interval of `unit_seconds` containing `timestamp`.
+///
+/// Coin Metrics timestamps rows at the start of their interval while the table
+/// stores closes, so the last second of the interval is the stored key.
+pub fn unit_close_time(timestamp: i64, unit_seconds: i64) -> i64 {
+    let unit = unit_seconds.max(1);
+    timestamp.div_euclid(unit) * unit + unit - 1
+}
+
 /// Close time of the 15-minute candle containing `timestamp`.
 pub fn fifteen_minute_close_time(timestamp: i64) -> i64 {
-    timestamp.div_euclid(FIFTEEN_MINUTES) * FIFTEEN_MINUTES + FIFTEEN_MINUTES - 1
+    unit_close_time(timestamp, FIFTEEN_MINUTES)
 }
 
 /// Close time of the UTC day containing `timestamp`.
 pub fn daily_close_time(timestamp: i64) -> i64 {
-    timestamp.div_euclid(DAY_SECONDS) * DAY_SECONDS + DAY_SECONDS - 1
+    unit_close_time(timestamp, DAY_SECONDS)
 }
 
 /// Reject non-finite or non-positive values coming from external sources.
@@ -289,6 +384,73 @@ mod tests {
     }
 
     #[test]
+    fn unit_close_time_lands_on_the_last_second_of_the_interval() {
+        let start = civil_time::epoch_seconds(2026, 7, 1, 12, 0, 0);
+        assert_eq!(
+            unit_close_time(start, 60),
+            civil_time::epoch_seconds(2026, 7, 1, 12, 0, 59)
+        );
+        assert_eq!(
+            unit_close_time(start, 15 * 60),
+            civil_time::epoch_seconds(2026, 7, 1, 12, 14, 59)
+        );
+        assert_eq!(
+            unit_close_time(start, 3_600),
+            civil_time::epoch_seconds(2026, 7, 1, 12, 59, 59)
+        );
+        assert_eq!(
+            unit_close_time(start, 86_400),
+            civil_time::epoch_seconds(2026, 7, 1, 23, 59, 59)
+        );
+        // The interval end itself stays in its own interval.
+        assert_eq!(
+            unit_close_time(civil_time::epoch_seconds(2026, 7, 1, 12, 59, 59), 3_600),
+            civil_time::epoch_seconds(2026, 7, 1, 12, 59, 59)
+        );
+        // A zero or negative unit cannot divide the timeline; it is clamped.
+        assert_eq!(
+            unit_close_time(start, 0),
+            civil_time::epoch_seconds(2026, 7, 1, 12, 0, 0)
+        );
+    }
+
+    #[test]
+    fn sync_granularity_keys_round_trip_and_never_source_auto() {
+        for granularity in [
+            SyncGranularity::Auto,
+            SyncGranularity::Daily,
+            SyncGranularity::FifteenMinutes,
+            SyncGranularity::Hourly,
+        ] {
+            assert_eq!(
+                SyncGranularity::from_key(granularity.key()),
+                Some(granularity)
+            );
+            assert!(!granularity.label().is_empty());
+            assert!(!granularity.resolution_label().is_empty());
+        }
+        assert_eq!(SyncGranularity::from_key("1m"), None);
+        assert_eq!(SyncGranularity::from_key("5m"), None);
+        assert_eq!(SyncGranularity::Auto.source_frequency(), None);
+        assert_eq!(SyncGranularity::Daily.source_frequency(), None);
+        assert_eq!(
+            SyncGranularity::FifteenMinutes.source_frequency(),
+            Some("1m")
+        );
+        assert_eq!(SyncGranularity::Hourly.source_frequency(), Some("1h"));
+        assert!(!SyncGranularity::Daily.is_intraday());
+        assert!(SyncGranularity::FifteenMinutes.is_intraday());
+    }
+
+    #[test]
+    fn price_history_starts_on_the_first_coin_metrics_day() {
+        assert_eq!(
+            civil_time::format_date(PRICE_HISTORY_START),
+            "2010-07-18".to_string()
+        );
+    }
+
+    #[test]
     fn fiat_currencies_include_the_default_and_are_uppercase_codes() {
         assert!(FIAT_CURRENCIES.contains(&USD_SYMBOL));
         for code in FIAT_CURRENCIES {
@@ -302,6 +464,16 @@ mod tests {
         assert_eq!(sats_to_fiat(1, 100_000_000.0), 1.0);
         assert_eq!(sats_to_fiat(0, 66_000.0), 0.0);
         assert!((sats_to_fiat(50_000, 0.5) - 0.00025).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn fiat_fees_convert_to_btc_equivalent_satoshis() {
+        assert_eq!(fiat_to_sats(60_000.0, 60_000.0), Some(100_000_000));
+        assert_eq!(fiat_to_sats(2.75, 60_000.0), Some(4_583));
+        assert_eq!(fiat_to_sats(0.0, 60_000.0), Some(0));
+        assert_eq!(fiat_to_sats(10.0, 0.0), None);
+        assert_eq!(fiat_to_sats(10.0, -1.0), None);
+        assert_eq!(fiat_to_sats(f64::NAN, 60_000.0), None);
     }
 
     #[test]

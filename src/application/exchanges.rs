@@ -1,9 +1,10 @@
 //! Exchange ledger service: CSV import, account/transaction workflows,
 //! reconciliation, and manual on-chain linking.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use crate::application::exchange_fiat::{ExchangeFiatService, FiatValue};
+use crate::application::prices::PriceService;
 use crate::data::repositories::{
     addresses as address_repository, catalogs as catalog_repository,
     exchanges as exchange_repository, settings as settings_repository,
@@ -12,21 +13,23 @@ use crate::data::{Database, DatabaseError};
 use crate::domain::civil_time;
 use crate::domain::exchange::{
     csv::{self, ParsedExchangeTx},
-    matching::{self, OnChainLinkCandidate},
+    matching::{self, OnChainClaims, OnChainLinkCandidate, OnChainTransaction},
     ExchangeAccount, ExchangeAccountList, ExchangeAccountTableQuery, ExchangeDetail,
-    ExchangeDuplicateChoice, ExchangeDuplicateInfo, ExchangeKpis, ExchangeLinkOutcome,
+    ExchangeDuplicateChoice, ExchangeDuplicateInfo, ExchangeKpiMetric, ExchangeKpiTransaction,
+    ExchangeKpis, ExchangeLinkOutcome, ExchangeReconcileBatchSummary, ExchangeReconcileFailure,
     ExchangeTransaction, ExchangeTransactionDraft, ExchangeTransactionSaveOutcome,
     ExchangeTransactionSaveRequest, ExchangeTransactionTableQuery, ExchangeTxType,
     ImportDataMapping, ImportDataPreview, ImportDataPreviewRow, ImportDataSummary, MatchState,
-    OnChainLink, OnChainLinkCandidateView, OnChainLinkSource,
+    OnChainLink, OnChainLinkCandidateView, OnChainLinkScoringSettings, OnChainLinkSource,
 };
+use crate::domain::price::{fiat_to_sats, sats_to_fiat, USD_SYMBOL};
 use crate::domain::table::{SortDirection, TablePage};
 
 const MAX_CSV_BYTES: usize = 25 * 1024 * 1024;
 const MAX_CSV_ROWS: usize = 200_000;
 const MAX_PAGE_SIZE: u32 = 100;
-/// Largest number of rows one bulk deletion may address.
-const MAX_DELETE_IDS: usize = 100;
+/// Largest number of rows one bulk action may address.
+const MAX_BULK_IDS: usize = 100;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExchangeServiceError {
@@ -53,16 +56,21 @@ impl ExchangeService {
         }
     }
 
-    pub fn list_accounts(
+    pub async fn list_accounts(
         &self,
         query: &ExchangeAccountTableQuery,
     ) -> Result<ExchangeAccountList, ExchangeServiceError> {
         let sort = parse_account_sort(query.table.sort_by.as_deref(), query.table.sort_dir)?;
         let page_size = query.table.page_size.clamp(1, MAX_PAGE_SIZE);
         let offset = u64::from(query.table.page) * u64::from(page_size);
-        let (page, totals) =
-            exchange_repository::list_accounts(&self.database, page_size, offset, sort)?;
-        Ok(ExchangeAccountList { page, totals })
+        let page = exchange_repository::list_accounts(&self.database, page_size, offset, sort)?;
+        let mut transactions = exchange_repository::list_kpi_transactions(&self.database, None)?;
+        let (kpis, conversion_warning) = self.kpis_for(&mut transactions).await?;
+        Ok(ExchangeAccountList {
+            page,
+            kpis,
+            conversion_warning,
+        })
     }
 
     pub fn get_account(&self, id: i64) -> Result<ExchangeAccount, ExchangeServiceError> {
@@ -72,15 +80,40 @@ impl ExchangeService {
 
     pub async fn detail(&self, id: i64) -> Result<ExchangeDetail, ExchangeServiceError> {
         let account = self.get_account(id)?;
-        let target = self.fiat.target_currency()?;
-        let mut transactions = exchange_repository::list_account_transactions(&self.database, id)?;
-        let warning = self.fiat.convert_transactions(&mut transactions).await;
-        let kpis = kpis(&transactions, &target);
+        let mut transactions =
+            exchange_repository::list_kpi_transactions(&self.database, Some(id))?;
+        let (kpis, conversion_warning) = self.kpis_for(&mut transactions).await?;
         Ok(ExchangeDetail {
             account,
             kpis,
-            conversion_warning: warning,
+            conversion_warning,
         })
+    }
+
+    /// Value the lean ledger projection in the current default currency. Both
+    /// the exchanges list and the account detail use this path so their KPI
+    /// cards always describe the same population the same way.
+    async fn kpis_for(
+        &self,
+        transactions: &mut [ExchangeKpiTransaction],
+    ) -> Result<(ExchangeKpis, Option<String>), ExchangeServiceError> {
+        let target = self.fiat.target_currency()?;
+        let mut warnings = Vec::new();
+        if let Some(warning) = self
+            .fiat
+            .convert_kpi_transactions(&target, transactions)
+            .await
+        {
+            warnings.push(warning);
+        }
+        let prices = PriceService::connect(self.database.clone());
+        let (btc_prices, price_warning) = btc_prices(&prices, transactions, &target).await;
+        if let Some(warning) = price_warning {
+            warnings.push(warning);
+        }
+        let kpis = kpis(transactions, &target, &btc_prices);
+        let conversion_warning = (!warnings.is_empty()).then(|| warnings.join(" "));
+        Ok((kpis, conversion_warning))
     }
 
     pub async fn list_transactions(
@@ -137,7 +170,7 @@ impl ExchangeService {
     /// Delete several exchange accounts atomically; their ledger rows
     /// cascade and the affected provider balances are refreshed once.
     pub fn delete_accounts(&self, ids: &[i64]) -> Result<usize, ExchangeServiceError> {
-        let ids = normalize_delete_ids(ids, "exchange")?;
+        let ids = normalize_bulk_ids(ids, "exchange")?;
         Ok(exchange_repository::delete_accounts(&self.database, &ids)?)
     }
 
@@ -254,11 +287,18 @@ impl ExchangeService {
             });
         }
 
-        let (mut existing_fingerprints, mut linked_txids) =
-            exchange_repository::existing_identities(&self.database, account.id)?;
+        let exchange_repository::ExistingIdentities {
+            fingerprints: mut existing_fingerprints,
+            linked_txids,
+            shareable_txids,
+        } = exchange_repository::existing_identities(&self.database, account.id)?;
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
         let scoring =
             settings_repository::load_exchange_settings(&self.database)?.on_chain_link_scoring;
+        let mut claims = OnChainClaims::from_linked_txids(&linked_txids);
+        for txid in &shareable_txids {
+            claims.claim(txid.clone(), true);
+        }
         let mut writes = Vec::new();
         let mut duplicates = 0;
         let mut auto_linked = 0;
@@ -295,29 +335,14 @@ impl ExchangeService {
                 is_manually_edited: false,
                 is_intentional_duplicate: false,
             };
-            if let Some(top) =
-                matching::candidates(&temporary, &on_chain, "", &scoring, &linked_txids)
-                    .into_iter()
-                    .next()
-            {
-                if top.likeliness == 1.0 && !top.is_already_linked {
-                    let source = if top.source == OnChainLinkSource::Hash {
-                        OnChainLinkSource::Hash
-                    } else {
-                        OnChainLinkSource::AmountDate
-                    };
-                    let state = if source == OnChainLinkSource::Hash {
-                        MatchState::HashMatch
-                    } else {
-                        MatchState::AmountDateMatch
-                    };
-                    let link = link_from_candidate(&top, source, now);
-                    write.match_state = state;
-                    write.matched_tx_id = Some(top.txid.clone());
-                    write.on_chain_link = Some(link);
-                    linked_txids.insert(top.txid.clone());
-                    auto_linked += 1;
-                }
+            let result = matching::match_transaction(&temporary, &on_chain, &scoring, &claims, now);
+            let state = result.match_state;
+            if let Some(link) = result.on_chain_link {
+                write.match_state = state;
+                write.matched_tx_id = Some(link.txid.clone());
+                claims.claim(link.txid.clone(), temporary.is_intentional_duplicate);
+                write.on_chain_link = Some(link);
+                auto_linked += 1;
             }
             writes.push(write);
         }
@@ -400,7 +425,7 @@ impl ExchangeService {
             currency,
             draft.fiat_amount,
             draft.fiat_currency.clone(),
-            draft.fee,
+            csv::normalize_fee(draft.fee, draft.fee_currency.as_deref()),
             draft.fee_currency.clone(),
             tx_hash,
             draft.description.clone(),
@@ -454,7 +479,7 @@ impl ExchangeService {
         exchange_id: i64,
         ids: &[i64],
     ) -> Result<usize, ExchangeServiceError> {
-        let ids = normalize_delete_ids(ids, "transaction")?;
+        let ids = normalize_bulk_ids(ids, "transaction")?;
         Ok(exchange_repository::delete_transactions(
             &self.database,
             exchange_id,
@@ -490,20 +515,89 @@ impl ExchangeService {
 
     pub async fn reconcile(&self, exchange_id: i64) -> Result<(), ExchangeServiceError> {
         self.get_account(exchange_id)?;
-        let transactions =
-            exchange_repository::list_account_transactions(&self.database, exchange_id)?;
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
         let scoring =
             settings_repository::load_exchange_settings(&self.database)?.on_chain_link_scoring;
-        let linked = HashSet::new();
+        self.reconcile_account(exchange_id, &on_chain, &scoring)
+    }
+
+    /// Reconcile several exchange accounts in one request.
+    ///
+    /// The on-chain transaction cache and scoring settings are loaded once.
+    /// Each account is matched and updated independently: a failure is
+    /// reported for that account and the remaining accounts still run.
+    pub fn reconcile_many(
+        &self,
+        ids: &[i64],
+    ) -> Result<ExchangeReconcileBatchSummary, ExchangeServiceError> {
+        let ids = normalize_bulk_ids(ids, "exchange")?;
+        let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
+        let scoring =
+            settings_repository::load_exchange_settings(&self.database)?.on_chain_link_scoring;
+        let mut summary = ExchangeReconcileBatchSummary::default();
+        for exchange_id in ids {
+            let name = match self.get_account(exchange_id) {
+                Ok(account) => account.name,
+                Err(ExchangeServiceError::AccountNotFound) => {
+                    summary.failed.push(ExchangeReconcileFailure {
+                        exchange_id,
+                        name: None,
+                        error: "exchange account not found".to_string(),
+                    });
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            match self.reconcile_account(exchange_id, &on_chain, &scoring) {
+                Ok(()) => summary.reconciled += 1,
+                Err(error) => summary.failed.push(ExchangeReconcileFailure {
+                    exchange_id,
+                    name: Some(name),
+                    error: error.to_string(),
+                }),
+            }
+        }
+        Ok(summary)
+    }
+
+    fn reconcile_account(
+        &self,
+        exchange_id: i64,
+        on_chain: &[OnChainTransaction],
+        scoring: &OnChainLinkScoringSettings,
+    ) -> Result<(), ExchangeServiceError> {
+        let transactions =
+            exchange_repository::list_account_transactions(&self.database, exchange_id)?;
+        // Manual links are authoritative and are not re-evaluated. Seed their
+        // claims first so an automatic amount/date match cannot take them.
+        let mut claims = OnChainClaims::new();
+        for transaction in &transactions {
+            if transaction.match_state == MatchState::ManualMatch {
+                if let Some(txid) = transaction_link_txid(transaction) {
+                    claims.claim(txid, transaction.is_intentional_duplicate);
+                }
+            }
+        }
         let now = now();
         let mut updates = Vec::new();
         for transaction in transactions {
             if transaction.match_state == MatchState::ManualMatch {
                 continue;
             }
-            let result =
-                matching::match_transaction(&transaction, &on_chain, &scoring, &linked, now);
+            let mut result =
+                matching::match_transaction(&transaction, on_chain, scoring, &claims, now);
+            // Re-running reconciliation must not rewrite the link timestamp
+            // when the same transaction and evidence source are still selected.
+            if let (Some(existing), Some(next)) =
+                (&transaction.on_chain_link, result.on_chain_link.as_mut())
+            {
+                if existing.txid == next.txid && existing.source == next.source {
+                    next.linked_at = existing.linked_at;
+                }
+            }
+            if let Some(link) = &result.on_chain_link {
+                claims.claim(link.txid.clone(), transaction.is_intentional_duplicate);
+            }
             if result.match_state != transaction.match_state
                 || result.matched_tx_id != transaction.matched_tx_id
                 || result.on_chain_link != transaction.on_chain_link
@@ -527,15 +621,10 @@ impl ExchangeService {
     ) -> Result<Vec<OnChainLinkCandidateView>, ExchangeServiceError> {
         let transaction = exchange_repository::get_transaction(&self.database, transaction_id)?
             .ok_or(ExchangeServiceError::TransactionNotFound)?;
-        let on_chain_ids =
+        let identities =
             exchange_repository::existing_identities(&self.database, transaction.exchange_id)?;
-        let mut linked = on_chain_ids.1;
-        if let Some(txid) = transaction
-            .on_chain_link
-            .as_ref()
-            .map(|link| link.txid.clone())
-            .or_else(|| transaction.matched_tx_id.clone())
-        {
+        let mut linked = identities.linked_txids;
+        if let Some(txid) = transaction_link_txid(&transaction) {
             linked.remove(&txid);
         }
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
@@ -648,7 +737,7 @@ fn validate_name(name: &str) -> Result<String, ExchangeServiceError> {
 
 /// Deduplicate and validate a batch selection before it reaches the
 /// repository. Sorting also gives the SQL parameters a deterministic order.
-fn normalize_delete_ids(ids: &[i64], noun: &str) -> Result<Vec<i64>, ExchangeServiceError> {
+fn normalize_bulk_ids(ids: &[i64], noun: &str) -> Result<Vec<i64>, ExchangeServiceError> {
     let mut ids = ids.to_vec();
     ids.sort_unstable();
     ids.dedup();
@@ -657,9 +746,9 @@ fn normalize_delete_ids(ids: &[i64], noun: &str) -> Result<Vec<i64>, ExchangeSer
             "Select at least one {noun}."
         )));
     }
-    if ids.len() > MAX_DELETE_IDS {
+    if ids.len() > MAX_BULK_IDS {
         return Err(ExchangeServiceError::Validation(format!(
-            "Select at most {MAX_DELETE_IDS} rows at once."
+            "Select at most {MAX_BULK_IDS} rows at once."
         )));
     }
     Ok(ids)
@@ -746,7 +835,7 @@ fn write_from_parsed(parsed: &ParsedExchangeTx) -> exchange_repository::Exchange
         parsed.currency.clone(),
         parsed.fiat_amount,
         parsed.fiat_currency.clone(),
-        parsed.fee,
+        csv::normalize_fee(parsed.fee, parsed.fee_currency.as_deref()),
         parsed.fee_currency.clone(),
         parsed.tx_hash.clone(),
         parsed.description.clone(),
@@ -888,49 +977,158 @@ fn candidate_view(
     }
 }
 
-fn link_from_candidate(
-    candidate: &OnChainLinkCandidate,
-    source: OnChainLinkSource,
-    linked_at: i64,
-) -> OnChainLink {
-    OnChainLink {
-        txid: candidate.txid.clone(),
-        local_addresses: candidate.local_addresses.clone(),
-        source,
-        linked_at,
+fn transaction_link_txid(transaction: &ExchangeTransaction) -> Option<String> {
+    transaction
+        .on_chain_link
+        .as_ref()
+        .map(|link| link.txid.clone())
+        .or_else(|| transaction.matched_tx_id.clone())
+}
+
+/// Prepare the default-currency price history once per KPI request.
+/// `ensure_currency_history` is idempotent and returns immediately once the
+/// stored USD series has been materialized in `target`.
+async fn prepare_currency_history(prices: &PriceService, target: &str) -> Option<String> {
+    if target == USD_SYMBOL {
+        return None;
+    }
+    match prices.ensure_currency_history(target).await {
+        Ok(summary) => summary.warning,
+        Err(error) => Some(format!(
+            "Could not prepare {target} BTC price history: {error}."
+        )),
     }
 }
 
-fn kpis(transactions: &[ExchangeTransaction], target: &str) -> ExchangeKpis {
+/// Whether one ledger row needs a historical BTC price. Rows with an already
+/// converted fiat consideration and no fee can reuse that value; everything
+/// else is valued at the transaction timestamp.
+fn needs_btc_price(transaction: &ExchangeKpiTransaction) -> bool {
+    if transaction.converted_fiat_amount.is_none() {
+        return true;
+    }
+    let fee = transaction.fee.unwrap_or(0.0).abs();
+    if fee == 0.0 {
+        return false;
+    }
+    transaction
+        .fee_currency
+        .as_deref()
+        .is_some_and(csv::is_bitcoin_currency)
+        || transaction.converted_fee_amount.is_some()
+}
+
+/// Resolve the BTC price in `target` for every transaction timestamp that
+/// needs valuation. One price is resolved per UTC day and shared by all rows of
+/// that day, keeping a large ledger from issuing one lookup per row.
+/// `PriceService::get_price` reads the stored history first and persists any
+/// missing day it resolves, so repeated requests hit the database.
+async fn btc_prices(
+    prices: &PriceService,
+    transactions: &[ExchangeKpiTransaction],
+    target: &str,
+) -> (BTreeMap<i64, f64>, Option<String>) {
+    let mut timestamps_by_day = BTreeMap::<i64, Vec<i64>>::new();
+    for transaction in transactions
+        .iter()
+        .filter(|transaction| needs_btc_price(transaction))
+    {
+        let day = transaction.timestamp.div_euclid(86_400) * 86_400;
+        timestamps_by_day
+            .entry(day)
+            .or_default()
+            .push(transaction.timestamp);
+    }
+    if timestamps_by_day.is_empty() {
+        return (BTreeMap::new(), None);
+    }
+
+    let mut warning = prepare_currency_history(prices, target).await;
+    let mut values = BTreeMap::new();
+    for timestamps in timestamps_by_day.values() {
+        let Some(&representative) = timestamps.first() else {
+            continue;
+        };
+        match prices.get_price(target, representative).await {
+            Ok(price) => {
+                for timestamp in timestamps {
+                    values.insert(*timestamp, price.close);
+                }
+            }
+            Err(error) => {
+                if warning.is_none() {
+                    warning = Some(format!(
+                        "Some ledger values could not be valued in {target}: {error}."
+                    ));
+                }
+            }
+        }
+    }
+    (values, warning)
+}
+
+fn add_kpi_metric(metric: &mut ExchangeKpiMetric, sats: i64, fiat: Option<f64>) {
+    metric.sats += sats;
+    metric.fiat += fiat.unwrap_or(0.0);
+    metric.count += 1;
+}
+
+fn kpis(
+    transactions: &[ExchangeKpiTransaction],
+    target: &str,
+    btc_prices: &BTreeMap<i64, f64>,
+) -> ExchangeKpis {
     let mut kpis = ExchangeKpis {
         fiat_currency: target.to_string(),
         ..ExchangeKpis::default()
     };
     for transaction in transactions {
-        let amount = transaction.amount_sats.abs();
-        let fiat = transaction.converted_fiat_amount.unwrap_or(0.0).abs();
+        let sats = transaction.amount_sats.abs();
+        let fiat = transaction.converted_fiat_amount.map(f64::abs).or_else(|| {
+            btc_prices
+                .get(&transaction.timestamp)
+                .map(|price| sats_to_fiat(sats, *price))
+        });
         match transaction.tx_type {
-            ExchangeTxType::Buy => {
-                kpis.bought_sats += amount;
-                kpis.fiat_spent += fiat;
-            }
-            ExchangeTxType::Sell => {
-                kpis.sold_sats += amount;
-                kpis.fiat_received += fiat;
-            }
-            ExchangeTxType::Withdrawal => kpis.withdrawn_sats += amount,
-            ExchangeTxType::Deposit => kpis.deposited_sats += amount,
-            _ => {}
+            ExchangeTxType::Buy => add_kpi_metric(&mut kpis.bought, sats, fiat),
+            ExchangeTxType::Sell => add_kpi_metric(&mut kpis.sold, sats, fiat),
+            ExchangeTxType::Reward => add_kpi_metric(&mut kpis.rewarded, sats, fiat),
+            ExchangeTxType::Withdrawal => add_kpi_metric(&mut kpis.withdrawn, sats, fiat),
+            ExchangeTxType::Deposit => add_kpi_metric(&mut kpis.deposited, sats, fiat),
+            ExchangeTxType::Unknown => {}
         }
-        if transaction.match_state == MatchState::Unmatched {
-            kpis.unmatched_count += 1;
+
+        if matches!(
+            transaction.tx_type,
+            ExchangeTxType::Withdrawal | ExchangeTxType::Deposit
+        ) {
+            kpis.onchain_total_count += 1;
+            if transaction.match_state != MatchState::Unmatched {
+                add_kpi_metric(&mut kpis.onchain_matched, sats, fiat);
+            }
         }
+
+        let fee = transaction.fee.unwrap_or(0.0).abs();
+        if fee == 0.0 {
+            continue;
+        }
+        kpis.fees.count += 1;
+        let price = btc_prices.get(&transaction.timestamp).copied();
         if transaction
             .fee_currency
             .as_deref()
             .is_some_and(csv::is_bitcoin_currency)
         {
-            kpis.btc_fees_sats += transaction.fee.unwrap_or(0.0).abs() as i64;
+            let fee_sats = fee.round() as i64;
+            kpis.fees.sats += fee_sats;
+            kpis.fees.fiat += price
+                .map(|price| sats_to_fiat(fee_sats, price))
+                .unwrap_or(0.0);
+        } else if let Some(fee_fiat) = transaction.converted_fee_amount.map(f64::abs) {
+            kpis.fees.fiat += fee_fiat;
+            if let Some(price) = price {
+                kpis.fees.sats += fiat_to_sats(fee_fiat, price).unwrap_or(0);
+            }
         }
     }
     kpis
@@ -947,11 +1145,434 @@ fn now() -> i64 {
 mod tests {
     use super::*;
 
+    use crate::clients::mempool::bitcoin::types::{Tx, TxStatus, TxVin, Vout};
+    use crate::data::repositories::transactions as transaction_repository;
+    use crate::domain::address::AddressEntity;
+
+    const TEST_ADDRESS: &str = "bc1qtestimport";
+    const TEST_BLOCK_TIME: i64 = 1_700_000_000;
+
+    fn on_chain_tx(txid: &str, output_value: i64, block_time: i64) -> Tx {
+        Tx {
+            txid: txid.into(),
+            version: 2,
+            locktime: 0,
+            vin: vec![TxVin {
+                txid: "funding".into(),
+                vout: 0,
+                prevout: None,
+                scriptsig: String::new(),
+                scriptsig_asm: String::new(),
+                is_coinbase: false,
+                sequence: 0,
+            }],
+            vout: vec![Vout {
+                scriptpubkey: String::new(),
+                scriptpubkey_asm: String::new(),
+                scriptpubkey_type: "v0_p2wpkh".into(),
+                scriptpubkey_address: Some(TEST_ADDRESS.into()),
+                value: output_value,
+            }],
+            size: 100,
+            weight: 400,
+            fee: 250,
+            status: TxStatus {
+                confirmed: true,
+                block_height: Some(1),
+                block_hash: Some("block".into()),
+                block_time: Some(block_time),
+            },
+        }
+    }
+
+    fn seed_on_chain_transaction(database: &Database, tx: Tx) {
+        address_repository::insert_address(
+            database,
+            &AddressEntity {
+                address: TEST_ADDRESS.into(),
+                ..AddressEntity::default()
+            },
+        )
+        .unwrap();
+        transaction_repository::sync_transactions(database, TEST_ADDRESS, &[tx], false).unwrap();
+    }
+
+    fn import_mapping() -> ImportDataMapping {
+        ImportDataMapping {
+            timestamp: "Date".into(),
+            amount: "Amount".into(),
+            currency: "Currency".into(),
+            tx_type: "Type".into(),
+            ..ImportDataMapping::default()
+        }
+    }
+
+    fn withdrawal_draft(timestamp: i64) -> ExchangeTransactionDraft {
+        ExchangeTransactionDraft {
+            timestamp,
+            tx_type: ExchangeTxType::Withdrawal,
+            amount_sats: 100_000,
+            currency: "BTC".into(),
+            fiat_amount: None,
+            fiat_currency: None,
+            fee: None,
+            fee_currency: None,
+            tx_hash: None,
+            description: None,
+        }
+    }
+
+    fn save_withdrawal(
+        service: &ExchangeService,
+        exchange_id: i64,
+        timestamp: i64,
+    ) -> ExchangeTransaction {
+        let request = ExchangeTransactionSaveRequest {
+            exchange_id,
+            transaction_id: None,
+            draft: withdrawal_draft(timestamp),
+            duplicate_choice: None,
+        };
+        match block_on(service.save_transaction(&request)).unwrap() {
+            ExchangeTransactionSaveOutcome::Saved(row) => *row,
+            ExchangeTransactionSaveOutcome::Duplicate(info) => {
+                panic!("unexpected duplicate: {}", info.summary);
+            }
+        }
+    }
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        use std::task::{Context, RawWaker, RawWakerVTable, Waker};
+
+        fn raw_waker() -> RawWaker {
+            fn clone(_: *const ()) -> RawWaker {
+                raw_waker()
+            }
+            fn noop(_: *const ()) {}
+            // SAFETY: the vtable never dereferences the null data pointer.
+            static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+
+        // SAFETY: `raw_waker` builds a `RawWaker` whose vtable upholds the
+        // contract documented above; the data pointer is never dereferenced.
+        let waker = unsafe { Waker::from_raw(raw_waker()) };
+        let mut context = Context::from_waker(&waker);
+        let mut future = std::pin::pin!(future);
+        match future.as_mut().poll(&mut context) {
+            std::task::Poll::Ready(value) => value,
+            std::task::Poll::Pending => panic!("future is pending"),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn kpi_transaction(
+        tx_type: ExchangeTxType,
+        amount_sats: i64,
+        timestamp: i64,
+        converted_fiat_amount: Option<f64>,
+        fee: Option<f64>,
+        fee_currency: Option<&str>,
+        converted_fee_amount: Option<f64>,
+        match_state: MatchState,
+    ) -> ExchangeKpiTransaction {
+        ExchangeKpiTransaction {
+            timestamp,
+            tx_type,
+            amount_sats,
+            fiat_amount: None,
+            fiat_currency: None,
+            fee,
+            fee_currency: fee_currency.map(str::to_string),
+            match_state,
+            converted_fiat_amount,
+            converted_fee_amount,
+        }
+    }
+
     #[test]
     fn deleting_an_empty_batch_is_rejected() {
         let service = ExchangeService::connect(Database::open_in_memory().unwrap());
 
         assert!(service.delete_accounts(&[]).is_err());
         assert!(service.delete_transactions(1, &[]).is_err());
+    }
+
+    #[test]
+    fn kpis_split_btc_movements_and_value_all_fees_in_the_default_currency() {
+        let timestamp = 1_700_000_000;
+        let transactions = vec![
+            kpi_transaction(
+                ExchangeTxType::Buy,
+                100_000_000,
+                timestamp,
+                Some(50_000.0),
+                Some(2.5),
+                Some("EUR"),
+                Some(2.75),
+                MatchState::HashMatch,
+            ),
+            kpi_transaction(
+                ExchangeTxType::Sell,
+                50_000_000,
+                timestamp + 1,
+                Some(30_000.0),
+                None,
+                None,
+                None,
+                MatchState::HashMatch,
+            ),
+            kpi_transaction(
+                ExchangeTxType::Reward,
+                1_000_000,
+                timestamp,
+                None,
+                None,
+                None,
+                None,
+                MatchState::Unmatched,
+            ),
+            kpi_transaction(
+                ExchangeTxType::Withdrawal,
+                10_000_000,
+                timestamp,
+                None,
+                Some(10_000.0),
+                Some("BTC"),
+                None,
+                MatchState::Unmatched,
+            ),
+            kpi_transaction(
+                ExchangeTxType::Deposit,
+                20_000_000,
+                timestamp,
+                None,
+                None,
+                None,
+                None,
+                MatchState::Unmatched,
+            ),
+            kpi_transaction(
+                ExchangeTxType::Deposit,
+                5_000_000,
+                timestamp,
+                None,
+                None,
+                None,
+                None,
+                MatchState::HashMatch,
+            ),
+        ];
+        let prices = BTreeMap::from([(timestamp, 60_000.0)]);
+
+        let kpis = kpis(&transactions, "USD", &prices);
+
+        assert_eq!(kpis.bought.sats, 100_000_000);
+        assert_eq!(kpis.bought.fiat, 50_000.0);
+        assert_eq!(kpis.bought.count, 1);
+        assert_eq!(kpis.sold.sats, 50_000_000);
+        assert_eq!(kpis.sold.fiat, 30_000.0);
+        assert_eq!(kpis.sold.count, 1);
+        assert_eq!(kpis.rewarded.sats, 1_000_000);
+        assert_eq!(kpis.rewarded.fiat, 600.0);
+        assert_eq!(kpis.rewarded.count, 1);
+        assert_eq!(kpis.withdrawn.sats, 10_000_000);
+        assert_eq!(kpis.withdrawn.fiat, 6_000.0);
+        assert_eq!(kpis.withdrawn.count, 1);
+        assert_eq!(kpis.deposited.sats, 25_000_000);
+        assert_eq!(kpis.deposited.fiat, 15_000.0);
+        assert_eq!(kpis.deposited.count, 2);
+        // 2.75 converted EUR fee + 0.0001 BTC at $60,000 = 6.00.
+        assert!((kpis.fees.fiat - 8.75).abs() < 1e-9);
+        // The fiat fee is 4,583 sats at $60,000; the BTC fee is 10,000.
+        assert_eq!(kpis.fees.sats, 14_583);
+        assert_eq!(kpis.fees.count, 2);
+        assert_eq!(kpis.onchain_matched.sats, 5_000_000);
+        assert_eq!(kpis.onchain_matched.fiat, 3_000.0);
+        assert_eq!(kpis.onchain_matched.count, 1);
+        assert_eq!(kpis.onchain_total_count, 3);
+        assert_eq!(kpis.fiat_currency, "USD");
+    }
+
+    #[test]
+    fn parsed_btc_fees_are_normalized_to_satoshis_at_the_import_boundary() {
+        let parsed = ParsedExchangeTx {
+            fingerprint: "fingerprint".into(),
+            timestamp: 1_700_000_000,
+            tx_type: ExchangeTxType::Buy,
+            amount: 100_000_000.0,
+            currency: "BTC".into(),
+            fiat_amount: None,
+            fiat_currency: None,
+            fee: Some(0.0001),
+            fee_currency: Some("BTC".into()),
+            tx_hash: None,
+            description: None,
+            raw_data: BTreeMap::new(),
+        };
+
+        let write = write_from_parsed(&parsed);
+
+        assert_eq!(write.fee, Some(10_000.0));
+    }
+
+    #[test]
+    fn manual_btc_fees_are_normalized_to_satoshis_on_save() {
+        let database = Database::open_in_memory().unwrap();
+        let service = ExchangeService::connect(database);
+        let account = service.create_account("Test", None).unwrap();
+        let request = ExchangeTransactionSaveRequest {
+            exchange_id: account.id,
+            transaction_id: None,
+            draft: ExchangeTransactionDraft {
+                timestamp: 1_700_000_000,
+                tx_type: ExchangeTxType::Buy,
+                amount_sats: 100_000_000,
+                currency: "BTC".into(),
+                fiat_amount: None,
+                fiat_currency: None,
+                fee: Some(0.0001),
+                fee_currency: Some("BTC".into()),
+                tx_hash: None,
+                description: None,
+            },
+            duplicate_choice: None,
+        };
+
+        let outcome = block_on(service.save_transaction(&request)).unwrap();
+
+        match outcome {
+            ExchangeTransactionSaveOutcome::Saved(row) => {
+                assert_eq!(row.fee, Some(10_000.0));
+            }
+            ExchangeTransactionSaveOutcome::Duplicate(info) => {
+                panic!("unexpected duplicate: {}", info.summary);
+            }
+        }
+    }
+
+    #[test]
+    fn import_auto_links_a_unique_amount_date_transaction() {
+        let database = Database::open_in_memory().unwrap();
+        seed_on_chain_transaction(
+            &database,
+            on_chain_tx("import-tx", 100_250, TEST_BLOCK_TIME),
+        );
+        let service = ExchangeService::connect(database);
+        let mapping = import_mapping();
+        let csv = "Date,Amount,Currency,Type\n2023-11-14 22:13:20,0.001,BTC,Withdrawal\n";
+
+        let summary =
+            block_on(service.import_data(None, Some("Test"), None, csv, Some(&mapping))).unwrap();
+
+        assert_eq!(summary.inserted, 1);
+        assert_eq!(summary.auto_linked, 1);
+        let rows =
+            exchange_repository::list_account_transactions(&service.database, summary.exchange_id)
+                .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].match_state, MatchState::AmountDateMatch);
+        assert_eq!(rows[0].matched_tx_id.as_deref(), Some("import-tx"));
+    }
+
+    #[test]
+    fn reconcile_links_at_most_one_row_to_a_transaction() {
+        let database = Database::open_in_memory().unwrap();
+        seed_on_chain_transaction(
+            &database,
+            on_chain_tx("shared-tx", 100_250, TEST_BLOCK_TIME),
+        );
+        let service = ExchangeService::connect(database);
+        let account = service.create_account("Test", None).unwrap();
+        save_withdrawal(&service, account.id, TEST_BLOCK_TIME);
+        save_withdrawal(&service, account.id, TEST_BLOCK_TIME + 1);
+
+        block_on(service.reconcile(account.id)).unwrap();
+
+        let rows =
+            exchange_repository::list_account_transactions(&service.database, account.id).unwrap();
+        let matched = rows
+            .iter()
+            .filter(|row| row.match_state != MatchState::Unmatched)
+            .count();
+        assert_eq!(matched, 1);
+        assert!(rows
+            .iter()
+            .any(|row| row.match_state == MatchState::AmountDateMatch));
+    }
+
+    #[test]
+    fn reconcile_many_reconciles_each_selected_account_and_reports_missing_ones() {
+        let database = Database::open_in_memory().unwrap();
+        seed_on_chain_transaction(&database, on_chain_tx("batch-tx", 100_250, TEST_BLOCK_TIME));
+        let service = ExchangeService::connect(database);
+        let first = service.create_account("First", None).unwrap();
+        let second = service.create_account("Second", None).unwrap();
+        save_withdrawal(&service, first.id, TEST_BLOCK_TIME);
+        save_withdrawal(&service, second.id, TEST_BLOCK_TIME);
+
+        // The repeated id is deduplicated and the missing account is reported
+        // without blocking the accounts that exist.
+        let summary = service
+            .reconcile_many(&[first.id, second.id, first.id, 999_999])
+            .unwrap();
+
+        assert_eq!(summary.reconciled, 2);
+        assert_eq!(summary.failed.len(), 1);
+        assert_eq!(summary.failed[0].exchange_id, 999_999);
+        assert_eq!(summary.failed[0].name, None);
+        for account in [&first, &second] {
+            let rows =
+                exchange_repository::list_account_transactions(&service.database, account.id)
+                    .unwrap();
+            assert!(rows
+                .iter()
+                .all(|row| row.match_state == MatchState::AmountDateMatch));
+        }
+    }
+
+    #[test]
+    fn reconcile_many_rejects_an_empty_selection() {
+        let service = ExchangeService::connect(Database::open_in_memory().unwrap());
+
+        assert!(service.reconcile_many(&[]).is_err());
+    }
+
+    #[test]
+    fn reconcile_preserves_an_unchanged_link_timestamp() {
+        let database = Database::open_in_memory().unwrap();
+        seed_on_chain_transaction(
+            &database,
+            on_chain_tx("stable-tx", 100_250, TEST_BLOCK_TIME),
+        );
+        let service = ExchangeService::connect(database);
+        let account = service.create_account("Test", None).unwrap();
+        let saved = save_withdrawal(&service, account.id, TEST_BLOCK_TIME);
+
+        block_on(service.reconcile(account.id)).unwrap();
+        let row = exchange_repository::get_transaction(&service.database, saved.id)
+            .unwrap()
+            .unwrap();
+        let link = row.on_chain_link.clone().unwrap();
+        let old_link = OnChainLink {
+            linked_at: 1,
+            ..link
+        };
+        exchange_repository::set_link(
+            &service.database,
+            account.id,
+            row.id,
+            row.match_state,
+            row.matched_tx_id.as_deref(),
+            Some(&old_link),
+        )
+        .unwrap();
+
+        block_on(service.reconcile(account.id)).unwrap();
+
+        let row = exchange_repository::get_transaction(&service.database, saved.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.on_chain_link.unwrap().linked_at, 1);
     }
 }

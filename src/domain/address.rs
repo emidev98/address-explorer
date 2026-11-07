@@ -7,6 +7,8 @@ use std::str::FromStr;
 use bitcoin::{Address as BitcoinAddress, Network};
 use serde::{Deserialize, Serialize};
 
+use crate::domain::table::{TablePage, TableQuery};
+
 /// Persisted, SQLite-normalized representation of a mempool address.
 ///
 /// `exchange_id` and `wallet_id` are optional foreign keys into the
@@ -158,18 +160,17 @@ impl AddressScopeFilter {
     }
 }
 
-/// Query of the addresses overview endpoint: backend sorting and the scope
-/// filter. Sorting follows the shared table contract (Section 5.11 of
-/// CONTRIBUTING.md); the overview is not paginated because the KPIs and the
-/// holdings chart derive from the full listing.
+/// Query of the addresses overview endpoint: the shared table contract
+/// (pagination and sorting) plus the scope filter. Sorting and pagination
+/// follow Section 5.11 of CONTRIBUTING.md. The overview still returns every
+/// matching row for the KPI cards and the holdings chart, and carries the
+/// requested table page separately.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AddressOverviewQuery {
-    /// Key of the sortable column, `None` for the default order (spendable
-    /// balance descending).
-    pub sort_by: Option<String>,
-    /// Sort direction; ignored without `sort_by`.
-    pub sort_dir: crate::domain::table::SortDirection,
+    /// Page, page size, and sort of the table.
+    #[serde(flatten)]
+    pub table: TableQuery,
     /// Scope filter of the rows.
     pub scope: AddressScopeFilter,
 }
@@ -207,16 +208,42 @@ pub struct AddressOverviewItem {
     pub tx_index_rate_limited: bool,
 }
 
-/// Addresses overview: the page rows plus the KPI totals.
+impl AddressOverviewItem {
+    /// Whether the overview lists this row in the table and aggregates it in
+    /// the holdings chart.
+    ///
+    /// Exchange-scoped addresses are only listed while their stored ledger
+    /// balance is non-zero: the reverse search relates an exchange to every
+    /// stored address it transacted with, and an exchange address without a
+    /// balance would crowd the table without telling anything. Wallets and
+    /// unclassified addresses stay listed at any balance. The backend's
+    /// global address count applies the same rule, so the "Addresses" KPI
+    /// matches the listed population.
+    // Only the server-side overview service filters with this rule; web
+    // builds deserialize the already-filtered listing through the API.
+    #[cfg_attr(not(feature = "server"), allow(dead_code))]
+    pub fn is_listed(&self) -> bool {
+        !self.scope.is_exchange() || self.spendable_balance_sats != 0
+    }
+}
+
+/// Addresses overview: the table page, all rows for the charts, and the KPI
+/// totals.
 ///
-/// `items` match the requested sorting and scope filter. The KPI totals
-/// describe the same filtered population, so the cards track the table and
-/// the holdings treemap. The address count excludes exchange-scoped addresses
-/// without a stored ledger balance, which the overview never lists. The
-/// balance total includes the stored exchange ledger balances.
+/// `items` contains every row matching the requested sorting and scope
+/// filter, because the KPI cards and the holdings treemap derive from the
+/// full listing. `page` is the requested slice of that same listing and
+/// backs the table. The KPI totals describe the same filtered population, so
+/// the cards track the table and the holdings treemap. The address count
+/// excludes exchange-scoped addresses without a stored ledger balance, which
+/// the overview never lists. The balance total includes the stored exchange
+/// ledger balances.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddressOverview {
+    /// Every listed row, in the requested order.
     pub items: Vec<AddressOverviewItem>,
+    /// The requested table page of the listing.
+    pub page: TablePage<AddressOverviewItem>,
     /// Stored addresses the overview lists for the requested scope: every
     /// wallet and unclassified address, plus exchange-scoped addresses with a
     /// non-zero ledger balance.
@@ -317,8 +344,24 @@ pub fn address_type_label(value: &str) -> Option<&'static str> {
 #[cfg(all(test, feature = "server"))]
 mod tests {
     use super::{
-        address_type_label, normalize_description, validate_bitcoin_address, AddressScopeFilter,
+        address_type_label, normalize_description, validate_bitcoin_address, AddressOverviewQuery,
+        AddressScopeFilter,
     };
+    use crate::domain::table::SortDirection;
+
+    #[test]
+    fn overview_query_flattens_the_shared_table_contract() {
+        let query: AddressOverviewQuery = serde_json::from_str(
+            r#"{"page":2,"page_size":10,"sort_by":"balance","sort_dir":"asc","scope":"wallets"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(query.table.page, 2);
+        assert_eq!(query.table.page_size, 10);
+        assert_eq!(query.table.sort_by.as_deref(), Some("balance"));
+        assert_eq!(query.table.sort_dir, SortDirection::Asc);
+        assert_eq!(query.scope, AddressScopeFilter::Wallets);
+    }
 
     #[test]
     fn scope_filters_have_singular_empty_state_nouns() {

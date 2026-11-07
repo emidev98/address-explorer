@@ -21,6 +21,11 @@ use crate::domain::exchange::{
     ImportDataSummary, MatchState,
 };
 use crate::domain::price::FIAT_CURRENCIES;
+use crate::domain::table::DEFAULT_PAGE_SIZE;
+
+/// Row cap of the link-candidate table: the picker ranks the best matches and
+/// the search field narrows the rest.
+const MAX_LINK_CANDIDATES: usize = DEFAULT_PAGE_SIZE as usize;
 
 const TRANSACTION_TYPES: [ExchangeTxType; 6] = [
     ExchangeTxType::Buy,
@@ -55,8 +60,12 @@ const IMPORT_DATA_MAPPING_FIELDS: [(ImportDataMappingField, &str, bool); 10] = [
         "Transaction hash / txid",
         false,
     ),
-    (ImportDataMappingField::FiatAmount, "Fiat amount", false),
-    (ImportDataMappingField::FiatCurrency, "Fiat currency", false),
+    (ImportDataMappingField::FiatAmount, "Value", false),
+    (
+        ImportDataMappingField::FiatCurrency,
+        "Value currency",
+        false,
+    ),
     (ImportDataMappingField::Fee, "Fee", false),
     (ImportDataMappingField::FeeCurrency, "Fee currency", false),
     (ImportDataMappingField::Description, "Description", false),
@@ -156,6 +165,8 @@ pub fn ImportDataDialog(
     on_imported: EventHandler<ImportDataSummary>,
 ) -> Element {
     let mut toast = use_toast();
+    let default_currency = use_fiat_currency();
+    let default_currency_code = default_currency.code();
     let mut name = use_signal(|| exchange_name.clone().unwrap_or_default());
     let mut provider_id = use_signal(|| Option::<i64>::None);
     let mut provider_touched = use_signal(|| false);
@@ -325,9 +336,11 @@ pub fn ImportDataDialog(
                             provider_touched.set(true);
                             provider_id.set(selected);
                             if name().trim().is_empty() {
-                                if let Some(provider) = selected.and_then(|id| {
-                                    auto_fill_entries.iter().find(|entry| entry.id == id).cloned()
-                                }) {
+                                if let Some(provider) = selected
+                                    .and_then(|id| {
+                                        auto_fill_entries.iter().find(|entry| entry.id == id).cloned()
+                                    })
+                                {
                                     name.set(provider.name);
                                 }
                             }
@@ -455,7 +468,7 @@ pub fn ImportDataDialog(
                                         th { "Type" }
                                         th { "Amount" }
                                         th { "Currency" }
-                                        th { "Fiat" }
+                                        th { "Value ({default_currency_code})" }
                                         th { "TX Hash" }
                                     }
                                 }
@@ -786,13 +799,6 @@ pub fn ExchangeInspector(
             return;
         };
         let fee_value = parse_optional_number(&fee());
-        let fee_units = if fee_currency().as_str().eq_ignore_ascii_case("BTC")
-            || fee_currency().as_str().eq_ignore_ascii_case("XBT")
-        {
-            fee_value.map(|value| (value * 100_000_000.0).round())
-        } else {
-            fee_value
-        };
         let draft = ExchangeTransactionDraft {
             timestamp,
             tx_type: tx_type(),
@@ -803,7 +809,8 @@ pub fn ExchangeInspector(
                 .unwrap_or_else(|| "BTC".to_string()),
             fiat_amount: parse_optional_number(&fiat_amount()),
             fiat_currency: optional_text(&fiat_currency()),
-            fee: fee_units,
+            // The service converts BTC/XBT fees to satoshis.
+            fee: fee_value,
             fee_currency: optional_text(&fee_currency()),
             tx_hash: optional_text(&tx_hash()),
             description: optional_text(&description()),
@@ -871,7 +878,7 @@ pub fn ExchangeInspector(
             }
             if let Some((amount, currency)) = converted.clone() {
                 div { class: "md3-exchange-inspector-state",
-                    span { class: "text-body-small text-on-surface-variant", "Converted fiat" }
+                    span { class: "text-body-small text-on-surface-variant", "Converted value" }
                     span { class: "text-body-medium text-on-surface",
                         "{format_fiat(amount, currency.as_deref().unwrap_or(\"\"))}"
                     }
@@ -922,7 +929,7 @@ pub fn ExchangeInspector(
                 }
                 div { class: "md3-exchange-two-cols",
                     div {
-                        label { class: "text-body-small text-on-surface-variant", "Fiat amount" }
+                        label { class: "text-body-small text-on-surface-variant", "Value" }
                         div { class: "md3-text-field",
                             input {
                                 class: "md3-input",
@@ -934,7 +941,7 @@ pub fn ExchangeInspector(
                         }
                     }
                     div {
-                        label { class: "text-body-small text-on-surface-variant", "Fiat currency" }
+                        label { class: "text-body-small text-on-surface-variant", "Value currency" }
                         div { class: "md3-text-field",
                             select {
                                 class: "md3-input",
@@ -1177,64 +1184,76 @@ pub fn ExchangeLinkDialog(
                             }
                         }
                     },
-                    Some(Ok(list)) => rsx! {
-                        div { class: "md3-table-container md3-exchange-link-table",
-                            table { class: "md3-table",
-                                thead {
-                                    tr {
-                                        th { "Link" }
-                                        th { "Addresses" }
-                                        th { "Likely" }
-                                        th { "On-chain tx" }
-                                        th { "Timestamp" }
-                                        th { "Balance" }
-                                    }
+                    Some(Ok(list)) => {
+                        let total = list.len();
+                        let visible = list
+                            .into_iter()
+                            .take(MAX_LINK_CANDIDATES)
+                            .collect::<Vec<_>>();
+                        rsx! {
+                            if total > MAX_LINK_CANDIDATES {
+                                p { class: "text-body-small text-on-surface-variant",
+                                    "Showing the {MAX_LINK_CANDIDATES} best matches; refine the search to see the rest."
                                 }
-                                tbody {
-                                    for candidate in list {
-                                        {
-                                            let is_current = current_txid_for_table.as_deref()
-                                                == Some(candidate.txid.as_str());
-                                            let candidate_txid = candidate.txid.clone();
-                                            rsx! {
-                                                tr {
-                                                    td {
-                                                        button {
-                                                            r#type: "button",
-                                                            class: if is_current { "md3-button-tonal" } else { "md3-button-filled" },
-                                                            disabled: is_current || *loading.read(),
-                                                            onclick: move |_| {
-                                                                link.call((candidate_txid.clone(), false));
-                                                            },
-                                                            if is_current {
-                                                                "Linked"
-                                                            } else {
-                                                                "Link"
+                            }
+                            div { class: "md3-table-container md3-exchange-link-table",
+                                table { class: "md3-table",
+                                    thead {
+                                        tr {
+                                            th { "Link" }
+                                            th { "Addresses" }
+                                            th { "Likely" }
+                                            th { "On-chain tx" }
+                                            th { "Timestamp" }
+                                            th { "Balance" }
+                                        }
+                                    }
+                                    tbody {
+                                        for candidate in visible {
+                                            {
+                                                let is_current = current_txid_for_table.as_deref()
+                                                    == Some(candidate.txid.as_str());
+                                                let candidate_txid = candidate.txid.clone();
+                                                rsx! {
+                                                    tr {
+                                                        td {
+                                                            button {
+                                                                r#type: "button",
+                                                                class: if is_current { "md3-button-tonal" } else { "md3-button-filled" },
+                                                                disabled: is_current || *loading.read(),
+                                                                onclick: move |_| {
+                                                                    link.call((candidate_txid.clone(), false));
+                                                                },
+                                                                if is_current {
+                                                                    "Linked"
+                                                                } else {
+                                                                    "Link"
+                                                                }
                                                             }
                                                         }
-                                                    }
-                                                    td {
-                                                        div { class: "md3-exchange-address-chips",
-                                                            for address in &candidate.local_addresses {
-                                                                span { class: "md3-exchange-chip",
-                                                                    if let Some(label) = &address.label {
-                                                                        "{label} ({format_address(&address.address)})"
-                                                                    } else {
-                                                                        "{format_address(&address.address)}"
+                                                        td {
+                                                            div { class: "md3-exchange-address-chips",
+                                                                for address in &candidate.local_addresses {
+                                                                    span { class: "md3-exchange-chip",
+                                                                        if let Some(label) = &address.label {
+                                                                            "{label} ({format_address(&address.address)})"
+                                                                        } else {
+                                                                            "{format_address(&address.address)}"
+                                                                        }
                                                                     }
                                                                 }
                                                             }
                                                         }
-                                                    }
-                                                    td { "{candidate.likeliness:.3}" }
-                                                    td { "{format_tx_hash(&candidate.txid)}" }
-                                                    td { "{civil_time::format_datetime(candidate.block_time)}" }
-                                                    td {
-                                                        div { class: "md3-exchange-candidate-balance",
-                                                            strong { "{format_btc(candidate.known_movement_sats)}" }
-                                                            span { "Fee {format_btc(candidate.fee_sats)}" }
-                                                            if let Some(delta) = candidate.amount_delta_sats {
-                                                                span { "Delta {delta} sats" }
+                                                        td { "{candidate.likeliness:.3}" }
+                                                        td { "{format_tx_hash(&candidate.txid)}" }
+                                                        td { "{civil_time::format_datetime(candidate.block_time)}" }
+                                                        td {
+                                                            div { class: "md3-exchange-candidate-balance",
+                                                                strong { "{format_btc(candidate.known_movement_sats)}" }
+                                                                span { "Fee {format_btc(candidate.fee_sats)}" }
+                                                                if let Some(delta) = candidate.amount_delta_sats {
+                                                                    span { "Delta {delta} sats" }
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -1245,7 +1264,7 @@ pub fn ExchangeLinkDialog(
                                 }
                             }
                         }
-                    },
+                    }
                 }
                 div { class: "md3-dialog-actions",
                     button {

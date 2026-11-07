@@ -12,8 +12,8 @@ use super::placeholders;
 use crate::data::{Database, DatabaseError};
 use crate::domain::exchange::matching::{OnChainInput, OnChainOutput, OnChainTransaction};
 use crate::domain::exchange::{
-    ExchangeAccount, ExchangeAccountRow, ExchangeActivityTotals, ExchangeOverviewTotals,
-    ExchangeTransaction, ExchangeTxType, MatchState, OnChainLink, OnChainLinkSource,
+    ExchangeAccount, ExchangeAccountRow, ExchangeKpiTransaction, ExchangeTransaction,
+    ExchangeTxType, MatchState, OnChainLink, OnChainLinkSource,
 };
 use crate::domain::table::{SortDirection, TablePage};
 
@@ -111,6 +111,8 @@ pub struct ExchangeTransactionWrite {
     pub currency: String,
     pub fiat_amount: Option<f64>,
     pub fiat_currency: Option<String>,
+    /// Satoshis when `fee_currency` is BTC/XBT, the fee currency's units
+    /// otherwise. The application normalizes it at the import/save boundary.
     pub fee: Option<f64>,
     pub fee_currency: Option<String>,
     pub tx_hash: Option<String>,
@@ -130,13 +132,14 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
-/// Read one page of exchange accounts and the global KPI totals.
+/// Read one page of exchange accounts. Global KPIs are computed from
+/// [`list_kpi_transactions`] by the application service.
 pub fn list_accounts(
     database: &Database,
     limit: u32,
     offset: u64,
     sort: Option<(ExchangeAccountSortColumn, SortDirection)>,
-) -> Result<(TablePage<ExchangeAccountRow>, ExchangeOverviewTotals), DatabaseError> {
+) -> Result<TablePage<ExchangeAccountRow>, DatabaseError> {
     let order = match sort {
         Some((ExchangeAccountSortColumn::OnChainOperations, direction)) => format!(
             "onchain_matched_count {} NULLS LAST, onchain_total_count {} NULLS LAST, a.id {}",
@@ -193,49 +196,7 @@ pub fn list_accounts(
     let total = connection.query_row("SELECT COUNT(*) FROM exchange_accounts", [], |row| {
         row.get::<_, i64>(0)
     })? as u64;
-    let totals = connection.query_row(
-        "SELECT (SELECT COUNT(*) FROM exchange_accounts),
-                (SELECT COUNT(*) FROM exchange_transactions),
-                (SELECT COUNT(*) FROM exchange_transactions
-                 WHERE tx_type IN ('deposit', 'withdrawal') AND match_state <> 'unmatched'),
-                (SELECT COUNT(*) FROM exchange_transactions
-                 WHERE tx_type IN ('deposit', 'withdrawal')),
-                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'buy' THEN ABS(amount_sats)
-                                         ELSE 0 END), 0) FROM exchange_transactions),
-                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'sell' THEN ABS(amount_sats)
-                                         ELSE 0 END), 0) FROM exchange_transactions),
-                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'reward' THEN ABS(amount_sats)
-                                         ELSE 0 END), 0) FROM exchange_transactions),
-                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'withdrawal' THEN ABS(amount_sats)
-                                         ELSE 0 END), 0) FROM exchange_transactions),
-                (SELECT COALESCE(SUM(CASE WHEN tx_type = 'deposit' THEN ABS(amount_sats)
-                                         ELSE 0 END), 0) FROM exchange_transactions)",
-        [],
-        |row| {
-            let bought_sats: i64 = row.get(4)?;
-            let sold_sats: i64 = row.get(5)?;
-            let rewarded_sats: i64 = row.get(6)?;
-            let withdrawn_sats: i64 = row.get(7)?;
-            let deposited_sats: i64 = row.get(8)?;
-            Ok(ExchangeOverviewTotals {
-                exchange_count: row.get(0)?,
-                total_transactions: row.get(1)?,
-                onchain_matched_count: row.get(2)?,
-                onchain_total_count: row.get(3)?,
-                activity: ExchangeActivityTotals {
-                    bought_sats,
-                    sold_sats,
-                    rewarded_sats,
-                    withdrawn_sats,
-                    deposited_sats,
-                    net_ledger_sats: bought_sats + rewarded_sats + deposited_sats
-                        - sold_sats
-                        - withdrawn_sats,
-                },
-            })
-        },
-    )?;
-    Ok((TablePage { items, total }, totals))
+    Ok(TablePage { items, total })
 }
 
 pub fn get_account(database: &Database, id: i64) -> Result<Option<ExchangeAccount>, DatabaseError> {
@@ -375,7 +336,7 @@ pub fn refresh_provider_balance(
                  WHEN 'withdrawal' THEN -ABS(t.amount_sats)
                  ELSE t.amount_sats
              END
-             - CASE WHEN UPPER(COALESCE(t.fee_currency, '')) IN ('BTC', 'XBT')
+             - CASE WHEN UPPER(TRIM(COALESCE(t.fee_currency, ''))) IN ('BTC', 'XBT')
                     THEN ABS(COALESCE(t.fee, 0)) ELSE 0 END
          ), 0)
          FROM exchange_transactions t
@@ -455,6 +416,54 @@ pub fn list_account_transactions(
          WHERE exchange_id = ?1 ORDER BY timestamp DESC, id DESC"
     ))?;
     let rows = statement.query_map([exchange_id], transaction_from_row)?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row.map_err(|error| DatabaseError::new(error.to_string()))?);
+    }
+    Ok(items)
+}
+
+/// Ledger fields needed to value the exchange KPIs. `exchange_id = None`
+/// returns every account for the exchanges list.
+pub fn list_kpi_transactions(
+    database: &Database,
+    exchange_id: Option<i64>,
+) -> Result<Vec<ExchangeKpiTransaction>, DatabaseError> {
+    let connection = database.connection()?;
+    let (sql, params): (&str, Vec<i64>) = match exchange_id {
+        Some(id) => (
+            "SELECT timestamp, tx_type, amount_sats, fiat_amount, fiat_currency,
+                    fee, fee_currency, match_state
+             FROM exchange_transactions
+             WHERE exchange_id = ?1
+             ORDER BY timestamp ASC, id ASC",
+            vec![id],
+        ),
+        None => (
+            "SELECT timestamp, tx_type, amount_sats, fiat_amount, fiat_currency,
+                    fee, fee_currency, match_state
+             FROM exchange_transactions
+             ORDER BY timestamp ASC, id ASC",
+            Vec::new(),
+        ),
+    };
+    let mut statement = connection.prepare(sql)?;
+    let rows = statement.query_map(params_from_iter(params), |row| {
+        let tx_type: String = row.get(1)?;
+        let match_state: String = row.get(7)?;
+        Ok(ExchangeKpiTransaction {
+            timestamp: row.get(0)?,
+            tx_type: ExchangeTxType::from_str(&tx_type).unwrap_or(ExchangeTxType::Unknown),
+            amount_sats: row.get(2)?,
+            fiat_amount: row.get(3)?,
+            fiat_currency: row.get(4)?,
+            fee: row.get(5)?,
+            fee_currency: row.get(6)?,
+            match_state: MatchState::from_str(&match_state).unwrap_or(MatchState::Unmatched),
+            converted_fiat_amount: None,
+            converted_fee_amount: None,
+        })
+    })?;
     let mut items = Vec::new();
     for row in rows {
         items.push(row.map_err(|error| DatabaseError::new(error.to_string()))?);
@@ -821,29 +830,56 @@ pub fn insert_imported_transactions(
     Ok(())
 }
 
-/// Existing fingerprints and linked on-chain txids of one account.
+/// Existing fingerprints and on-chain claims of one account.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExistingIdentities {
+    /// Deterministic duplicate identities of the account's ledger rows.
+    pub fingerprints: HashSet<String>,
+    /// On-chain txids already linked to any row of the account.
+    pub linked_txids: HashSet<String>,
+    /// On-chain txids claimed by a row marked as an intentional duplicate.
+    /// Those claims are exempt from the one-to-one amount/date rule.
+    pub shareable_txids: HashSet<String>,
+}
+
+/// Existing fingerprints, linked on-chain txids, and duplicate-shareable
+/// txids of one account.
 pub fn existing_identities(
     database: &Database,
     exchange_id: i64,
-) -> Result<(HashSet<String>, HashSet<String>), DatabaseError> {
+) -> Result<ExistingIdentities, DatabaseError> {
     let connection = database.connection()?;
     let mut statement = connection.prepare(
-        "SELECT fingerprint, COALESCE(on_chain_txid, matched_tx_id)
+        "SELECT fingerprint, COALESCE(on_chain_txid, matched_tx_id),
+                is_intentional_duplicate
          FROM exchange_transactions WHERE exchange_id = ?1",
     )?;
     let rows = statement.query_map([exchange_id], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, i64>(2)?,
+        ))
     })?;
     let mut fingerprints = HashSet::new();
     let mut linked = HashSet::new();
+    let mut shareable = HashSet::new();
     for row in rows {
-        let (fingerprint, txid) = row.map_err(|error| DatabaseError::new(error.to_string()))?;
+        let (fingerprint, txid, intentional_duplicate) =
+            row.map_err(|error| DatabaseError::new(error.to_string()))?;
         fingerprints.insert(fingerprint);
         if let Some(txid) = txid {
+            if intentional_duplicate == 1 {
+                shareable.insert(txid.clone());
+            }
             linked.insert(txid);
         }
     }
-    Ok((fingerprints, linked))
+    Ok(ExistingIdentities {
+        fingerprints,
+        linked_txids: linked,
+        shareable_txids: shareable,
+    })
 }
 
 /// Load every cached confirmed on-chain transaction for reconciliation.
@@ -880,12 +916,17 @@ pub fn load_on_chain_transactions(
             block_time,
             inputs: Vec::new(),
             outputs: Vec::new(),
-            local_addresses: addresses
-                .unwrap_or_default()
-                .split(',')
-                .filter(|address| !address.is_empty())
-                .map(str::to_string)
-                .collect(),
+            local_addresses: {
+                let mut values = addresses
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter(|address| !address.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                values.sort();
+                values.dedup();
+                values
+            },
         });
     }
     if values.is_empty() {
@@ -1000,6 +1041,9 @@ pub fn update_match_states(
     exchange_id: i64,
     updates: &[(i64, MatchState, Option<String>, Option<OnChainLink>)],
 ) -> Result<(), DatabaseError> {
+    if updates.is_empty() {
+        return Ok(());
+    }
     let now = unix_now();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1285,7 +1329,7 @@ mod tests {
         assert_eq!(ExchangeAccountSortColumn::from_key("unmatched"), None);
     }
     #[test]
-    fn account_list_and_totals_include_transaction_and_onchain_stats() {
+    fn account_list_includes_transaction_and_onchain_stats() {
         let database = Database::open_in_memory().unwrap();
         let account = create_account(&database, "Coinbase", Some(1)).unwrap();
         let mut buy = ledger_write(10_000_000, ExchangeTxType::Buy, None);
@@ -1297,7 +1341,7 @@ mod tests {
         withdrawal.match_state = MatchState::ManualMatch;
         insert_imported_transactions(&database, account.id, &[buy, sell, deposit, withdrawal], 1)
             .unwrap();
-        let (page, totals) = list_accounts(
+        let page = list_accounts(
             &database,
             25,
             0,
@@ -1309,19 +1353,15 @@ mod tests {
         // Matched buys/sells never count as on-chain operations.
         assert_eq!(page.items[0].onchain_matched_count, 1);
         assert_eq!(page.items[0].onchain_total_count, 2);
-        assert_eq!(totals.exchange_count, 1);
-        assert_eq!(totals.total_transactions, 4);
-        assert_eq!(totals.onchain_matched_count, 1);
-        assert_eq!(totals.onchain_total_count, 2);
     }
 
     #[test]
-    fn account_totals_include_ledger_activity_across_types() {
+    fn kpi_projection_returns_ledger_fields_for_all_or_one_account() {
         let database = Database::open_in_memory().unwrap();
-        let account = create_account(&database, "Kraken", Some(1)).unwrap();
+        let first = create_account(&database, "Kraken", Some(1)).unwrap();
         insert_imported_transactions(
             &database,
-            account.id,
+            first.id,
             &[
                 ledger_write(10_000_000, ExchangeTxType::Buy, None),
                 ledger_write(5_000_000, ExchangeTxType::Sell, None),
@@ -1332,21 +1372,37 @@ mod tests {
             1,
         )
         .unwrap();
-
-        let (_, totals) = list_accounts(
+        let second = create_account(&database, "Coinbase", Some(1)).unwrap();
+        insert_imported_transactions(
             &database,
-            25,
-            0,
-            Some((ExchangeAccountSortColumn::TxCount, SortDirection::Desc)),
+            second.id,
+            &[ledger_write(7_000_000, ExchangeTxType::Buy, None)],
+            1,
         )
         .unwrap();
-        let activity = totals.activity;
-        assert_eq!(activity.bought_sats, 10_000_000);
-        assert_eq!(activity.sold_sats, 5_000_000);
-        assert_eq!(activity.rewarded_sats, 1_000_000);
-        assert_eq!(activity.withdrawn_sats, 2_000_000);
-        assert_eq!(activity.deposited_sats, 3_000_000);
-        assert_eq!(activity.net_ledger_sats, 7_000_000);
+
+        let all = list_kpi_transactions(&database, None).unwrap();
+        assert_eq!(all.len(), 6);
+        assert_eq!(
+            all.iter()
+                .filter(|row| row.tx_type == ExchangeTxType::Buy)
+                .count(),
+            2
+        );
+
+        let filtered = list_kpi_transactions(&database, Some(first.id)).unwrap();
+        assert_eq!(filtered.len(), 5);
+        assert!(filtered.iter().all(|row| row.timestamp > 0));
+        assert_eq!(
+            filtered.iter().map(|row| row.tx_type).collect::<Vec<_>>(),
+            [
+                ExchangeTxType::Buy,
+                ExchangeTxType::Sell,
+                ExchangeTxType::Reward,
+                ExchangeTxType::Deposit,
+                ExchangeTxType::Withdrawal,
+            ]
+        );
     }
 
     #[test]
@@ -1392,7 +1448,7 @@ mod tests {
         )
         .unwrap();
 
-        let (page, _) = list_accounts(
+        let page = list_accounts(
             &database,
             25,
             0,
@@ -1406,5 +1462,35 @@ mod tests {
         assert_eq!(names, ["B", "A", "C"]);
         assert_eq!(page.items[2].onchain_matched_count, 0);
         assert_eq!(page.items[2].onchain_total_count, 0);
+    }
+
+    #[test]
+    fn existing_identities_marks_duplicate_claims_as_shareable() {
+        let database = Database::open_in_memory().unwrap();
+        let account = create_account(&database, "Duplicates", Some(1)).unwrap();
+        let link = OnChainLink {
+            txid: "duplicate-tx".into(),
+            local_addresses: vec!["bc1qduplicate".into()],
+            source: OnChainLinkSource::AmountDate,
+            linked_at: 1,
+        };
+        let mut duplicate = ledger_write(1_000, ExchangeTxType::Deposit, None);
+        duplicate.on_chain_link = Some(link);
+        duplicate.is_intentional_duplicate = true;
+        let mut normal = ledger_write(2_000, ExchangeTxType::Deposit, None);
+        normal.on_chain_link = Some(OnChainLink {
+            txid: "normal-tx".into(),
+            local_addresses: Vec::new(),
+            source: OnChainLinkSource::Hash,
+            linked_at: 1,
+        });
+
+        insert_imported_transactions(&database, account.id, &[duplicate, normal], 1).unwrap();
+        let identities = existing_identities(&database, account.id).unwrap();
+
+        assert!(identities.linked_txids.contains("duplicate-tx"));
+        assert!(identities.shareable_txids.contains("duplicate-tx"));
+        assert!(identities.linked_txids.contains("normal-tx"));
+        assert!(!identities.shareable_txids.contains("normal-tx"));
     }
 }

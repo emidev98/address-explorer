@@ -5,13 +5,13 @@ use dioxus::prelude::*;
 use crate::api::addresses::{addresses_overview_api, delete_addresses_api, validate_address_api};
 use crate::api::prices::latest_price_api;
 use crate::api::settings::get_exchange_settings_api;
-use crate::api::transactions::sync_address_transactions_api;
+use crate::api::transactions::{sync_address_transactions_api, sync_addresses_transactions_api};
 use crate::components::format::{format_address, format_btc, format_fiat};
 use crate::components::{
     read_clipboard_text, use_fiat_currency, use_table_selection, use_toast, write_clipboard_text,
-    AddressEditData, BadgeSize, ConfirmDialog, HoldingSlice, HoldingsDistributionChart,
+    AddressEditData, BadgeSize, BalanceKpi, ConfirmDialog, HoldingSlice, HoldingsDistributionChart,
     ImportAddressDialog, ImportAddressDialogMode, Kpi, ProviderBadge, SortableHeader,
-    TableSelection, TableSelectionCell, TableSelectionHeader, Toast, ToastKind,
+    TablePagination, TableSelection, TableSelectionCell, TableSelectionHeader, Toast, ToastKind,
 };
 use crate::domain::address::{
     AddressEntity, AddressImportResult, AddressOverview, AddressOverviewItem, AddressOverviewQuery,
@@ -19,8 +19,8 @@ use crate::domain::address::{
 };
 use crate::domain::civil_time::format_datetime;
 use crate::domain::price::sats_to_fiat;
-use crate::domain::table::SortDirection;
-use crate::domain::transaction::TransactionSyncSummary;
+use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
+use crate::domain::transaction::{TransactionSyncBatchSummary, TransactionSyncSummary};
 
 /// Per-address transaction sync state shown in the addresses table actions.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,11 +39,13 @@ pub fn Addresses() -> Element {
     let mut clipboard_text = use_signal(|| Option::<String>::None);
     let mut addresses_to_remove = use_signal(|| Option::<Vec<String>>::None);
     let sync_states = use_signal(BTreeMap::<String, SyncState>::new);
+    let bulk_sync_loading = use_signal(|| false);
     let mut selection = use_table_selection::<String>();
-    // Backend-driven table state (Section 5.11 of CONTRIBUTING.md): the sort
-    // and the scope filter are part of the overview query, so changing them
-    // re-runs the request. The overview is not paginated because the KPIs
-    // and the holdings chart need every matching row, not one page.
+    // Backend-driven table state (Section 5.11 of CONTRIBUTING.md): the page,
+    // sort, and scope filter are part of the overview query, so changing them
+    // re-runs the request. The response still carries every matching row for
+    // the KPIs and the holdings chart, plus the requested table page.
+    let mut page = use_signal(|| 0_u32);
     let sort_by = use_signal(|| Option::<String>::None);
     let sort_dir = use_signal(SortDirection::default);
     let mut scope_filter = use_signal(AddressScopeFilter::default);
@@ -52,8 +54,12 @@ pub fn Addresses() -> Element {
 
     let mut overview = use_resource(move || async move {
         addresses_overview_api(AddressOverviewQuery {
-            sort_by: sort_by(),
-            sort_dir: sort_dir(),
+            table: TableQuery {
+                page: page(),
+                page_size: DEFAULT_PAGE_SIZE,
+                sort_by: sort_by(),
+                sort_dir: sort_dir(),
+            },
             scope: scope_filter(),
         })
         .await
@@ -70,6 +76,17 @@ pub fn Addresses() -> Element {
         async move { latest_price_api(symbol).await.ok().map(|price| price.close) }
     });
 
+    // A deletion can empty the current page while earlier pages still have
+    // rows; step back until the page has content again.
+    use_effect(move || {
+        if let Some(Ok(data)) = overview() {
+            if data.page.items.is_empty() && page() > 0 {
+                page.set(page() - 1);
+                selection.clear();
+            }
+        }
+    });
+
     let overview_state = overview();
     let loading = overview_state.is_none();
     let overview_ready = matches!(&overview_state, Some(Ok(_)));
@@ -82,7 +99,7 @@ pub fn Addresses() -> Element {
     let tx_kpi_title = if scope_filter() == AddressScopeFilter::Exchanges {
         "Deposits & Withdrawals"
     } else {
-        "Confirmed Tx"
+        "Transactions"
     };
 
     // The KPI values cover the same filtered population as the table and the
@@ -90,29 +107,35 @@ pub fn Addresses() -> Element {
     // balance from the address count, the transaction count, and the balance.
     // In the exchange scope the transaction count is the number of ledger
     // deposits and withdrawals, not on-chain confirmed transactions.
-    let kpi_values: [Option<String>; 4] = match &overview_state {
+    let kpi_values: [Option<String>; 2] = match &overview_state {
         Some(Ok(data)) => [
             Some(data.address_count.to_string()),
             Some(data.tx_count.to_string()),
-            Some(format_btc(data.spendable_balance_sats)),
-            latest_value.map(|price| {
-                format_fiat(sats_to_fiat(data.spendable_balance_sats, price), &symbol)
-            }),
         ],
-        _ => [None, None, None, None],
+        _ => [None, None],
+    };
+    // The fiat equivalent lives in the balance card's details overlay instead
+    // of a second card, matching the exchange amount cards.
+    let balance_sats = match &overview_state {
+        Some(Ok(data)) => Some(data.spendable_balance_sats),
+        _ => None,
     };
 
-    // The table and the treemap show the same rows, so the Scope chips select
-    // the population of both views: the backend already filters `items` by
-    // scope, and `is_listed` drops the balance-less exchange addresses.
+    // The table page and the treemap show the same listing, so the Scope chips
+    // select the population of both views: the backend already filters by
+    // scope and drops the balance-less exchange addresses from both `items`
+    // and `page`.
     let listed_items: Vec<AddressOverviewItem> = match &overview_state {
-        Some(Ok(data)) => data
-            .items
-            .iter()
-            .filter(|item| is_listed(item))
-            .cloned()
-            .collect(),
+        Some(Ok(data)) => data.items.clone(),
         _ => Vec::new(),
+    };
+    let table_items: Vec<AddressOverviewItem> = match &overview_state {
+        Some(Ok(data)) => data.page.items.clone(),
+        _ => Vec::new(),
+    };
+    let table_total = match &overview_state {
+        Some(Ok(data)) => data.page.total,
+        _ => 0,
     };
 
     // The treemap aggregates every listed address by its spendable balance —
@@ -130,7 +153,7 @@ pub fn Addresses() -> Element {
 
     let sort_direction_for = |key: &str| (sort_by().as_deref() == Some(key)).then_some(sort_dir());
 
-    let page_ids = listed_items
+    let page_ids = table_items
         .iter()
         .map(|item| item.address.clone())
         .collect::<Vec<_>>();
@@ -138,6 +161,28 @@ pub fn Addresses() -> Element {
     let selected_count = selection.len();
     let all_selected = selection.all_selected(&page_ids);
     let selectable_ids = page_ids.clone();
+    // A bulk sync and a row sync must not overlap on the same address: the
+    // batch endpoint would duplicate the network walk of a selected address
+    // that is already syncing.
+    let selected_syncing = {
+        let states = sync_states.read();
+        selected_snapshot
+            .iter()
+            .any(|address| states.get(address).is_some_and(|state| state.loading))
+    };
+    let sync_busy = bulk_sync_loading() || selected_syncing;
+    let bulk_sync_action_label = if selected_count == 0 {
+        "Select addresses to sync transactions".to_string()
+    } else {
+        format!(
+            "Sync transactions for {selected_count} {}",
+            if selected_count == 1 {
+                "address"
+            } else {
+                "addresses"
+            }
+        )
+    };
     let delete_action_label = if selected_count == 0 {
         "Select addresses to delete".to_string()
     } else {
@@ -159,36 +204,63 @@ pub fn Addresses() -> Element {
                         tr {
                             TableSelectionHeader {
                                 all_selected,
-                                select_all_label: "Select all addresses".to_string(),
+                                indeterminate: selection.some_selected(&page_ids)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    && !all_selected,
+                                select_all_label: "Select all addresses on this page".to_string(),
                                 disabled: page_ids.is_empty(),
                                 on_toggle_all: move |checked| {
                                     selection.set_many(&selectable_ids, checked);
                                 },
-                                button {
-                                    r#type: "button",
-                                    class: "md3-icon-button md3-icon-button-danger",
-                                    disabled: selection.is_empty(),
-                                    title: "{delete_action_label}",
-                                    aria_label: "{delete_action_label}",
-                                    onclick: move |_| {
-                                        let addresses = selection.selected_ids();
-                                        start_address_delete(
-                                            toast,
-                                            addresses_to_remove,
-                                            overview,
-                                            selection,
-                                            confirm_destructive(),
-                                            addresses,
-                                        );
-                                    },
-                                    {icon(ICON_DELETE)}
+                                div { class: "md3-table-actions",
+                                    button {
+                                        r#type: "button",
+                                        class: "md3-icon-button",
+                                        disabled: selection.is_empty() || sync_busy,
+                                        title: "{bulk_sync_action_label}",
+                                        aria_label: "{bulk_sync_action_label}",
+                                        onclick: move |_| {
+                                            let addresses = selection.selected_ids();
+                                            start_bulk_transaction_sync(
+                                                sync_states,
+                                                bulk_sync_loading,
+                                                toast,
+                                                overview,
+                                                selection,
+                                                addresses,
+                                            );
+                                        },
+                                        if bulk_sync_loading() {
+                                            "…"
+                                        } else {
+                                            {icon(ICON_SYNC)}
+                                        }
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: "md3-icon-button md3-icon-button-danger",
+                                        disabled: selection.is_empty() || sync_busy,
+                                        title: "{delete_action_label}",
+                                        aria_label: "{delete_action_label}",
+                                        onclick: move |_| {
+                                            let addresses = selection.selected_ids();
+                                            start_address_delete(
+                                                toast,
+                                                addresses_to_remove,
+                                                overview,
+                                                selection,
+                                                confirm_destructive(),
+                                                addresses,
+                                            );
+                                        },
+                                        {icon(ICON_DELETE)}
+                                    }
                                 }
                             }
                             SortableHeader {
                                 label: "Address".to_string(),
                                 active_direction: sort_direction_for("address"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "address", SortDirection::Asc);
+                                    toggle_sort(sort_by, sort_dir, page, "address", SortDirection::Asc);
                                     selection.clear();
                                 },
                             }
@@ -196,7 +268,7 @@ pub fn Addresses() -> Element {
                                 label: "Label".to_string(),
                                 active_direction: sort_direction_for("label"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "label", SortDirection::Asc);
+                                    toggle_sort(sort_by, sort_dir, page, "label", SortDirection::Asc);
                                     selection.clear();
                                 },
                             }
@@ -219,6 +291,7 @@ pub fn Addresses() -> Element {
                                                 aria_pressed: (scope_filter() == filter).to_string(),
                                                 onclick: move |_| {
                                                     scope_filter.set(filter);
+                                                    page.set(0);
                                                     selection.clear();
                                                 },
                                                 "{filter_label}"
@@ -231,7 +304,7 @@ pub fn Addresses() -> Element {
                                 label: "Txs".to_string(),
                                 active_direction: sort_direction_for("txs"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc);
+                                    toggle_sort(sort_by, sort_dir, page, "txs", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
@@ -239,38 +312,38 @@ pub fn Addresses() -> Element {
                                 label: "Spendable Balance".to_string(),
                                 active_direction: sort_direction_for("balance"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "balance", SortDirection::Desc);
+                                    toggle_sort(sort_by, sort_dir, page, "balance", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
-                                label: format!("Current Value ({symbol})"),
+                                label: "Current price".to_string(),
                                 active_direction: sort_direction_for("price"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
+                                    toggle_sort(sort_by, sort_dir, page, "price", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
-                                label: "First tx received".to_string(),
+                                label: "First received tx".to_string(),
                                 active_direction: sort_direction_for("first_tx"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc);
+                                    toggle_sort(sort_by, sort_dir, page, "first_tx", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
-                                label: "Last tx sent".to_string(),
+                                label: "Last sent tx".to_string(),
                                 active_direction: sort_direction_for("last_tx"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc);
+                                    toggle_sort(sort_by, sort_dir, page, "last_tx", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                         }
                     }
                     tbody {
-                        if listed_items.is_empty() {
+                        if table_items.is_empty() {
                             tr {
                                 td {
                                     colspan: "10",
@@ -279,7 +352,7 @@ pub fn Addresses() -> Element {
                                 }
                             }
                         } else {
-                            for item in &listed_items {
+                            for item in &table_items {
                                 {
                                     let row = item.clone();
                                     let sync_address = row.address.clone();
@@ -363,17 +436,6 @@ pub fn Addresses() -> Element {
                                                     }
                                                     button {
                                                         r#type: "button",
-                                                        class: "md3-icon-button",
-                                                        title: "Edit address",
-                                                        aria_label: "Edit address",
-                                                        onclick: move |_| {
-                                                            edit_target.set(Some(row.clone()));
-                                                            show_import_dialog.set(true);
-                                                        },
-                                                        {icon(ICON_EDIT)}
-                                                    }
-                                                    button {
-                                                        r#type: "button",
                                                         class: "md3-icon-button md3-icon-button-danger",
                                                         title: "Remove address",
                                                         aria_label: "Remove address",
@@ -388,6 +450,17 @@ pub fn Addresses() -> Element {
                                                             );
                                                         },
                                                         {icon(ICON_DELETE)}
+                                                    }
+                                                    button {
+                                                        r#type: "button",
+                                                        class: "md3-icon-button",
+                                                        title: "Edit address",
+                                                        aria_label: "Edit address",
+                                                        onclick: move |_| {
+                                                            edit_target.set(Some(row.clone()));
+                                                            show_import_dialog.set(true);
+                                                        },
+                                                        {icon(ICON_EDIT)}
                                                     }
                                                 }
                                             }
@@ -420,6 +493,15 @@ pub fn Addresses() -> Element {
                         }
                     }
                 }
+            }
+            TablePagination {
+                page: page(),
+                page_size: DEFAULT_PAGE_SIZE,
+                total: table_total,
+                on_page: move |next| {
+                    page.set(next);
+                    selection.clear();
+                },
             }
         },
         Some(Err(err)) => {
@@ -470,7 +552,7 @@ pub fn Addresses() -> Element {
                 }
             }
 
-            div { class: "md3-kpi-grid",
+            div { class: "md3-kpi-grid-three",
                 Kpi {
                     title: "Addresses".to_string(),
                     value: kpi_values[0].clone(),
@@ -481,14 +563,10 @@ pub fn Addresses() -> Element {
                     value: kpi_values[1].clone(),
                     loading,
                 }
-                Kpi {
-                    title: "BTC Balance".to_string(),
-                    value: kpi_values[2].clone(),
-                    loading,
-                }
-                Kpi {
-                    title: format!("{symbol} Balance"),
-                    value: kpi_values[3].clone(),
+                BalanceKpi {
+                    balance_sats,
+                    latest_price: latest_value,
+                    currency: symbol.clone(),
                     loading,
                 }
             }
@@ -585,6 +663,7 @@ pub fn Addresses() -> Element {
 fn toggle_sort(
     mut sort_by: Signal<Option<String>>,
     mut sort_dir: Signal<SortDirection>,
+    mut page: Signal<u32>,
     key: &str,
     default_direction: SortDirection,
 ) {
@@ -594,20 +673,7 @@ fn toggle_sort(
         sort_by.set(Some(key.to_string()));
         sort_dir.set(default_direction);
     }
-}
-
-/// Whether an overview row is listed in the table and aggregated by the
-/// holdings chart.
-///
-/// Exchange-scoped addresses are only listed while their stored ledger
-/// balance is non-zero: the reverse search relates an exchange to every
-/// stored address it transacted with, and an exchange address without a
-/// balance would crowd the table without telling anything. Wallets and
-/// unclassified addresses stay listed at any balance. The backend's global
-/// address count applies the same rule, so the "Addresses" KPI matches the
-/// listed population.
-fn is_listed(item: &AddressOverviewItem) -> bool {
-    !item.scope.is_exchange() || item.spendable_balance_sats != 0
+    page.set(0);
 }
 
 /// Scope cell: the provider's brand badge, its kind, and its catalog name,
@@ -793,6 +859,155 @@ fn start_transaction_sync(
     });
 }
 
+/// Sync the transaction histories of every checked address through one batch
+/// request and report the aggregated outcome in a toast.
+///
+/// The checked rows are marked as loading for the duration so their row
+/// actions reflect the running batch. The selection is kept when at least
+/// one address failed — the endpoint is idempotent, so retrying the same
+/// selection is safe — and cleared once the whole batch succeeds.
+fn start_bulk_transaction_sync(
+    mut sync_states: Signal<BTreeMap<String, SyncState>>,
+    mut bulk_sync_loading: Signal<bool>,
+    mut toast: Toast,
+    mut overview: Resource<Result<AddressOverview, String>>,
+    mut selection: TableSelection<String>,
+    addresses: Vec<String>,
+) {
+    if bulk_sync_loading() {
+        return;
+    }
+    if addresses.is_empty() {
+        toast.error("Select at least one address.");
+        return;
+    }
+    // The button is disabled while a selected row syncs, but check again at
+    // click time so a render queued before that state changed cannot start
+    // two overlapping walks of the same address.
+    let already_syncing = {
+        let states = sync_states.read();
+        addresses
+            .iter()
+            .any(|address| states.get(address).is_some_and(|state| state.loading))
+    };
+    if already_syncing {
+        toast.show(
+            ToastKind::Info,
+            "Wait for the running syncs to finish before syncing the selection.",
+        );
+        return;
+    }
+
+    bulk_sync_loading.set(true);
+    {
+        let mut states = sync_states.write();
+        for address in &addresses {
+            states.insert(address.clone(), SyncState { loading: true });
+        }
+    }
+
+    spawn(async move {
+        let all_synced = match sync_addresses_transactions_api(addresses.clone()).await {
+            Ok(summary) => {
+                let (kind, message) = bulk_sync_summary_toast(&summary);
+                toast.show(kind, message);
+                summary.failed.is_empty()
+            }
+            Err(error) => {
+                toast.error(format!("Could not sync the selected addresses: {error}"));
+                false
+            }
+        };
+
+        {
+            let mut states = sync_states.write();
+            for address in &addresses {
+                states.insert(address.clone(), SyncState { loading: false });
+            }
+        }
+        bulk_sync_loading.set(false);
+        if all_synced {
+            selection.clear();
+        }
+        overview.restart();
+    });
+}
+
+/// Toast for a finished bulk sync: the aggregated totals of the addresses
+/// that completed, followed by any rate-limited, truncated, or failed ones.
+fn bulk_sync_summary_toast(summary: &TransactionSyncBatchSummary) -> (ToastKind, String) {
+    let synced = summary.synced.len();
+    let failed = summary.failed.len();
+
+    if synced == 0 {
+        let message = match summary.failed.first() {
+            Some(failure) if failed == 1 => format!(
+                "Could not sync {}: {}",
+                format_address(&failure.address),
+                failure.error
+            ),
+            Some(failure) => format!(
+                "Could not sync {failed} addresses. First error for {}: {}",
+                format_address(&failure.address),
+                failure.error
+            ),
+            None => "No addresses were selected.".to_string(),
+        };
+        return (ToastKind::Error, message);
+    }
+
+    let mut message = format!(
+        "Synced {synced} {}: {} transactions stored ({} new).",
+        address_noun(synced),
+        summary.stored(),
+        summary.inserted()
+    );
+
+    let rate_limited = summary.rate_limited_count();
+    if rate_limited > 0 {
+        message.push_str(&format!(
+            " {rate_limited} {} paused on the mempool rate limit; sync again to resume.",
+            address_noun(rate_limited)
+        ));
+    }
+
+    let truncated = summary.truncated_count();
+    if truncated > 0 {
+        message.push_str(&format!(
+            " {truncated} {} reached the page limit; more history may remain.",
+            address_noun(truncated)
+        ));
+    }
+
+    if let Some(failure) = summary.failed.first() {
+        message.push_str(&format!(
+            " {failed} {} failed ({}: {}).",
+            address_noun(failed),
+            format_address(&failure.address),
+            failure.error
+        ));
+    }
+
+    let kind = if failed > 0 {
+        ToastKind::Error
+    } else if rate_limited > 0 {
+        ToastKind::Info
+    } else {
+        ToastKind::Success
+    };
+
+    (kind, message)
+}
+
+/// `address` / `addresses` for the sync result messages.
+fn address_noun(count: usize) -> &'static str {
+    if count == 1 {
+        "address"
+    } else {
+        "addresses"
+    }
+}
+
 fn sync_summary_toast(
     summary: &TransactionSyncSummary,
     related_search: bool,
@@ -869,6 +1084,7 @@ fn icon(path: &str) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::transaction::TransactionSyncFailure;
 
     fn item(scope: AddressScope, spendable_balance_sats: i64) -> AddressOverviewItem {
         AddressOverviewItem {
@@ -894,9 +1110,9 @@ mod tests {
 
     #[test]
     fn exchange_addresses_are_listed_only_with_a_balance() {
-        assert!(!is_listed(&item(exchange(), 0)));
-        assert!(is_listed(&item(exchange(), 1)));
-        assert!(is_listed(&item(exchange(), -1)));
+        assert!(!item(exchange(), 0).is_listed());
+        assert!(item(exchange(), 1).is_listed());
+        assert!(item(exchange(), -1).is_listed());
     }
 
     #[test]
@@ -907,7 +1123,73 @@ mod tests {
             brand_color: None,
         };
 
-        assert!(is_listed(&item(wallet, 0)));
-        assert!(is_listed(&item(AddressScope::Unassigned, 0)));
+        assert!(item(wallet, 0).is_listed());
+        assert!(item(AddressScope::Unassigned, 0).is_listed());
+    }
+
+    fn sync_summary(address: &str, stored: usize, inserted: usize) -> TransactionSyncSummary {
+        TransactionSyncSummary {
+            address: address.to_string(),
+            fetched: stored,
+            inserted,
+            stored,
+            truncated: false,
+            rate_limited: false,
+        }
+    }
+
+    #[test]
+    fn bulk_sync_toast_aggregates_totals_and_names_the_first_failure() {
+        let summary = TransactionSyncBatchSummary {
+            synced: vec![
+                sync_summary("bc1qfirstaddress", 10, 2),
+                sync_summary("bc1qsecondaddress", 5, 0),
+            ],
+            failed: vec![TransactionSyncFailure {
+                address: "bc1qthirdaddress".to_string(),
+                error: "address not found".to_string(),
+            }],
+        };
+
+        let (kind, message) = bulk_sync_summary_toast(&summary);
+
+        assert_eq!(kind, ToastKind::Error);
+        assert!(message.contains("Synced 2 addresses"));
+        assert!(message.contains("15 transactions stored (2 new)"));
+        assert!(message.contains("1 address failed"));
+        assert!(message.contains("address not found"));
+    }
+
+    #[test]
+    fn bulk_sync_toast_reports_a_fully_failed_batch_as_an_error() {
+        let summary = TransactionSyncBatchSummary {
+            synced: Vec::new(),
+            failed: vec![TransactionSyncFailure {
+                address: "bc1qfirstaddress".to_string(),
+                error: "mempool request failed".to_string(),
+            }],
+        };
+
+        let (kind, message) = bulk_sync_summary_toast(&summary);
+
+        assert_eq!(kind, ToastKind::Error);
+        assert!(message.contains("Could not sync"));
+        assert!(message.contains("mempool request failed"));
+    }
+
+    #[test]
+    fn bulk_sync_toast_reports_rate_limited_addresses_as_info() {
+        let summary = TransactionSyncBatchSummary {
+            synced: vec![TransactionSyncSummary {
+                rate_limited: true,
+                ..sync_summary("bc1qfirstaddress", 4, 1)
+            }],
+            failed: Vec::new(),
+        };
+
+        let (kind, message) = bulk_sync_summary_toast(&summary);
+
+        assert_eq!(kind, ToastKind::Info);
+        assert!(message.contains("1 address paused on the mempool rate limit"));
     }
 }

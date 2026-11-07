@@ -3,7 +3,7 @@
 [web.app]
 
 # HTML title tag content
-title = "address-explorer"
+title = "Address Explorer"
 
 # include `assets` in web platform
 [web.resource]
