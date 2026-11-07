@@ -1,27 +1,33 @@
+mod app_shell;
 mod catalog;
 mod catalog_select;
 mod charts;
 mod checkbox;
 mod clipboard;
 mod confirm_dialog;
+mod csv_dropzone;
 mod date_picker;
 mod edit_price_dialog;
 mod exchange_kpis;
 mod exchanges;
 mod fiat_currency;
-mod file_dropzone;
-mod filter_multiselect;
 pub mod format;
+mod icon;
 mod import_address_dialog;
 mod interface_settings;
 mod kpi;
+mod latest_price;
+mod modal;
+mod multi_select;
+pub(crate) mod option_groups;
+mod page_header;
 mod provider_badge;
 mod sync_prices_dialog;
 mod table_controls;
 pub mod theme;
 mod toast;
-mod topbar;
 
+pub use app_shell::AppShell;
 pub use catalog::{
     catalog_delete_summary_message, CatalogCategoriesDialog, CatalogDeleteDialog,
     CatalogImportDialog, CatalogTypeDialog,
@@ -33,23 +39,27 @@ pub use charts::{
 pub use checkbox::Checkbox;
 pub use clipboard::{read_clipboard_text, write_clipboard_text};
 pub use confirm_dialog::ConfirmDialog;
+pub use csv_dropzone::CsvDropzone;
 pub use date_picker::DatePicker;
 pub use edit_price_dialog::EditPriceDialog;
 pub use exchange_kpis::{ExchangeCountKpi, ExchangeKpiGrid};
 pub use exchanges::{
-    ExchangeAccountDialog, ExchangeInspector, ExchangeLinkDialog, ImportDataDialog,
+    import_data_summary_message, ExchangeAccountDialog, ExchangeInspector, ExchangeLinkDialog,
+    ImportDataDialog,
 };
 pub use fiat_currency::{use_fiat_currency, FiatCurrency};
-pub use file_dropzone::CsvDropzone;
-pub use filter_multiselect::{MultiSelect, MultiSelectOption};
+pub use icon::{Icon, IconName};
 pub use import_address_dialog::{AddressEditData, ImportAddressDialog, ImportAddressDialogMode};
 pub use interface_settings::{use_interface_settings, InterfaceSettingsContext};
 pub use kpi::{BalanceKpi, Kpi};
+pub use latest_price::use_latest_price;
+pub use modal::Modal;
+pub use multi_select::{MultiSelect, MultiSelectOption};
+pub use page_header::PageHeader;
 pub use provider_badge::{BadgeSize, ProviderBadge};
 pub use sync_prices_dialog::SyncPricesDialog;
 pub use table_controls::{
-    use_table_selection, SortableHeader, TablePagination, TableSelection, TableSelectionCell,
-    TableSelectionHeader,
+    use_table_selection, use_table_state, SortableHeader, TablePagination, TableSelection,
+    TableSelectionCell, TableSelectionHeader, TableState,
 };
 pub use toast::{provide_toast, use_toast, Toast, ToastHost, ToastKind};
-pub use topbar::Topbar;

@@ -19,7 +19,7 @@ use crate::domain::table::{TablePage, TableQuery};
 /// Exchange addresses are exempt from full transaction indexing and sync via
 /// the reverse search in `application::transactions` instead.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct AddressEntity {
+pub struct StoredAddress {
     pub address: String,
 
     pub description: Option<String>,
@@ -45,21 +45,6 @@ pub struct AddressEntity {
     pub tx_index_rate_limited: bool,
 }
 
-/// Stored address with the owner catalog names resolved for display.
-///
-/// The addresses table lists descriptions and owner labels directly; the names
-/// exist only for presentation and are absent when an address is unclassified.
-// Only the server-side repository constructs list items; web builds merely
-// deserialize them through the API client stubs.
-#[cfg_attr(not(feature = "server"), allow(dead_code))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AddressListItem {
-    #[serde(flatten)]
-    pub entity: AddressEntity,
-    pub exchange_name: Option<String>,
-    pub wallet_name: Option<String>,
-}
-
 /// Result of importing an address and indexing its transactions.
 ///
 /// The import itself succeeded when this value exists; transaction indexing
@@ -68,7 +53,7 @@ pub struct AddressListItem {
 /// (`sync_error`, e.g. the mempool being unreachable).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddressImportResult {
-    pub address: AddressEntity,
+    pub address: StoredAddress,
     /// Human-readable indexing failure, `None` when the sync ran.
     pub sync_error: Option<String>,
 }
@@ -162,7 +147,7 @@ impl AddressScopeFilter {
 
 /// Query of the addresses overview endpoint: the shared table contract
 /// (pagination and sorting) plus the scope filter. Sorting and pagination
-/// follow Section 5.11 of CONTRIBUTING.md. The overview still returns every
+/// follow the shared table contract. The overview still returns every
 /// matching row for the KPI cards and the holdings chart, and carries the
 /// requested table page separately.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

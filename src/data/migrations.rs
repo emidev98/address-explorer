@@ -10,8 +10,8 @@
 //! Every file name starts with the four-digit ordinal the entry occupies in
 //! [`MIGRATIONS`], beginning at `0001`, so the highest-numbered file is always
 //! the latest migration. The ordinal is also the `user_version` the migration
-//! stamps. Rust seed migrations have no SQL file but still consume their
-//! ordinal (`0015_historical_prices_data`, `0019_addresses_data`).
+//! stamps. Rust seed migrations consume their ordinal; `0019_addresses_data`
+//! also reads the checked-in `0019_addresses_data.sql` catalog.
 //!
 //! Progress is versioned with SQLite's `PRAGMA user_version`. Schema and SQL
 //! data migrations run on every database, including the in-memory databases
@@ -23,7 +23,7 @@
 //! New migrations MUST be appended with a new ordinal and name; a migration
 //! that has shipped MUST NOT be edited in place, and entries MUST NOT be
 //! reordered, because a shipped database tracks progress through a single
-//! `user_version` counter (Section 6.5 of CONTRIBUTING.md).
+//! `user_version` counter.
 
 use rusqlite::{Connection, Transaction};
 

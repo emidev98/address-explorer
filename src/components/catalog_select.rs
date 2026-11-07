@@ -6,8 +6,6 @@
 //! presentational half for callers that already own a provider list, such as
 //! the CSV import dialog that auto-fills the account name from the selection.
 
-use std::collections::BTreeMap;
-
 use dioxus::prelude::*;
 
 use crate::api::catalogs::catalog_options_api;
@@ -72,13 +70,28 @@ pub fn CatalogOptionsSelect(
     entries: Vec<CatalogEntry>,
     #[props(default)] loading: bool,
 ) -> Element {
-    let grouped = group_options(&entries);
+    let grouped = super::option_groups::group_options(
+        &entries,
+        |entry| {
+            entry
+                .category_name
+                .clone()
+                .unwrap_or_else(|| "Uncategorized".to_string())
+        },
+        "Uncategorized",
+    );
     let selected = entries
         .iter()
         .find(|entry| Some(entry.id) == value)
         .cloned();
     let placeholder = if placeholder.is_empty() {
-        format!("Select a {} type", kind.as_str())
+        let label = kind.singular_label();
+        let article = if label.starts_with(['a', 'e', 'i', 'o', 'u']) {
+            "an"
+        } else {
+            "a"
+        };
+        format!("Select {article} {label}")
     } else {
         placeholder
     };
@@ -116,28 +129,6 @@ pub fn CatalogOptionsSelect(
     }
 }
 
-/// Group provider options by category, alphabetically, with Uncategorized
-/// last.
-fn group_options(entries: &[CatalogEntry]) -> Vec<(String, Vec<CatalogEntry>)> {
-    let mut groups: BTreeMap<String, Vec<CatalogEntry>> = BTreeMap::new();
-    for entry in entries {
-        let group = entry
-            .category_name
-            .clone()
-            .unwrap_or_else(|| "Uncategorized".to_string());
-        groups.entry(group).or_default().push(entry.clone());
-    }
-    let mut groups = groups.into_iter().collect::<Vec<_>>();
-    groups.sort_by(|(left, _), (right, _)| {
-        let left_uncategorized = left == "Uncategorized";
-        let right_uncategorized = right == "Uncategorized";
-        left_uncategorized
-            .cmp(&right_uncategorized)
-            .then_with(|| left.cmp(right))
-    });
-    groups
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,12 +145,21 @@ mod tests {
 
     #[test]
     fn options_are_grouped_by_category_with_uncategorized_last() {
-        let groups = group_options(&[
-            entry(1, "Ledger", Some("Hardware wallet")),
-            entry(2, "Trezor", Some("Hardware wallet")),
-            entry(3, "Acme", None),
-            entry(4, "MetaMask", Some("Browser extension")),
-        ]);
+        let groups = super::super::option_groups::group_options(
+            &[
+                entry(1, "Ledger", Some("Hardware wallet")),
+                entry(2, "Trezor", Some("Hardware wallet")),
+                entry(3, "Acme", None),
+                entry(4, "MetaMask", Some("Browser extension")),
+            ],
+            |entry| {
+                entry
+                    .category_name
+                    .clone()
+                    .unwrap_or_else(|| "Uncategorized".to_string())
+            },
+            "Uncategorized",
+        );
 
         let labels: Vec<&str> = groups.iter().map(|(label, _)| label.as_str()).collect();
         assert_eq!(

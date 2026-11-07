@@ -405,7 +405,7 @@ mod tests {
     use super::*;
     use crate::clients::mempool::bitcoin::types::{TxStatus, TxVin, Vout};
     use crate::data::repositories::addresses as address_repository;
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
 
     const ADDRESS: &str = "bc1qtestaddress";
 
@@ -450,9 +450,9 @@ mod tests {
         let database = Database::open_in_memory().unwrap();
         address_repository::insert_address(
             &database,
-            &AddressEntity {
+            &StoredAddress {
                 address: address.to_string(),
-                ..AddressEntity::default()
+                ..StoredAddress::default()
             },
         )
         .unwrap();
@@ -574,10 +574,10 @@ mod tests {
         for address in [ADDRESS, EXCHANGE_ADDRESS, UNRELATED_ADDRESS] {
             address_repository::insert_address(
                 &database,
-                &AddressEntity {
+                &StoredAddress {
                     address: address.to_string(),
                     exchange_id: (address == EXCHANGE_ADDRESS).then_some(1),
-                    ..AddressEntity::default()
+                    ..StoredAddress::default()
                 },
             )
             .unwrap();

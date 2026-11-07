@@ -264,7 +264,7 @@ enum FetchStop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
 
     /// Drive a future to completion without an async runtime. The empty
     /// selection resolves before any network request is started.
@@ -323,14 +323,14 @@ mod tests {
     fn bulk_selection_syncs_exchange_addresses_after_ordinary_ones() {
         let database = Database::open_in_memory().unwrap();
         for entity in [
-            AddressEntity {
+            StoredAddress {
                 address: "bc1qwallet".to_string(),
-                ..AddressEntity::default()
+                ..StoredAddress::default()
             },
-            AddressEntity {
+            StoredAddress {
                 address: "bc1qexchange".to_string(),
                 exchange_id: Some(1),
-                ..AddressEntity::default()
+                ..StoredAddress::default()
             },
         ] {
             address_repository::insert_address(&database, &entity).unwrap();

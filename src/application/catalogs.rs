@@ -415,7 +415,7 @@ fn parse_sort(
 mod tests {
     use super::*;
     use crate::data::repositories::addresses as address_repository;
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
     use crate::domain::catalog::{CustodyModel, WalletPlatform};
     use crate::domain::table::TableQuery;
 
@@ -548,10 +548,10 @@ mod tests {
 
         address_repository::insert_address(
             &database,
-            &AddressEntity {
+            &StoredAddress {
                 address: "bc1qseeded".to_string(),
                 exchange_id: Some(1),
-                ..AddressEntity::default()
+                ..StoredAddress::default()
             },
         )
         .unwrap();

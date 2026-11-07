@@ -1,5 +1,5 @@
 //! Shared backend-driven table query contract: pagination and sorting, used
-//! by every data-table endpoint (Section 5.11 of CONTRIBUTING.md).
+//! by every data-table endpoint.
 //!
 //! A table endpoint takes one query struct that flattens [`TableQuery`] plus
 //! its table-specific filters, and returns a [`TablePage`]. Page numbers are

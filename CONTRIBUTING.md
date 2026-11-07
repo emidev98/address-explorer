@@ -1,6 +1,6 @@
 # Contributing Guide
 
-This document is the single canonical source for repository development instructions: Dioxus 0.7 conventions, Rust architecture and clean-code standards, `rusqlite`/SQLite persistence, testing, platform compatibility, and code review. Agent-assisted changes and human contributions **MUST** follow the same requirements. The former Dioxus-specific instructions have been merged into this guide; no separate policy document is required.
+This document is the single source of truth for repository development rules: Dioxus conventions, Rust architecture, code style, SQLite persistence, testing, platform compatibility, and review.
 
 The repository configuration (`Cargo.toml`, `Cargo.lock`, `Dioxus.toml`, CI definitions, and established project conventions) is authoritative. If a guide and the actual configuration disagree, contributors **MUST** resolve the discrepancy deliberately and update this document or the project configuration rather than silently changing project-wide assumptions.
 
@@ -28,6 +28,7 @@ When sources disagree, contributors **MUST** prioritize project configuration an
 - **Persistence:** SQLite through `rusqlite` for native application builds. Browser/WASM builds **MUST NOT** assume that a native `rusqlite` persistence implementation can be reused unchanged; a browser target requires an explicitly supported storage adapter.
 - **Targets:** Linux, macOS, and Android. Platform-specific APIs **SHOULD** be isolated behind narrow modules or target-specific compilation.
 - **Currency:** Bitcoin is the base and accounting currency; fiat values are a derived display layer governed by the default-fiat rules in Section 3.1.
+- **Bundled data:** the packed BTC/USD history lives in `assets/pricing/btc_usd.bin`; the researched exchange-wallet catalog lives in `src/data/migrations/0019_addresses_data.sql`. No external sample-data folder is required to build or test the application.
 
 Contributors **MUST NOT** upgrade Dioxus, `rusqlite`, SQLite features, or other major dependencies as an incidental part of an unrelated change. Dependency changes **SHOULD** state the reason, compatibility impact, and tests performed. For an application, `Cargo.lock` **MUST** be committed so dependency resolution is reviewed and reproducible.
 
@@ -48,7 +49,7 @@ The persisted `default_fiat_currency` setting (the SQLite `setting` table) is th
 **Server and application rules**
 
 - Exchange-ledger original fiat amounts and fees **MAY** be retained for provenance, but every default-currency display **MUST** use the derived read-time `converted_*` fields populated by `ExchangeFiatService` (`src/application/exchange_fiat.rs`). Converted values **MUST NOT** be written back as if they were the imported source amounts. BTC/XBT fees remain BTC.
-- Historical fiat prices use the stored USD series as the canonical source. When the default currency changes, contributors **MUST** materialize the selected currency's history through `ensure_currency_history` / `ensure_currency_history_api` (`src/application/prices.rs`, `src/api/prices.rs`) or extend that workflow. That workflow:
+- Historical fiat prices use the stored USD series as the canonical source. When the default currency changes, contributors **MUST** materialize the selected currency's history through `ensure_currency_history` / `ensure_currency_history_api` (`src/application/prices/`, `src/api/prices.rs`) or extend that workflow. That workflow:
   - reuses `sync_prices_bulk` rather than introducing a second conversion algorithm;
   - finds the missing target close times through the prices repository;
   - persists one target row per stored USD close time at full granularity;
@@ -69,22 +70,23 @@ The layout example **SHOULD** be adapted to the repository as it exists. Contrib
 
 ```text
 src/
-├── main.rs                 # Application entry point and composition root
-├── app.rs                  # Root component and top-level navigation
-├── api/                    # Server-function API controllers (fullstack entry points)
-├── components/             # Reusable presentation components
-│   └── charts/             # One component per chart (Apache ECharts)
-├── screens/                # Screen/page components and screen-specific state
-├── application/            # Services: use cases and orchestration, one module per domain
-├── domain/                 # Domain types, validation, pure business rules
-├── data/
-│   ├── mod.rs
-│   ├── database.rs         # Connection creation and SQLite configuration
-│   ├── migrations.rs       # Ordered schema migrations
-│   └── repositories/       # SQL access grouped by domain entity
+├── main.rs                 # Entry point and composition root
+├── app.rs                  # Root component, Route enum, route URLs
+├── navigation.rs           # Destination manifest: route, label, icon
+├── api/                    # Thin #[server] controllers
+├── application/            # Services: use cases and orchestration
 ├── clients/                # External API clients, one module per provider
-├── workers/                # CPU-intensive work and long-running workers
-└── error.rs                # Shared application error types, if needed
+├── components/             # Reusable presentation components
+│   ├── app_shell.rs        # Top bar, side panel, drawer, compact rail
+│   ├── icon.rs             # Shared Material icons
+│   ├── modal.rs            # Shared dialog shell
+│   ├── page_header.rs      # Shared screen title row
+│   ├── table_controls.rs   # Table state, pagination, sorting, selection
+│   └── charts/             # One component per Apache ECharts chart
+├── data/                   # Database, migrations, seeds, repositories
+├── domain/                 # Types, validation, pure business rules
+└── screens/                # Screen components
+    └── settings/           # Settings subsections
 ```
 
 A small application **MAY** use fewer modules. Modules **SHOULD** be introduced when they establish a meaningful boundary, not to increase the number of files. A separate `core` crate **MAY** be useful when the same domain/computation logic must be tested independently or reused by multiple frontends; it is a Rust library boundary, not a separate process or service.
@@ -102,18 +104,23 @@ cargo fmt --all
 # Format RSX when supported by the pinned Dioxus CLI
 dx fmt
 
-# Compile and test the workspace
-cargo check --workspace
+# Compile and test the client and server code
+cargo check --workspace --all-targets --features server
 cargo test --workspace
+cargo test --workspace --features server
 
 # Treat Clippy warnings as errors
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --features server -- -D warnings
 
 # Inspect commands supported by the pinned Dioxus CLI
 dx --help
 ```
 
-Before opening a pull request, contributors **MUST** run Rust formatting, compilation, tests, and Clippy for the affected workspace. If a command is unavailable for the pinned toolchain, contributors **SHOULD** use the documented equivalent and **MUST** record the limitation in the pull request. `dx fmt` **SHOULD** be run when RSX has changed and the installed CLI supports it. Platform-specific build or bundle commands **SHOULD** be run for every affected target.
+The default `web` feature compiles only the client-side code. The `server`
+feature is required for the application, data, and server-function tests, so a
+complete test run includes both commands above.
+
+Before opening a pull request, contributors **MUST** run Rust formatting, compilation, tests, and Clippy for the affected workspace. If a command is unavailable for the pinned toolchain, contributors **SHOULD** use the documented equivalent and **MUST** record the limitation in the pull request. `dx fmt` is best-effort: the pinned Dioxus formatter has known failures on some existing `rsx!` blocks. A `cargo fmt` + successful build is authoritative; record any `dx fmt` limitation in the pull request. Platform-specific build or bundle commands **SHOULD** be run for every affected target.
 
 Dioxus bundling is platform-sensitive. A successful build on one operating system does not prove that a native bundle for another operating system can be produced from that host. Release automation **SHOULD** use a build matrix with native runners wherever cross-compilation is unsupported or unreliable. Signing, notarization, store submission, and release credentials **MUST** be handled outside ordinary development checks and **MUST NOT** be committed to the repository.
 
@@ -123,20 +130,11 @@ This section defines the Dioxus-specific conventions for the application. The ex
 
 ### 5.1 Dependency features and application entry point
 
-The Dioxus dependency and feature selection **MUST** match the targets the application intends to build. The following is an illustrative feature mapping, not a requirement to enable every target or to replace the repository's existing manifest:
-
-```toml
-[dependencies]
-dioxus = "0.7.1"
-
-[features]
-default = ["desktop"]
-web = ["dioxus/web"]
-desktop = ["dioxus/desktop"]
-mobile = ["dioxus/mobile"]
-```
-
-The default feature **SHOULD** reflect the normal local development target, and build commands **MUST** select the intended target features. Fullstack/server features **MUST NOT** be enabled merely to build a standalone native application; they are appropriate only when the product intentionally includes server functionality.
+The feature set in `Cargo.toml` is authoritative. The current defaults are
+`default = ["web"]`, with `web`, `desktop`, `mobile`, and `server` features.
+`server` enables `dioxus/server`, `rusqlite`, `dirs`, and `bitcoin` and is
+required for the application, data, and server-function tests. Build and test
+commands **MUST** select the feature for the target being exercised.
 
 A native or web application **MUST** initialize the Dioxus runtime through the API documented for its pinned version. The minimal Dioxus 0.7 shape is:
 
@@ -161,22 +159,6 @@ fn App() -> Element {
 - Straightforward repeated and conditional nodes **SHOULD** use RSX's native `for` and `if` forms. Rust expressions embedded in RSX **MUST** be enclosed in braces; iterator expressions used to produce nodes **MUST** also be enclosed in braces.
 - Attributes, event handlers, and inline styles **SHOULD** remain readable. Complex expressions **SHOULD** be computed before the `rsx!` block when that makes the markup easier to understand.
 
-Example: repeated and conditional nodes.
-
-```rust
-rsx! {
-    section {
-        class: "items",
-        for item in items {
-            ItemRow { item }
-        }
-        if show_empty_state {
-            p { "No items found." }
-        }
-    }
-}
-```
-
 ### 5.3 Assets, styles, and accessibility
 
 - Local project assets **SHOULD** be referenced with `asset!` rather than hard-coded runtime filesystem paths.
@@ -184,26 +166,14 @@ rsx! {
 - A project stylesheet **SHOULD** use the documented `document::Stylesheet` component or the project's established stylesheet configuration.
 - Images **SHOULD** have meaningful `alt` text unless they are purely decorative and receive an appropriate accessibility treatment.
 
-Example: local assets and a stylesheet.
-
-```rust
-rsx! {
-    document::Stylesheet {
-        href: asset!("/assets/styles.css"),
-    }
-    img {
-        src: asset!("/assets/image.png"),
-        alt: "Descriptive alternative text",
-    }
-}
-```
-
 #### Styling: Tailwind CSS v4 and Material 3
 
 The interface uses a Material 3 theme implemented with Tailwind CSS v4 in
-`tailwind.css`. `assets/tailwind.css` is the compiled stylesheet that the
-application loads, so contributors **MUST** rebuild it after changing either
-the theme or the Tailwind classes in the Rust views:
+`tailwind.css`. `assets/tailwind.css` is the generated stylesheet that the
+application loads, and `assets/main.css` holds hand-written layout and
+component overrides that sit on top of the generated theme. Contributors
+**MUST** rebuild the generated stylesheet after changing the theme or the
+Tailwind classes in the Rust views; do not hand-edit the generated file:
 
 ```bash
 npx @tailwindcss/cli@4.1.5 -i tailwind.css -o assets/tailwind.css
@@ -220,7 +190,7 @@ The theme provides:
 - Component classes used by the views, including `md3-top-app-bar`,
   `md3-side-nav`, `md3-nav-drawer`, `md3-screen`, `md3-button-filled`,
   `md3-text-field`, `md3-checkbox`, `md3-date-picker`,
-  `md3-date-picker-popup`, `md3-table`, `md3-card`, and `md3-fab`.
+  `md3-date-picker-popup`, `md3-table`, and `md3-card`.
 
 Every checkbox **MUST** use the shared `Checkbox` component in
 `src/components/checkbox.rs` instead of styling a native input in a view. It
@@ -255,8 +225,8 @@ so palette changes affect both the component classes and the Tailwind color
 utilities. Changes that alter palettes, color roles, or component classes
 **MUST** be verified in both light and dark appearance modes before review.
 
-Primary navigation is owned by the `Topbar` layout in
-`src/components/topbar.rs` and is configured by the persisted
+Primary navigation is owned by the `AppShell` layout in
+`src/components/app_shell.rs` and is configured by the persisted
 `navigation_position` interface setting:
 
 - **Auto** (the default) shows the side panel from 64 rem upward and the top
@@ -272,10 +242,10 @@ The persistent side panel is compressible through the footer button at its
 bottom. The `side_nav_collapsed` interface setting stores that state; it
 defaults to expanded and requires no schema migration because it lives in the
 existing `setting` key/value table. Expanded and compact presentations share
-`FullNavPanel` / `CompactNavPanel` in `src/components/topbar.rs`; new
-destinations **MUST** be added to `screens()` or `settings_sections()` there
-so every presentation stays in sync, including an icon for each top-level
-destination.
+`FullNavPanel` / `CompactNavPanel` in `src/components/app_shell.rs`; new
+destinations **MUST** be added to `Destination::PRIMARY` or
+`Destination::SETTINGS` in `src/navigation.rs` so every presentation stays in
+sync, including an icon for each top-level destination.
 
 - The expanded panel shows icon + label links, pins the Settings group to the
   bottom with a flexible gap above it, and places the compress button below
@@ -312,42 +282,6 @@ finish loading or the theme changes.
 - Hooks **MUST** be called in a consistent order during component evaluation; they **MUST NOT** be called conditionally inside branches or loops.
 - Shared state **MAY** be passed through props or provided with `use_context_provider` and retrieved with `use_context`. The choice **SHOULD** make ownership and dependencies clear.
 
-Counter example:
-
-```rust
-#[component]
-fn Counter() -> Element {
-    let mut count = use_signal(|| 0_i64);
-    let doubled = use_memo(move || count() * 2);
-
-    rsx! {
-        p { "Count: {count}" }
-        p { "Doubled: {doubled}" }
-        button {
-            onclick: move |_| *count.write() += 1,
-            "Increment"
-        }
-    }
-}
-```
-
-Context example:
-
-```rust
-#[component]
-fn App() -> Element {
-    let theme = use_signal(|| "light".to_string());
-    use_context_provider(|| theme);
-    rsx! { ThemeLabel {} }
-}
-
-#[component]
-fn ThemeLabel() -> Element {
-    let theme = use_context::<Signal<String>>();
-    rsx! { p { "Current theme: {theme}" } }
-}
-```
-
 ### 5.5 Rendering, event handlers, and persistence lifecycle
 
 - Components **SHOULD NOT** contain substantial SQL, domain algorithms, complex parsing, or multi-step workflows. Those operations **SHOULD** live in application, domain, worker, or data modules.
@@ -359,22 +293,6 @@ fn ThemeLabel() -> Element {
 ### 5.6 Resources, async I/O, CPU work, and cancellation
 
 `use_resource` **SHOULD** be used for component data backed by an asynchronous operation when its dependency-tracking and lifecycle behavior fit the use case. A resource's initial/loading state **MUST** be handled explicitly. Where relevant, the UI **SHOULD** distinguish loading, success, empty, and failure states.
-
-Illustrative resource shape:
-
-```rust
-let record = use_resource(move || async move {
-    load_record().await
-});
-
-match record() {
-    Some(Ok(value)) => rsx! { RecordView { value } },
-    Some(Err(_error)) => rsx! { "Unable to load the record." },
-    None => rsx! { "Loading..." },
-}
-```
-
-Adapt the result type and error presentation to the actual application API. The example is not a requirement to use `use_resource` for every operation.
 
 Async execution and parallel computation are different: an async task does not automatically move CPU-heavy synchronous work onto a dedicated thread. Therefore:
 
@@ -390,25 +308,6 @@ CPU-intensive algorithms **SHOULD** be ordinary Rust functions with clear inputs
 ### 5.7 Routing
 
 When the application needs in-app URL routing, contributors **MAY** use Dioxus Router. The `router` feature **MUST** be enabled before using the API. Routes **SHOULD** be declared in one `Routable` enum; shared page structure **SHOULD** use layouts and `Outlet<Route>` where appropriate. Routing **SHOULD NOT** be introduced for a simple single-screen interface unless it materially improves navigation or structure.
-
-Example: route definition and router entry point.
-
-```rust
-use dioxus::prelude::*;
-
-#[derive(Routable, Clone, PartialEq)]
-enum Route {
-    #[route("/")]
-    Home {},
-    #[route("/items/:id")]
-    Item { id: i64 },
-}
-
-#[component]
-fn App() -> Element {
-    rsx! { Router::<Route> {} }
-}
-```
 
 ### 5.8 Fullstack and hydration boundaries
 
@@ -434,38 +333,9 @@ Apache ECharts is the default charting library for this project. The browser bun
 - Charts **MUST** provide an accessible label and remain legible in the supported light and dark appearance modes. Contributors **SHOULD** verify the rendered chart, resizing, and both modes before requesting review.
 - When updating ECharts, replace the vendored bundle and license files together, record the new version in this guide or the vendoring README, and run the checks in Section 4.
 
-Example chart component shape:
-
-```rust
-/// Business data received from the screen.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BalancePoint {
-    pub label: String,
-    pub value: f64,
-}
-
-/// The component owns option construction and rendering.
-#[component]
-pub fn BalanceChart(points: Vec<BalancePoint>) -> Element {
-    let option = build_option(&points).to_string();
-
-    rsx! {
-        EChartsHost { option, aria_label: "Balance chart".to_string() }
-    }
-}
-```
-
-The screen only supplies data:
-
-```rust
-rsx! {
-    BalanceChart { points }
-}
-```
-
 ### 5.11 Data tables: pagination and sorting
 
-Every screen that lists rows in a table **MUST** use the shared backend-driven table pattern defined here, so all tables paginate and sort the same way. The historical prices screen (`src/screens/prices.rs`) is the reference implementation.
+Every screen that lists rows in a table **MUST** use the shared backend-driven table pattern defined here, so all tables paginate and sort the same way. The historical prices screen (`src/screens/historical_prices.rs`) is the reference implementation.
 
 **Query contract.**
 
@@ -502,7 +372,7 @@ Every screen that lists rows in a table **MUST** use the shared backend-driven t
 The Settings area has two provider-catalog sub-settings built on one generic pattern. Contributors **MUST** extend that pattern rather than hand-rolling a second catalog screen:
 
 - **Two-level taxonomy.** `exchanges_types` and `wallets_types` are the provider rows; `exchange_categories` and `wallet_categories` are their categories. A provider has at most one optional category. The `CatalogKind` enum selects both tables through a fixed allowlist; client input **MUST NOT** reach an SQL identifier.
-- **One generic API.** The endpoints live under `/api/settings/catalogs/:kind/...` and serve both kinds. The `kind` path segment is parsed into `CatalogKind` before any service call. The legacy `/api/exchanges/types` and `/api/wallets/types` picker endpoints are thin wrappers over the same service.
+- **One generic API.** The endpoints live under `/api/settings/catalogs/:kind/...` and serve both kinds. The `kind` path segment is parsed into `CatalogKind` before any service call. Pickers use the generic `/api/settings/catalogs/:kind/options` endpoint.
 - **Identity.** Provider names are unique case-insensitively. A slug is derived from the name at creation and **MUST NOT** change afterwards, so CSV imports and external references stay stable. The seed rows from `src/data/migrations/0007_exchanges_types_data.sql` and `src/data/migrations/0009_wallets_types_data.sql` are fully user-owned; future migrations **MUST NOT** re-seed providers by name.
 - **Brand color.** Each seed row carries the provider's primary published brand color from its official brand guidelines or press kit. The color only colors the provider badge; a row may have none, in which case `src/components/provider_badge.rs` derives a stable fallback. A user-edited color **MUST NOT** be overwritten: new colors for existing rows are added as a backfill migration (for example `src/data/migrations/0020_provider_brand_colors.sql`) that updates only `brand_color IS NULL` rows, and the seed files are updated at the same time so fresh databases match (Section 6.5.2).
 - **Listings.** Provider tables follow Section 5.11 through the shared `TableQuery`, `CatalogTypePage` with global KPI totals, an allowlisted sort enum, a clamped page size, and the shared `TablePagination` / `SortableHeader` controls.
@@ -573,11 +443,34 @@ style a native `<input type="date">`, or implement their own calendar markup.
   picker **SHOULD** add or update tests there instead of relying only on manual
   screen checks.
 
+### 5.14 Shared UI primitives
+
+Screens compose the existing primitives instead of re-implementing their markup:
+
+- `Icon` / `IconName` (`src/components/icon.rs`) for Material icons.
+- `PageHeader` (`src/components/page_header.rs`) for the screen title row.
+- `Modal` (`src/components/modal.rs`) for scrim, Escape handling, and dialog ARIA. Views **MUST NOT** hand-roll a dialog scrim.
+- `TableState` / `use_table_state` and the table controls in
+  `src/components/table_controls.rs`.
+- `ConfirmDialog`, `Checkbox`, `DatePicker`, `ProviderBadge`, `CsvDropzone`,
+  `MultiSelect`, and the chart components.
+- The formatters in `src/components/format.rs` and the UTC helpers in
+  `src/domain/civil_time.rs`.
+
+Navigation labels, page titles, and icons are declared once in
+`src/navigation.rs` (`Destination`); screen URLs are declared in `src/app.rs`.
+A new screen **MUST** add its destination there and use the same label in the
+page header. A URL change **MUST** be deliberate and documented.
+
+UI preferences (`FiatCurrency`, `InterfaceSettings`, theme) are loaded once by
+the app root and shared through context. Screens **MUST NOT** fetch the same
+setting independently or keep a second mutable copy.
+
 ## 6. SQLite and `rusqlite` conventions
 
 ### 6.1 Connection lifecycle and file location
 
-- The application **MUST** store a writable database in the operating system's application-data directory (or an equivalent platform-approved location), not in the source tree, current working directory, or read-only packaged resources.
+- Debug builds use `<workspace>/target/db/app.db`; release builds use the platform application-data directory, falling back to the existing legacy `~/address-explorer/app.db` when that file exists. The `DATABASE_PATH` environment variable overrides both. The database **MUST NOT** be stored in read-only packaged resources.
 - The database directory **MUST** be created before opening a new database file. Failure to create or open it **MUST** be reported as an application error.
 - Database paths **MUST NOT** be hard-coded to a specific user's home directory. Paths **MUST** be built with `Path`/`PathBuf` or a platform-aware directory API.
 - The database filename and application-data directory **SHOULD** remain stable across releases so upgrades can find existing user data.
@@ -610,41 +503,6 @@ SQLite supports concurrent readers but only one active writer per database at a 
 - Database errors **SHOULD** retain their source for diagnostics while being translated to a safe user-facing message at the UI boundary.
 - Dynamic query builders **SHOULD NOT** be introduced unless they solve a real query requirement more clearly than fixed queries.
 
-Example repository functions:
-
-```rust
-use rusqlite::{params, Connection, OptionalExtension};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Note {
-    pub id: i64,
-    pub title: String,
-}
-
-pub fn find_note(conn: &Connection, id: i64) -> rusqlite::Result<Option<Note>> {
-    conn.query_row(
-        "SELECT id, title FROM notes WHERE id = ?1",
-        [id],
-        |row| {
-            Ok(Note {
-                id: row.get(0)?,
-                title: row.get(1)?,
-            })
-        },
-    )
-    .optional()
-}
-
-pub fn rename_note(conn: &Connection, id: i64, title: &str) -> rusqlite::Result<usize> {
-    conn.execute(
-        "UPDATE notes SET title = ?1 WHERE id = ?2",
-        params![title, id],
-    )
-}
-```
-
-The caller is responsible for running these synchronous functions on an appropriate database worker, not directly in a UI handler.
-
 ### 6.4 Transactions and consistency
 
 - A group of operations representing one logical change **MUST** be atomic and **MUST** run in a transaction.
@@ -653,26 +511,6 @@ The caller is responsible for running these synchronous functions on an appropri
 - Constraints such as `PRIMARY KEY`, `UNIQUE`, `NOT NULL`, `CHECK`, and foreign keys **SHOULD** encode invariants in the schema when feasible.
 - Foreign-key enforcement **MUST** be enabled on every connection where the schema relies on it, for example using `PRAGMA foreign_keys = ON`.
 - Code **MUST** distinguish “not found” from other query failures when the domain semantics require that distinction.
-
-Example transaction:
-
-```rust
-use rusqlite::{Connection, Result, TransactionBehavior};
-
-pub fn create_note_and_audit(conn: &mut Connection, title: &str) -> Result<i64> {
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-
-    tx.execute("INSERT INTO notes (title) VALUES (?1)", [title])?;
-    let note_id = tx.last_insert_rowid();
-    tx.execute(
-        "INSERT INTO audit_log (entity_id, action) VALUES (?1, ?2)",
-        (note_id, "note_created"),
-    )?;
-
-    tx.commit()?;
-    Ok(note_id)
-}
-```
 
 Code **SHOULD** use the application's error type around `rusqlite::Result` when a workflow combines database errors with domain validation or other operations.
 
@@ -717,10 +555,11 @@ entry under `src/data/migrations/`.
   re-running a file is a no-op and never overwrites user edits.
 - **Rust seed migrations.** Migrations that import a large bundled dataset
   (`0015_historical_prices_data`, `0019_addresses_data`) live in
-  `src/data/seeds.rs` as `Migration::Seed` entries. They consume their ordinal
-  but have no SQL file. Seeds run only for on-disk databases; in-memory
-  databases advance past the version without importing, so both kinds of
-  database follow the same linear `user_version` sequence.
+  `src/data/seeds.rs` as `Migration::Seed` entries and consume their ordinal.
+  `0019_addresses_data` reads the checked-in
+  `src/data/migrations/0019_addresses_data.sql` catalog. Seeds run only for
+  on-disk databases; in-memory databases advance past the version without
+  importing, so both kinds follow the same linear `user_version` sequence.
 - **Transactions.** The runner opens one `IMMEDIATE` transaction per entry,
   executes the SQL or seed, updates `user_version`, and commits. A failing
   migration rolls back its own step and aborts startup; a migration **MUST NOT**
@@ -771,7 +610,7 @@ entry under `src/data/migrations/`.
 | 11–13 | `0011_transactions.sql`, `0012_transaction_inputs.sql`, `0013_transaction_outputs.sql` | schema |
 | 14–15 | `0014_historical_prices.sql` (file), `0015_historical_prices_data` (Rust seed) | schema + data |
 | 16–18 | `0016_exchange_accounts.sql`, `0017_exchange_transactions.sql`, `0018_fiat_exchange_rates.sql` | schema |
-| 19 | `0019_addresses_data` (Rust seed) | data |
+| 19 | `0019_addresses_data` (Rust seed + SQL catalog) | data |
 | 20 | `0020_provider_brand_colors.sql` | data backfill |
 | 21 | `0021_flow_indexes.sql` | read-path indexes |
 | 22 | `0022_exchange_transactions_btc_fee_sats.sql` | data backfill + triggers |
@@ -876,7 +715,7 @@ Before adding or extending a module, contributors **SHOULD** be able to answer "
 
 - A trait, generic framework, macro, or dependency **SHOULD NOT** be introduced for one trivial use without a concrete benefit.
 - Duplicated business rules **SHOULD** be extracted when duplication could allow behavior to diverge.
-- Comments **SHOULD** explain why a non-obvious decision exists, especially around concurrency, migrations, platform limitations, and security; comments **SHOULD NOT** merely restate the code.
+- Comments **SHOULD** explain why a non-obvious decision exists, especially around concurrency, migrations, platform limitations, security, and user-visible behavior. Comments **SHOULD NOT** restate the code, narrate obvious control flow, or reference section numbers in this guide. Keep contracts and invariants; delete essays and stale examples.
 - Public modules and non-obvious public APIs **SHOULD** have documentation comments describing contracts, errors, and important edge cases.
 - `unsafe` **MUST** be avoided unless necessary. Every unsafe block **MUST** include a nearby `// SAFETY:` comment explaining why its requirements are upheld.
 - Clippy warnings **SHOULD** be resolved rather than broadly allowed. A targeted lint allowance **MAY** be used with a comment explaining its rationale.
@@ -938,279 +777,50 @@ Before requesting review, contributors **MUST**:
 
 Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, respect for the layer boundaries in Section 7, currency handling (Section 3.1), and platform compatibility—not only whether the code compiles.
 
-## 12. Current database schema
+## 12. Database tables and reference data
 
-A database at `CURRENT_SCHEMA_VERSION = 22` has the tables, indexes, and
-triggers below. The statements are the consolidated migration files applied in
-version order; `src/data/migrations/` is authoritative and this section **MUST**
-be updated in the same change as a migration.
+`src/data/migrations/` is the only schema source of truth; do not duplicate
+the SQL here. A database at `CURRENT_SCHEMA_VERSION = 22` has these tables:
 
-**Reference data** inserted by the `_data` and seed migrations:
-
-| Table | Rows seeded | Rows are user-owned |
+| Table | Purpose | Reference rows |
 | --- | --- | --- |
-| `exchange_categories` | 8 | yes |
-| `wallet_categories` | 9 | yes |
-| `exchanges_types` | 16 | yes, including the badged `brand_color` |
-| `wallets_types` | 18 | yes, including the badged `brand_color` |
-| `addresses` | the bundled CSV bundle and researched catalog (`0019_addresses_data`) | yes; existing addresses keep their description and owner |
-| `historical_prices` | the packed BTC/USD series (`0015_historical_prices_data`) | yes; other symbols are materialized at read time |
+| `setting` | Key/value user preferences | none; documented defaults |
+| `exchange_categories` | Exchange provider categories | 8, user-owned |
+| `wallet_categories` | Wallet provider categories | 9, user-owned |
+| `exchanges_types` | Exchange providers | 16, user-owned |
+| `wallets_types` | Wallet providers | 18, user-owned |
+| `addresses` | Tracked addresses and cached statistics | researched catalog from `0019_addresses_data` |
+| `transactions` | Cached on-chain transactions | none |
+| `transaction_inputs` | Cached transaction inputs | none |
+| `transaction_outputs` | Cached transaction outputs | none |
+| `historical_prices` | Daily/intraday price closes by symbol | packed BTC/USD series from `0015_historical_prices_data` |
+| `exchange_accounts` | Imported ledger accounts | none |
+| `exchange_transactions` | Imported ledger rows | none |
+| `fiat_exchange_rates` | Cached Frankfurter rates | none |
 
-`setting` starts empty and falls back to the documented defaults; the exchange
-ledger tables start empty and hold imported user data.
+Important invariants live in the migrations and are tested there:
 
-```sql
-CREATE TABLE setting (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-CREATE TABLE exchange_categories (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL COLLATE NOCASE UNIQUE
-);
-CREATE TABLE wallet_categories (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL COLLATE NOCASE UNIQUE
-);
-CREATE TABLE exchanges_types (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    slug TEXT NOT NULL DEFAULT '',
-    category_id INTEGER REFERENCES exchange_categories(id) ON DELETE SET NULL,
-    custody_model TEXT
-        CHECK (custody_model IS NULL OR custody_model IN ('self_custody', 'custodial')),
-    brand_color TEXT
-);
-CREATE UNIQUE INDEX idx_exchanges_types_slug
-    ON exchanges_types(slug);
-CREATE UNIQUE INDEX idx_exchanges_types_name_nocase
-    ON exchanges_types(name COLLATE NOCASE);
-CREATE INDEX idx_exchanges_types_category
-    ON exchanges_types(category_id);
-CREATE TABLE wallets_types (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    slug TEXT NOT NULL DEFAULT '',
-    category_id INTEGER REFERENCES wallet_categories(id) ON DELETE SET NULL,
-    custody_model TEXT
-        CHECK (custody_model IS NULL OR custody_model IN ('self_custody', 'custodial')),
-    platform TEXT
-        CHECK (platform IS NULL OR platform IN ('hardware', 'software')),
-    brand_color TEXT
-);
-CREATE UNIQUE INDEX idx_wallets_types_slug
-    ON wallets_types(slug);
-CREATE UNIQUE INDEX idx_wallets_types_name_nocase
-    ON wallets_types(name COLLATE NOCASE);
-CREATE INDEX idx_wallets_types_category
-    ON wallets_types(category_id);
-CREATE TABLE addresses (
-    address TEXT PRIMARY KEY,
-    chain_funded_txo_count INTEGER NOT NULL,
-    chain_funded_txo_sum INTEGER NOT NULL,
-    chain_spent_txo_count INTEGER NOT NULL,
-    chain_spent_txo_sum INTEGER NOT NULL,
-    chain_tx_count INTEGER NOT NULL,
-    mempool_funded_txo_count INTEGER NOT NULL,
-    mempool_funded_txo_sum INTEGER NOT NULL,
-    mempool_spent_txo_count INTEGER NOT NULL,
-    mempool_spent_txo_sum INTEGER NOT NULL,
-    mempool_tx_count INTEGER NOT NULL,
-    description TEXT,
-    exchange_id INTEGER REFERENCES exchanges_types(id),
-    wallet_id INTEGER REFERENCES wallets_types(id),
-    tx_index_rate_limited INTEGER NOT NULL DEFAULT 0,
-    exchange_balance_sats INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX idx_addresses_exchange
-    ON addresses(exchange_id);
-CREATE INDEX idx_addresses_wallet
-    ON addresses(wallet_id);
-CREATE TRIGGER addresses_owner_either_insert
-BEFORE INSERT ON addresses
-WHEN NEW.exchange_id IS NOT NULL AND NEW.wallet_id IS NOT NULL
-BEGIN
-    SELECT RAISE(ABORT, 'addresses.exchange_id and addresses.wallet_id cannot both be set');
-END;
-CREATE TRIGGER addresses_owner_either_update
-BEFORE UPDATE OF exchange_id, wallet_id ON addresses
-WHEN NEW.exchange_id IS NOT NULL AND NEW.wallet_id IS NOT NULL
-BEGIN
-    SELECT RAISE(ABORT, 'addresses.exchange_id and addresses.wallet_id cannot both be set');
-END;
-CREATE TABLE transactions (
-    id INTEGER PRIMARY KEY,
-    address TEXT NOT NULL,
-    txid TEXT NOT NULL,
-    version INTEGER NOT NULL,
-    locktime INTEGER NOT NULL,
-    size INTEGER NOT NULL,
-    weight INTEGER NOT NULL,
-    fee INTEGER NOT NULL,
-    confirmed INTEGER NOT NULL CHECK (confirmed IN (0, 1)),
-    block_height INTEGER,
-    block_hash TEXT,
-    block_time INTEGER,
-    synced_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-    UNIQUE (address, txid),
-    FOREIGN KEY (address) REFERENCES addresses(address) ON DELETE CASCADE
-);
-CREATE INDEX idx_transactions_address ON transactions(address);
-CREATE INDEX idx_transactions_txid ON transactions(txid);
-CREATE INDEX idx_transactions_block_time ON transactions(block_time);
-CREATE TABLE transaction_inputs (
-    id INTEGER PRIMARY KEY,
-    transaction_id INTEGER NOT NULL,
-    input_index INTEGER NOT NULL,
-    prev_txid TEXT NOT NULL,
-    prev_vout INTEGER NOT NULL,
-    prevout_scriptpubkey TEXT,
-    prevout_scriptpubkey_asm TEXT,
-    prevout_scriptpubkey_type TEXT,
-    prevout_scriptpubkey_address TEXT,
-    prevout_value INTEGER,
-    scriptsig TEXT NOT NULL,
-    scriptsig_asm TEXT NOT NULL,
-    is_coinbase INTEGER NOT NULL CHECK (is_coinbase IN (0, 1)),
-    sequence INTEGER NOT NULL,
-    UNIQUE (transaction_id, input_index),
-    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_transaction_inputs_transaction
-    ON transaction_inputs(transaction_id);
-CREATE INDEX idx_transaction_inputs_prevout_scriptpubkey_address
-    ON transaction_inputs(prevout_scriptpubkey_address);
-CREATE TABLE transaction_outputs (
-    id INTEGER PRIMARY KEY,
-    transaction_id INTEGER NOT NULL,
-    output_index INTEGER NOT NULL,
-    scriptpubkey TEXT NOT NULL,
-    scriptpubkey_asm TEXT NOT NULL,
-    scriptpubkey_type TEXT NOT NULL,
-    scriptpubkey_address TEXT,
-    value INTEGER NOT NULL,
-    UNIQUE (transaction_id, output_index),
-    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_transaction_outputs_transaction
-    ON transaction_outputs(transaction_id);
-CREATE INDEX idx_transaction_outputs_scriptpubkey_address
-    ON transaction_outputs(scriptpubkey_address);
-CREATE TABLE historical_prices (
-    close_time INTEGER NOT NULL,
-    close REAL NOT NULL,
-    symbol TEXT NOT NULL,
-    PRIMARY KEY (symbol, close_time)
-) WITHOUT ROWID;
-CREATE INDEX idx_historical_prices_close_time
-    ON historical_prices(close_time);
-CREATE TABLE exchange_accounts (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
-    provider_id INTEGER REFERENCES exchanges_types(id) ON DELETE SET NULL,
-    created_at INTEGER NOT NULL,
-    last_imported_at INTEGER,
-    last_modified_at INTEGER NOT NULL
-);
-CREATE INDEX idx_exchange_accounts_provider
-    ON exchange_accounts(provider_id);
-CREATE TABLE exchange_transactions (
-    id INTEGER PRIMARY KEY,
-    exchange_id INTEGER NOT NULL,
-    fingerprint TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    tx_type TEXT NOT NULL CHECK (
-        tx_type IN ('buy', 'sell', 'reward', 'withdrawal', 'deposit', 'unknown')
-    ),
-    amount_sats INTEGER NOT NULL,
-    currency TEXT NOT NULL CHECK (currency IN ('BTC', 'XBT')),
-    fiat_amount REAL,
-    fiat_currency TEXT,
-    fee REAL,
-    fee_currency TEXT,
-    tx_hash TEXT,
-    description TEXT,
-    raw_data TEXT NOT NULL,
-    match_state TEXT NOT NULL CHECK (
-        match_state IN ('hash_match', 'amount_date_match', 'manual_match', 'unmatched')
-    ),
-    matched_tx_id TEXT,
-    on_chain_txid TEXT,
-    on_chain_source TEXT CHECK (
-        on_chain_source IS NULL OR on_chain_source IN ('hash', 'amount_date', 'manual')
-    ),
-    on_chain_linked_at INTEGER,
-    on_chain_local_addresses TEXT,
-    is_manually_edited INTEGER NOT NULL DEFAULT 0 CHECK (is_manually_edited IN (0, 1)),
-    is_intentional_duplicate INTEGER NOT NULL DEFAULT 0
-        CHECK (is_intentional_duplicate IN (0, 1)),
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    FOREIGN KEY (exchange_id) REFERENCES exchange_accounts(id) ON DELETE CASCADE
-);
-CREATE INDEX idx_exchange_transactions_account_fingerprint
-    ON exchange_transactions(exchange_id, fingerprint);
-CREATE INDEX idx_exchange_transactions_account_timestamp
-    ON exchange_transactions(exchange_id, timestamp);
-CREATE INDEX idx_exchange_transactions_matched_txid
-    ON exchange_transactions(matched_tx_id);
-CREATE INDEX idx_exchange_transactions_timestamp
-    ON exchange_transactions(timestamp);
-CREATE INDEX idx_exchange_transactions_on_chain_txid
-    ON exchange_transactions(on_chain_txid);
-CREATE TRIGGER exchange_transactions_btc_fee_sats_insert
-BEFORE INSERT ON exchange_transactions
-WHEN UPPER(TRIM(COALESCE(NEW.fee_currency, ''))) IN ('BTC', 'XBT')
-  AND NEW.fee IS NOT NULL
-  AND NEW.fee <> ROUND(NEW.fee)
-BEGIN
-    SELECT RAISE(ABORT, 'exchange_transactions.fee must be satoshis for BTC/XBT');
-END;
-CREATE TRIGGER exchange_transactions_btc_fee_sats_update
-BEFORE UPDATE OF fee, fee_currency ON exchange_transactions
-WHEN UPPER(TRIM(COALESCE(NEW.fee_currency, ''))) IN ('BTC', 'XBT')
-  AND NEW.fee IS NOT NULL
-  AND NEW.fee <> ROUND(NEW.fee)
-BEGIN
-    SELECT RAISE(ABORT, 'exchange_transactions.fee must be satoshis for BTC/XBT');
-END;
-CREATE TABLE fiat_exchange_rates (
-    base TEXT NOT NULL,
-    quote TEXT NOT NULL,
-    rate_date TEXT NOT NULL,
-    rate REAL NOT NULL CHECK (rate > 0),
-    fetched_at INTEGER NOT NULL,
-    PRIMARY KEY (base, quote, rate_date)
-);
-```
+- `addresses.exchange_id` and `addresses.wallet_id` are mutually exclusive;
+  triggers enforce the rule on insert and owner updates.
+- `exchange_transactions.amount_sats` is always satoshis. A BTC/XBT fee is
+  stored in satoshis; `0022_exchange_transactions_btc_fee_sats.sql` rejects
+  fractional BTC/XBT fees.
+- `historical_prices` is `WITHOUT ROWID` and keyed by `(symbol, close_time)`.
+- Foreign-key enforcement is a connection pragma (`PRAGMA foreign_keys = ON`),
+  not a schema property.
+- `hello_world` is a removed legacy smoke-test table. If it exists in an old
+  database it is unused and **MUST NOT** be dropped by a migration.
 
-Notes that are easy to miss when reading the schema:
-
-- `historical_prices` is `WITHOUT ROWID`; its primary key leads with `symbol`
-  and a secondary index serves the per-close-time reads.
-- `addresses.exchange_id` and `addresses.wallet_id` are mutually exclusive.
-  SQLite cannot express that cross-column rule in `CREATE TABLE`, so the two
-  triggers enforce it on insert and on owner updates; the address repository
-  checks it again before writing.
-- `addresses.exchange_balance_sats` and `addresses.tx_index_rate_limited` are
-  derived state maintained by the exchange and address repositories.
-- `exchange_transactions.amount_sats` is always satoshis.
-  `exchange_transactions.fee` is satoshis when `fee_currency` is BTC/XBT and
-  the fee currency's own units otherwise; the `0022` triggers reject fractional
-  BTC/XBT fees so a source-unit value can never be stored again.
-- Foreign-key enforcement is a connection pragma (`PRAGMA foreign_keys = ON` in
-  `src/data/database.rs`), not a schema property, so it must stay enabled on
-  every connection.
-- The `hello_world` smoke-test table is no longer created. A database created
-  before its removal may still contain it; it is unused and **MUST NOT** be
-  dropped by a migration.
-
-To inspect the live schema of a development database:
+Inspect a development database with:
 
 ```sh
 sqlite3 target/db/app.db ".schema"
 sqlite3 target/db/app.db "PRAGMA user_version;"
 ```
+
+When a migration ships, update the version and table list above only when the
+newest migration changes them. Add or update the fresh-database and upgrade
+tests in `src/data/migrations.rs`.
 
 ## 13. References
 

@@ -8,10 +8,7 @@
 
 use std::fmt;
 
-use super::civil_time::{civil_from_days, format_date, parse_date};
-
-/// Seconds in one UTC day.
-const DAY_SECONDS: i64 = 86_400;
+use super::civil_time::{civil_from_days, format_date, parse_date, SECONDS_PER_DAY};
 
 /// A validated `YYYY-MM-DD` UTC civil date, stored as days since 1970-01-01.
 ///
@@ -29,8 +26,8 @@ impl IsoDate {
         }
 
         let epoch = parse_date(raw).ok_or(DateSelectionError::InvalidFormat)?;
-        let day = epoch.div_euclid(DAY_SECONDS);
-        let canonical = format_date(day * DAY_SECONDS);
+        let day = epoch.div_euclid(SECONDS_PER_DAY);
+        let canonical = format_date(day * SECONDS_PER_DAY);
         if canonical != raw {
             return Err(DateSelectionError::InvalidDate(raw.to_string()));
         }
@@ -40,7 +37,7 @@ impl IsoDate {
 
     /// The UTC civil date containing `epoch_second`.
     pub fn from_epoch(epoch_second: i64) -> Self {
-        Self(epoch_second.div_euclid(DAY_SECONDS))
+        Self(epoch_second.div_euclid(SECONDS_PER_DAY))
     }
 
     /// The UTC civil date `days` days after 1970-01-01.
@@ -50,12 +47,12 @@ impl IsoDate {
 
     /// UTC epoch seconds at the start of this day.
     pub fn epoch_start(&self) -> i64 {
-        self.0 * DAY_SECONDS
+        self.0 * SECONDS_PER_DAY
     }
 
     /// Inclusive UTC epoch seconds at the end of this day.
     pub fn epoch_end(&self) -> i64 {
-        self.epoch_start() + DAY_SECONDS - 1
+        self.epoch_start() + SECONDS_PER_DAY - 1
     }
 
     /// Days since 1970-01-01.

@@ -13,7 +13,7 @@ use crate::data::repositories::{fiat_rates as rate_repository, settings as setti
 use crate::data::{Database, DatabaseError};
 use crate::domain::civil_time;
 use crate::domain::exchange::{csv, ExchangeKpiTransaction, ExchangeTransaction};
-use crate::domain::price::USD_SYMBOL;
+use crate::domain::price::{normalize_default_symbol, USD_SYMBOL};
 
 const MAX_RANGE_DAYS: i64 = 366;
 
@@ -53,11 +53,7 @@ impl ExchangeFiatService {
     /// The current default currency, falling back to USD.
     pub fn target_currency(&self) -> Result<String, DatabaseError> {
         let symbol = settings_repository::load_default_fiat_currency(&self.database)?;
-        Ok(if symbol.trim().is_empty() {
-            USD_SYMBOL.to_string()
-        } else {
-            symbol.to_ascii_uppercase()
-        })
+        Ok(normalize_default_symbol(&symbol))
     }
 
     /// Convert values into `target`, returning one entry per input value.
@@ -145,14 +141,16 @@ impl ExchangeFiatService {
                 {
                     Ok(rate) if rate.rate > 0.0 => {
                         let converted = 1.0 / rate.rate;
-                        let _ = rate_repository::upsert_rate(
+                        if let Err(error) = rate_repository::upsert_rate(
                             &self.database,
                             &base,
                             &target,
                             &rate.date,
                             converted,
-                            now(),
-                        );
+                            civil_time::now_epoch_seconds(),
+                        ) {
+                            warning = Some(format!("Could not cache an exchange rate: {error}"));
+                        }
                         if let Ok(Some(cached)) =
                             rate_repository::latest_rate(&self.database, &base, &target, &date)
                         {
@@ -224,7 +222,7 @@ impl ExchangeFiatService {
                     ));
                 }
             }
-            rate_repository::upsert_rates(&self.database, &cached, now())
+            rate_repository::upsert_rates(&self.database, &cached, civil_time::now_epoch_seconds())
                 .map_err(|error| error.to_string())?;
             cursor = chunk_end + 86_400;
         }
@@ -351,13 +349,6 @@ impl ExchangeFiatService {
         }
         warning
     }
-}
-
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

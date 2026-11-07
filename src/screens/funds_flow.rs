@@ -1,4 +1,4 @@
-//! Flow screen: interoperable filters, the funds-flow Sankey, data-quality
+//! Funds Flow screen: interoperable filters, the funds-flow Sankey, data-quality
 //! warnings and the aggregated evidence table.
 
 use dioxus::prelude::*;
@@ -6,29 +6,19 @@ use dioxus::prelude::*;
 use crate::api::flow::{
     flow_filter_options_api, flow_link_evidence_api, flow_link_table_api, flow_overview_api,
 };
-use crate::api::prices::latest_price_api;
 use crate::components::format::{format_address, format_btc, format_fiat};
 use crate::components::{
-    use_fiat_currency, BalanceKpi, DatePicker, FlowFiatContext, FundsFlowChart, Kpi, MultiSelect,
-    MultiSelectOption, SortableHeader, TablePagination,
+    use_fiat_currency, use_latest_price, use_table_state, BalanceKpi, DatePicker, FlowFiatContext,
+    FundsFlowChart, Kpi, Modal, MultiSelect, MultiSelectOption, PageHeader, SortableHeader,
+    TablePagination, TableState,
 };
-use crate::domain::civil_time::format_datetime;
+use crate::domain::civil_time::{self, end_of_day, start_of_day};
 use crate::domain::date_selection::{DateSelection, IsoDate};
 use crate::domain::flow::{
     FlowAddressOption, FlowEvidenceQuery, FlowEvidenceRow, FlowFilterOption, FlowLinkRow,
     FlowLinkTableQuery, FlowQuery, FlowTimeBounds, FlowView, FlowWarningKind,
 };
-use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
-
-const DAY_SECONDS: i64 = 86_400;
-
-fn day_start(time: i64) -> i64 {
-    time - time.rem_euclid(DAY_SECONDS)
-}
-
-fn day_end(time: i64) -> i64 {
-    day_start(time) + DAY_SECONDS - 1
-}
+use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
 
 fn flow_span(bounds: &FlowTimeBounds) -> Option<(i64, i64)> {
     let first = [bounds.first_tx_time, bounds.first_ledger_time]
@@ -43,7 +33,7 @@ fn flow_span(bounds: &FlowTimeBounds) -> Option<(i64, i64)> {
 }
 
 #[component]
-pub fn Flow() -> Element {
+pub fn FundsFlow() -> Element {
     let fiat = use_fiat_currency();
     let mut exchanges = use_signal(Vec::<i64>::new);
     let mut addresses = use_signal(Vec::<String>::new);
@@ -54,20 +44,16 @@ pub fn Flow() -> Element {
     let date_touched = use_signal(|| false);
     let mut view = use_signal(|| FlowView::Transactions);
     let mut force_transactions = use_signal(|| false);
-    let mut page = use_signal(|| 0_u32);
-    let sort_by = use_signal(|| Option::<String>::None);
-    let sort_dir = use_signal(|| SortDirection::Desc);
+    let mut link_table = use_table_state(SortDirection::Desc);
+    let mut evidence_table = use_table_state(SortDirection::Desc);
     let mut evidence_link = use_signal(|| Option::<FlowLinkRow>::None);
-    let mut evidence_page = use_signal(|| 0_u32);
-    let mut evidence_sort_by = use_signal(|| Option::<String>::None);
-    let evidence_sort_dir = use_signal(|| SortDirection::Desc);
 
     let date_state = FlowDateState {
         selection: date_selection,
         from_time,
         to_time,
         force_transactions,
-        page,
+        table: link_table,
         evidence_link,
         touched: date_touched,
     };
@@ -77,10 +63,7 @@ pub fn Flow() -> Element {
             .await
             .map_err(|error| error.to_string())
     });
-    let latest_price = use_resource(move || {
-        let symbol = fiat.code();
-        async move { latest_price_api(symbol).await.ok().map(|price| price.close) }
-    });
+    let latest_price = use_latest_price();
 
     let graph = use_resource(move || {
         let query = current_query(
@@ -107,12 +90,7 @@ pub fn Flow() -> Element {
             view(),
             force_transactions(),
         );
-        let table = TableQuery {
-            page: page(),
-            page_size: DEFAULT_PAGE_SIZE,
-            sort_by: sort_by(),
-            sort_dir: sort_dir(),
-        };
+        let table = link_table.query(DEFAULT_PAGE_SIZE);
         async move {
             flow_link_table_api(FlowLinkTableQuery { flow: query, table })
                 .await
@@ -130,12 +108,7 @@ pub fn Flow() -> Element {
             view(),
             force_transactions(),
         );
-        let table = TableQuery {
-            page: evidence_page(),
-            page_size: DEFAULT_PAGE_SIZE,
-            sort_by: evidence_sort_by(),
-            sort_dir: evidence_sort_dir(),
-        };
+        let table = evidence_table.query(DEFAULT_PAGE_SIZE);
         async move {
             let link = link?;
             Some(
@@ -182,8 +155,8 @@ pub fn Flow() -> Element {
         let mut from_time = from_time;
         let mut to_time = to_time;
         selection.set(DateSelection::from_epoch_bounds(Some(first), Some(last)));
-        from_time.set(Some(day_start(first)));
-        to_time.set(Some(day_end(last)));
+        from_time.set(Some(start_of_day(first)));
+        to_time.set(Some(end_of_day(last)));
         date_initialized.set(true);
     });
 
@@ -253,19 +226,15 @@ pub fn Flow() -> Element {
             date_touched,
             view,
             force_transactions,
-            page,
+            link_table,
         );
         evidence_link.set(None);
     };
 
     rsx! {
         section { id: "flow", class: "md3-screen",
-            div { class: "md3-page-header",
-                div {
-                    h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                        "Flow of coins"
-                    }
-                }
+            PageHeader {
+                title: "Funds Flow".to_string(),
                 button {
                     r#type: "button",
                     class: "md3-button-tonal",
@@ -307,7 +276,7 @@ pub fn Flow() -> Element {
                             exchanges.set(values.iter().filter_map(|value| value.parse().ok()).collect());
                             force_transactions.set(false);
                             evidence_link.set(None);
-                            page.set(0);
+                            link_table.reset_page();
                         },
                     }
                     MultiSelect {
@@ -320,7 +289,7 @@ pub fn Flow() -> Element {
                             addresses.set(values);
                             force_transactions.set(false);
                             evidence_link.set(None);
-                            page.set(0);
+                            link_table.reset_page();
                         },
                     }
                     DatePicker {
@@ -361,7 +330,7 @@ pub fn Flow() -> Element {
                                 view.set(FlowView::Transactions);
                                 force_transactions.set(true);
                                 evidence_link.set(None);
-                                page.set(0);
+                                link_table.reset_page();
                             },
                             "Show transaction detail anyway"
                         }
@@ -420,7 +389,7 @@ pub fn Flow() -> Element {
                                     view.set(candidate);
                                     force_transactions.set(candidate == FlowView::Transactions);
                                     evidence_link.set(None);
-                                    page.set(0);
+                                    link_table.reset_page();
                                 },
                                 "{candidate.label()}"
                             }
@@ -510,51 +479,45 @@ pub fn Flow() -> Element {
                                 tr {
                                     SortableHeader {
                                         label: "Source".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("source")).then_some(sort_dir()),
+                                        active_direction: link_table.direction_for("source"),
                                         on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "source", SortDirection::Asc);
-                                            page.set(0);
+                                            link_table.sort("source", SortDirection::Asc);
                                         },
                                     }
                                     SortableHeader {
                                         label: "Target".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("target")).then_some(sort_dir()),
+                                        active_direction: link_table.direction_for("target"),
                                         on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "target", SortDirection::Asc);
-                                            page.set(0);
+                                            link_table.sort("target", SortDirection::Asc);
                                         },
                                     }
                                     SortableHeader {
                                         label: "BTC".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("value")).then_some(sort_dir()),
+                                        active_direction: link_table.direction_for("value"),
                                         on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "value", SortDirection::Desc);
-                                            page.set(0);
+                                            link_table.sort("value", SortDirection::Desc);
                                         },
                                     }
                                     th { "Share" }
                                     SortableHeader {
                                         label: "Txs".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("txs")).then_some(sort_dir()),
+                                        active_direction: link_table.direction_for("txs"),
                                         on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc);
-                                            page.set(0);
+                                            link_table.sort("txs", SortDirection::Desc);
                                         },
                                     }
                                     SortableHeader {
                                         label: "First".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("first_tx")).then_some(sort_dir()),
+                                        active_direction: link_table.direction_for("first_tx"),
                                         on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc);
-                                            page.set(0);
+                                            link_table.sort("first_tx", SortDirection::Desc);
                                         },
                                     }
                                     SortableHeader {
                                         label: "Last".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("last_tx")).then_some(sort_dir()),
+                                        active_direction: link_table.direction_for("last_tx"),
                                         on_sort: move |_| {
-                                            toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc);
-                                            page.set(0);
+                                            link_table.sort("last_tx", SortDirection::Desc);
                                         },
                                     }
                                     th { "Type" }
@@ -569,8 +532,8 @@ pub fn Flow() -> Element {
                                                 class: "md3-flow-link-row",
                                                 onclick: move |_| {
                                                     evidence_link.set(Some(evidence_row.clone()));
-                                                    evidence_page.set(0);
-                                                    evidence_sort_by.set(None);
+                                                    evidence_table.page.set(0);
+                                                    evidence_table.sort_by.set(None);
                                                 },
                                                 td {
                                                     div { class: "md3-flow-label-cell",
@@ -587,8 +550,8 @@ pub fn Flow() -> Element {
                                                 td { "{format_btc(row.value_sats)}" }
                                                 td { "{format_share(row.share)}" }
                                                 td { "{row.event_count}" }
-                                                td { "{row.first_time.map(format_short_datetime).unwrap_or_else(|| \"-\".to_string())}" }
-                                                td { "{row.last_time.map(format_short_datetime).unwrap_or_else(|| \"-\".to_string())}" }
+                                                td { "{row.first_time.map(civil_time::format_short_datetime).unwrap_or_else(|| \"-\".to_string())}" }
+                                                td { "{row.last_time.map(civil_time::format_short_datetime).unwrap_or_else(|| \"-\".to_string())}" }
                                                 td {
                                                     span { class: "md3-flow-kind-chip", "{link_kind_label(row.kind)}" }
                                                 }
@@ -600,10 +563,10 @@ pub fn Flow() -> Element {
                         }
                     }
                     TablePagination {
-                        page: page(),
+                        page: link_table.page(),
                         page_size: DEFAULT_PAGE_SIZE,
                         total: page_data.total,
-                        on_page: move |next| page.set(next),
+                        on_page: move |next| link_table.page.set(next),
                     }
                 }
             }
@@ -613,9 +576,7 @@ pub fn Flow() -> Element {
             FlowEvidenceDialog {
                 link,
                 evidence: evidence(),
-                page: evidence_page,
-                sort_by: evidence_sort_by,
-                sort_dir: evidence_sort_dir,
+                table: evidence_table,
                 on_close: move |_| evidence_link.set(None),
             }
         }
@@ -632,7 +593,7 @@ struct FlowDateState {
     from_time: Signal<Option<i64>>,
     to_time: Signal<Option<i64>>,
     force_transactions: Signal<bool>,
-    page: Signal<u32>,
+    table: TableState,
     evidence_link: Signal<Option<FlowLinkRow>>,
     touched: Signal<bool>,
 }
@@ -643,7 +604,7 @@ fn apply_flow_date_filter(state: FlowDateState) {
         mut from_time,
         mut to_time,
         mut force_transactions,
-        mut page,
+        table,
         mut evidence_link,
         mut touched,
     } = state;
@@ -654,7 +615,7 @@ fn apply_flow_date_filter(state: FlowDateState) {
     to_time.set(to);
     force_transactions.set(false);
     evidence_link.set(None);
-    page.set(0);
+    table.reset_page();
 }
 
 // The query is a flat projection of the filter signals; keeping the
@@ -767,14 +728,14 @@ fn clear_filters(
     mut date_touched: Signal<bool>,
     mut view: Signal<FlowView>,
     mut force_transactions: Signal<bool>,
-    mut page: Signal<u32>,
+    table: TableState,
 ) {
     exchanges.set(Vec::new());
     addresses.set(Vec::new());
     if let Some((first, last)) = span {
         selection.set(DateSelection::from_epoch_bounds(Some(first), Some(last)));
-        from_time.set(Some(day_start(first)));
-        to_time.set(Some(day_end(last)));
+        from_time.set(Some(start_of_day(first)));
+        to_time.set(Some(end_of_day(last)));
         date_initialized.set(true);
     } else {
         selection.set(DateSelection::default());
@@ -785,51 +746,23 @@ fn clear_filters(
     date_touched.set(false);
     view.set(FlowView::Transactions);
     force_transactions.set(false);
-    page.set(0);
-}
-
-fn toggle_sort(
-    mut sort_by: Signal<Option<String>>,
-    mut sort_dir: Signal<SortDirection>,
-    key: &str,
-    default_direction: SortDirection,
-) {
-    if sort_by().as_deref() == Some(key) {
-        sort_dir.set(sort_dir().toggled());
-    } else {
-        sort_by.set(Some(key.to_string()));
-        sort_dir.set(default_direction);
-    }
+    table.reset_page();
 }
 
 #[component]
 fn FlowEvidenceDialog(
     link: FlowLinkRow,
     evidence: Option<Option<Result<crate::domain::table::TablePage<FlowEvidenceRow>, String>>>,
-    page: Signal<u32>,
-    sort_by: Signal<Option<String>>,
-    sort_dir: Signal<SortDirection>,
+    table: TableState,
     on_close: EventHandler<()>,
 ) -> Element {
-    let mut page = page;
     let state = evidence.flatten();
     rsx! {
-        div {
-            class: "md3-dialog-scrim",
-            role: "presentation",
-            onclick: move |_| on_close.call(()),
-            onkeydown: move |event| {
-                if event.key() == Key::Escape {
-                    on_close.call(());
-                }
-            },
-            div {
-                class: "md3-dialog md3-flow-evidence-dialog",
-                role: "dialog",
-                aria_modal: "true",
-                aria_label: "Flow evidence",
-                onclick: move |event| event.stop_propagation(),
-                div { class: "md3-flow-evidence-header",
+        Modal {
+            aria_label: "Flow evidence".to_string(),
+            class: "md3-flow-evidence-dialog".to_string(),
+            on_close: move |_| on_close.call(()),
+            div { class: "md3-flow-evidence-header",
                     div {
                         h2 { class: "text-headline-small text-on-surface", "Flow evidence" }
                         p { class: "text-body-small text-on-surface-variant",
@@ -861,18 +794,16 @@ fn FlowEvidenceDialog(
                                     tr {
                                         SortableHeader {
                                             label: "Date".to_string(),
-                                            active_direction: (sort_by().as_deref() == Some("date")).then_some(sort_dir()),
+                                            active_direction: table.direction_for("date"),
                                             on_sort: move |_| {
-                                                toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
-                                                page.set(0);
+                                                table.sort("date", SortDirection::Desc);
                                             },
                                         }
                                         SortableHeader {
                                             label: "BTC".to_string(),
-                                            active_direction: (sort_by().as_deref() == Some("value")).then_some(sort_dir()),
+                                            active_direction: table.direction_for("value"),
                                             on_sort: move |_| {
-                                                toggle_sort(sort_by, sort_dir, "value", SortDirection::Desc);
-                                                page.set(0);
+                                                table.sort("value", SortDirection::Desc);
                                             },
                                         }
                                         th { "Transaction / ledger" }
@@ -883,7 +814,7 @@ fn FlowEvidenceDialog(
                                     for row in &page_data.items {
                                         tr {
                                             td {
-                                                "{row.timestamp.map(format_short_datetime).unwrap_or_else(|| \"-\".to_string())}"
+                                                "{row.timestamp.map(civil_time::format_short_datetime).unwrap_or_else(|| \"-\".to_string())}"
                                             }
                                             td { "{format_btc(row.value_sats)}" }
                                             td { "{row.txid.as_deref().unwrap_or(\"-\")}" }
@@ -894,10 +825,10 @@ fn FlowEvidenceDialog(
                             }
                         }
                         TablePagination {
-                            page: page(),
+                            page: table.page(),
                             page_size: DEFAULT_PAGE_SIZE,
                             total: page_data.total,
-                            on_page: move |next| page.set(next),
+                            on_page: move |next| table.page.set(next),
                         }
                     },
                 }
@@ -910,7 +841,6 @@ fn FlowEvidenceDialog(
                     }
                 }
             }
-        }
     }
 }
 
@@ -969,11 +899,6 @@ fn format_share(share: f64) -> String {
     } else {
         "-".to_string()
     }
-}
-
-fn format_short_datetime(timestamp: i64) -> String {
-    let formatted = format_datetime(timestamp);
-    formatted.get(..16).unwrap_or(&formatted).to_string()
 }
 
 #[cfg(test)]

@@ -683,7 +683,7 @@ pub fn parse_evidence_sort(key: Option<&str>) -> Result<Option<FlowEvidenceSortC
 mod tests {
     use super::*;
     use crate::data::repositories::addresses as address_repository;
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
 
     fn insert_address(
         database: &Database,
@@ -695,13 +695,13 @@ mod tests {
     ) {
         address_repository::insert_address(
             database,
-            &AddressEntity {
+            &StoredAddress {
                 address: address.to_string(),
                 description: description.map(str::to_string),
                 exchange_id,
                 wallet_id,
                 chain_funded_txo_sum: balance_sats,
-                ..AddressEntity::default()
+                ..StoredAddress::default()
             },
         )
         .unwrap();

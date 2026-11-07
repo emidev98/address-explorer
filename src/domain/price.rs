@@ -74,17 +74,6 @@ pub struct Price {
     pub close: f64,
 }
 
-/// Conversion between two BTC price quotes anchored to the same moment.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PriceConversion {
-    pub from_symbol: String,
-    pub to_symbol: String,
-    /// UTC close time of the candle both quotes resolve to.
-    pub close_time: i64,
-    /// Units of `to_symbol` per unit of `from_symbol` of the BTC price.
-    pub rate: f64,
-}
-
 /// One row of the historical prices table listing: a stored price plus the
 /// other symbols stored at the same close time — the "other available
 /// exchanges" of the row.
@@ -296,6 +285,16 @@ pub enum PriceError {
         "invalid sort column {0:?}: the historical prices table sorts by \"date\" or \"price\""
     )]
     InvalidSortColumn(String),
+}
+
+/// Normalize a stored default-currency setting, falling back to USD when empty.
+pub fn normalize_default_symbol(symbol: &str) -> String {
+    let symbol = symbol.trim();
+    if symbol.is_empty() {
+        USD_SYMBOL.to_string()
+    } else {
+        symbol.to_ascii_uppercase()
+    }
 }
 
 /// Normalize and validate a currency code for storage and API queries.

@@ -778,7 +778,7 @@ mod tests {
     use crate::data::repositories::{
         addresses as address_repository, exchanges as exchange_repository,
     };
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
     use crate::domain::catalog::CatalogTypeDraft;
 
     fn draft(name: &str, category_id: Option<i64>) -> NormalizedCatalogTypeDraft {
@@ -802,12 +802,12 @@ mod tests {
         .unwrap()
     }
 
-    fn address(value: &str, exchange_id: Option<i64>, wallet_id: Option<i64>) -> AddressEntity {
-        AddressEntity {
+    fn address(value: &str, exchange_id: Option<i64>, wallet_id: Option<i64>) -> StoredAddress {
+        StoredAddress {
             address: value.to_string(),
             exchange_id,
             wallet_id,
-            ..AddressEntity::default()
+            ..StoredAddress::default()
         }
     }
 

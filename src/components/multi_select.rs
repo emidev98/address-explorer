@@ -4,8 +4,6 @@
 //! reports the new selection through `on_change`. The screen owns the query
 //! state and the backend decides how the selection is applied.
 
-use std::collections::BTreeMap;
-
 use dioxus::prelude::*;
 
 /// One option of a [`MultiSelect`].
@@ -151,7 +149,7 @@ pub fn MultiSelect(
                                     "No matching options."
                                 }
                             } else {
-                                for (group, entries) in group_options(&filtered) {
+                                for (group, entries) in super::option_groups::group_options(&filtered, |option| option.group.clone(), "Unclassified") {
                                     div {
                                         class: "md3-multiselect-group",
                                         role: "group",
@@ -230,27 +228,6 @@ pub fn MultiSelect(
     }
 }
 
-/// Group filtered options by their heading, preserving a stable alphabetical
-/// group order and keeping "Unclassified" last.
-fn group_options(options: &[MultiSelectOption]) -> Vec<(String, Vec<MultiSelectOption>)> {
-    let mut groups: BTreeMap<String, Vec<MultiSelectOption>> = BTreeMap::new();
-    for option in options {
-        groups
-            .entry(option.group.clone())
-            .or_default()
-            .push(option.clone());
-    }
-    let mut groups = groups.into_iter().collect::<Vec<_>>();
-    groups.sort_by(|(left, _), (right, _)| {
-        let left_unclassified = left.eq_ignore_ascii_case("unclassified");
-        let right_unclassified = right.eq_ignore_ascii_case("unclassified");
-        left_unclassified
-            .cmp(&right_unclassified)
-            .then_with(|| left.to_lowercase().cmp(&right.to_lowercase()))
-    });
-    groups
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,11 +256,15 @@ mod tests {
 
     #[test]
     fn groups_are_sorted_and_unclassified_is_last() {
-        let groups = group_options(&[
-            option("1", "Ledger", "Hardware wallet", ""),
-            option("2", "Unclassified", "Unclassified", ""),
-            option("3", "Exodus", "Desktop wallet", ""),
-        ]);
+        let groups = super::super::option_groups::group_options(
+            &[
+                option("1", "Ledger", "Hardware wallet", ""),
+                option("2", "Unclassified", "Unclassified", ""),
+                option("3", "Exodus", "Desktop wallet", ""),
+            ],
+            |option| option.group.clone(),
+            "Unclassified",
+        );
         assert_eq!(groups[0].0, "Desktop wallet");
         assert_eq!(groups[1].0, "Hardware wallet");
         assert_eq!(groups[2].0, "Unclassified");

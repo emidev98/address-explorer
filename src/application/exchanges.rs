@@ -14,7 +14,7 @@ use crate::domain::civil_time;
 use crate::domain::exchange::{
     csv::{self, ParsedExchangeTx},
     matching::{self, OnChainClaims, OnChainLinkCandidate, OnChainTransaction},
-    ExchangeAccount, ExchangeAccountList, ExchangeAccountTableQuery, ExchangeDetail,
+    ExchangeAccount, ExchangeAccountDetail, ExchangeAccountList, ExchangeAccountTableQuery,
     ExchangeDuplicateChoice, ExchangeDuplicateInfo, ExchangeKpiMetric, ExchangeKpiTransaction,
     ExchangeKpis, ExchangeLinkOutcome, ExchangeReconcileBatchSummary, ExchangeReconcileFailure,
     ExchangeTransaction, ExchangeTransactionDraft, ExchangeTransactionSaveOutcome,
@@ -78,12 +78,12 @@ impl ExchangeService {
             .ok_or(ExchangeServiceError::AccountNotFound)
     }
 
-    pub async fn detail(&self, id: i64) -> Result<ExchangeDetail, ExchangeServiceError> {
+    pub async fn detail(&self, id: i64) -> Result<ExchangeAccountDetail, ExchangeServiceError> {
         let account = self.get_account(id)?;
         let mut transactions =
             exchange_repository::list_kpi_transactions(&self.database, Some(id))?;
         let (kpis, conversion_warning) = self.kpis_for(&mut transactions).await?;
-        Ok(ExchangeDetail {
+        Ok(ExchangeAccountDetail {
             account,
             kpis,
             conversion_warning,
@@ -172,12 +172,6 @@ impl ExchangeService {
     pub fn delete_accounts(&self, ids: &[i64]) -> Result<usize, ExchangeServiceError> {
         let ids = normalize_bulk_ids(ids, "exchange")?;
         Ok(exchange_repository::delete_accounts(&self.database, &ids)?)
-    }
-
-    /// Delete one exchange account. Kept as the single-row wrapper of
-    /// [`Self::delete_accounts`].
-    pub fn delete_account(&self, id: i64) -> Result<bool, ExchangeServiceError> {
-        Ok(self.delete_accounts(&[id])? == 1)
     }
 
     pub async fn preview_import_data(
@@ -293,8 +287,7 @@ impl ExchangeService {
             shareable_txids,
         } = exchange_repository::existing_identities(&self.database, account.id)?;
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
-        let scoring =
-            settings_repository::load_exchange_settings(&self.database)?.on_chain_link_scoring;
+        let scoring = settings_repository::load_on_chain_link_scoring(&self.database)?;
         let mut claims = OnChainClaims::from_linked_txids(&linked_txids);
         for txid in &shareable_txids {
             claims.claim(txid.clone(), true);
@@ -302,7 +295,7 @@ impl ExchangeService {
         let mut writes = Vec::new();
         let mut duplicates = 0;
         let mut auto_linked = 0;
-        let now = now();
+        let now = civil_time::now_epoch_seconds();
         for parsed in btc_rows {
             if existing_fingerprints.contains(&parsed.fingerprint) {
                 duplicates += 1;
@@ -487,16 +480,6 @@ impl ExchangeService {
         )?)
     }
 
-    /// Delete one ledger transaction. Kept as the single-row wrapper of
-    /// [`Self::delete_transactions`].
-    pub fn delete_transaction(
-        &self,
-        exchange_id: i64,
-        transaction_id: i64,
-    ) -> Result<bool, ExchangeServiceError> {
-        Ok(self.delete_transactions(exchange_id, &[transaction_id])? == 1)
-    }
-
     pub async fn get_transaction(
         &self,
         exchange_id: i64,
@@ -516,8 +499,7 @@ impl ExchangeService {
     pub async fn reconcile(&self, exchange_id: i64) -> Result<(), ExchangeServiceError> {
         self.get_account(exchange_id)?;
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
-        let scoring =
-            settings_repository::load_exchange_settings(&self.database)?.on_chain_link_scoring;
+        let scoring = settings_repository::load_on_chain_link_scoring(&self.database)?;
         self.reconcile_account(exchange_id, &on_chain, &scoring)
     }
 
@@ -532,8 +514,7 @@ impl ExchangeService {
     ) -> Result<ExchangeReconcileBatchSummary, ExchangeServiceError> {
         let ids = normalize_bulk_ids(ids, "exchange")?;
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
-        let scoring =
-            settings_repository::load_exchange_settings(&self.database)?.on_chain_link_scoring;
+        let scoring = settings_repository::load_on_chain_link_scoring(&self.database)?;
         let mut summary = ExchangeReconcileBatchSummary::default();
         for exchange_id in ids {
             let name = match self.get_account(exchange_id) {
@@ -578,7 +559,7 @@ impl ExchangeService {
                 }
             }
         }
-        let now = now();
+        let now = civil_time::now_epoch_seconds();
         let mut updates = Vec::new();
         for transaction in transactions {
             if transaction.match_state == MatchState::ManualMatch {
@@ -628,8 +609,7 @@ impl ExchangeService {
             linked.remove(&txid);
         }
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
-        let scoring =
-            settings_repository::load_exchange_settings(&self.database)?.on_chain_link_scoring;
+        let scoring = settings_repository::load_on_chain_link_scoring(&self.database)?;
         Ok(
             matching::candidates(&transaction, &on_chain, search, &scoring, &linked)
                 .into_iter()
@@ -679,7 +659,7 @@ impl ExchangeService {
             txid: txid.to_string(),
             local_addresses: candidate.local_addresses.clone(),
             source: OnChainLinkSource::Manual,
-            linked_at: now(),
+            linked_at: civil_time::now_epoch_seconds(),
         };
         let updated = exchange_repository::set_link(
             &self.database,
@@ -895,7 +875,10 @@ impl ExchangeTransactionWriteBuilder {
 fn manual_raw_data(draft: &ExchangeTransactionDraft) -> BTreeMap<String, String> {
     let mut raw = BTreeMap::new();
     raw.insert("source".into(), "manual-entry".into());
-    raw.insert("createdAt".into(), civil_time::format_datetime(now()));
+    raw.insert(
+        "createdAt".into(),
+        civil_time::format_datetime(civil_time::now_epoch_seconds()),
+    );
     raw.insert("timestamp".into(), draft.timestamp.to_string());
     raw.insert("type".into(), draft.tx_type.as_str().into());
     raw.insert("amount".into(), draft.amount_sats.to_string());
@@ -922,29 +905,14 @@ fn manual_raw_data(draft: &ExchangeTransactionDraft) -> BTreeMap<String, String>
 }
 
 fn duplicate_info(transaction: &ExchangeTransaction) -> ExchangeDuplicateInfo {
-    let amount = if csv::is_bitcoin_currency(&transaction.currency) {
-        crate::components::format::format_btc(transaction.amount_sats)
-    } else {
-        format!("{} {}", transaction.amount_sats, transaction.currency)
-    };
     ExchangeDuplicateInfo {
         transaction_id: transaction.id,
-        summary: format!(
-            "{} {} · {} · {}",
-            transaction.tx_type.as_str(),
-            amount,
-            civil_time::format_datetime(transaction.timestamp),
-            transaction
-                .tx_hash
-                .as_deref()
-                .map(|hash| format!("hash {hash}"))
-                .unwrap_or_else(|| {
-                    transaction
-                        .description
-                        .clone()
-                        .unwrap_or_else(|| "no hash".to_string())
-                })
-        ),
+        tx_type: transaction.tx_type,
+        amount_sats: transaction.amount_sats,
+        currency: transaction.currency.clone(),
+        timestamp: transaction.timestamp,
+        tx_hash: transaction.tx_hash.clone(),
+        description: transaction.description.clone(),
     }
 }
 
@@ -1134,20 +1102,13 @@ fn kpis(
     kpis
 }
 
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::clients::mempool::bitcoin::types::{Tx, TxStatus, TxVin, Vout};
     use crate::data::repositories::transactions as transaction_repository;
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
 
     const TEST_ADDRESS: &str = "bc1qtestimport";
     const TEST_BLOCK_TIME: i64 = 1_700_000_000;
@@ -1188,9 +1149,9 @@ mod tests {
     fn seed_on_chain_transaction(database: &Database, tx: Tx) {
         address_repository::insert_address(
             database,
-            &AddressEntity {
+            &StoredAddress {
                 address: TEST_ADDRESS.into(),
-                ..AddressEntity::default()
+                ..StoredAddress::default()
             },
         )
         .unwrap();
@@ -1236,7 +1197,7 @@ mod tests {
         match block_on(service.save_transaction(&request)).unwrap() {
             ExchangeTransactionSaveOutcome::Saved(row) => *row,
             ExchangeTransactionSaveOutcome::Duplicate(info) => {
-                panic!("unexpected duplicate: {}", info.summary);
+                panic!("unexpected duplicate: {}", info.transaction_id);
             }
         }
     }
@@ -1446,7 +1407,7 @@ mod tests {
                 assert_eq!(row.fee, Some(10_000.0));
             }
             ExchangeTransactionSaveOutcome::Duplicate(info) => {
-                panic!("unexpected duplicate: {}", info.summary);
+                panic!("unexpected duplicate: {}", info.transaction_id);
             }
         }
     }

@@ -6,33 +6,20 @@ use crate::api::prices::{
     delete_prices_api, ensure_currency_history_api, list_prices_api, price_conversions_api,
     price_series_api,
 };
-use crate::api::settings::get_exchange_settings_api;
 use crate::components::format::format_fiat;
 use crate::components::{
-    use_fiat_currency, use_table_selection, use_toast, ConfirmDialog, DatePicker, EditPriceDialog,
-    PriceTrendChart, SortableHeader, SyncPricesDialog, TablePagination, TableSelection,
-    TableSelectionCell, TableSelectionHeader, Toast,
+    use_fiat_currency, use_interface_settings, use_table_selection, use_table_state, use_toast,
+    ConfirmDialog, DatePicker, EditPriceDialog, Icon, IconName, PageHeader, PriceTrendChart,
+    SortableHeader, SyncPricesDialog, TablePagination, TableSelection, TableSelectionCell,
+    TableSelectionHeader, TableState, Toast,
 };
-use crate::domain::civil_time::format_datetime;
+use crate::domain::civil_time::{end_of_day, format_datetime, start_of_day};
 use crate::domain::date_selection::{DateSelection, IsoDate};
 use crate::domain::price::{
     CurrencyHistorySummary, Price, PricePage, PriceSeries, PriceSyncSummary, PriceTableQuery,
     USD_SYMBOL,
 };
-use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
-
-/// Seconds in a day; the inclusive end bound of the date-range filter.
-const DAY_SECONDS: i64 = 86_400;
-
-/// Start of the UTC day containing `time`.
-fn day_start(time: i64) -> i64 {
-    time - time.rem_euclid(DAY_SECONDS)
-}
-
-/// End of the UTC day containing `time` (inclusive).
-fn day_end(time: i64) -> i64 {
-    day_start(time) + DAY_SECONDS - 1
-}
+use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
 
 /// Reactive state of the bidirectional binding between the date-range
 /// calendar and the trend chart: the raw input texts, the applied bounds
@@ -48,7 +35,7 @@ struct DateRangeState {
     from_time: Signal<i64>,
     to_time: Signal<i64>,
     touched: Signal<bool>,
-    page: Signal<u32>,
+    table: TableState,
     chart_window: Signal<(i64, i64)>,
     full_span: Signal<(i64, i64)>,
     table_selection: TableSelection<i64>,
@@ -72,7 +59,7 @@ enum ConversionState {
 /// changed). Opening the screen prepares the stored USD history in that
 /// currency first, so the table and chart show the same default everywhere.
 ///
-/// The table follows the shared pattern of Section 5.11 of CONTRIBUTING.md:
+/// The table follows the shared pattern of the shared table contract:
 /// backend-driven pagination with an editable page index and backend sorting
 /// by the Date and Price columns. The date-range calendar and the trend
 /// chart are bound bidirectionally: editing the calendar moves the chart to
@@ -83,7 +70,7 @@ enum ConversionState {
 /// action opens the unified dialog that refreshes the BTC/USD history and
 /// converts it into the selected currency for a date range.
 #[component]
-pub fn Prices() -> Element {
+pub fn HistoricalPrices() -> Element {
     let mut toast = use_toast();
     let fiat = use_fiat_currency();
 
@@ -108,27 +95,18 @@ pub fn Prices() -> Element {
         }
     });
 
-    let mut page = use_signal(|| 0_u32);
+    let mut table = use_table_state(SortDirection::Desc);
     let date_selection = use_signal(DateSelection::default);
     let from_time = use_signal(|| 0_i64);
     let to_time = use_signal(|| 0_i64);
     let touched = use_signal(|| false);
-    let sort_by = use_signal(|| Option::<String>::None);
-    let sort_dir = use_signal(|| SortDirection::Desc);
     let mut conversions = use_signal(BTreeMap::<i64, ConversionState>::new);
     let mut edit_target = use_signal(|| Option::<Price>::None);
     let mut sync_open = use_signal(|| false);
     let mut selection = use_table_selection::<i64>();
     let mut delete_target = use_signal(|| Option::<Vec<i64>>::None);
     let deleting = use_signal(|| false);
-    let mut confirm_destructive = use_signal(|| true);
-
-    let settings = use_resource(|| async move { get_exchange_settings_api().await.ok() });
-    use_effect(move || {
-        if let Some(Some(settings)) = settings() {
-            confirm_destructive.set(settings.confirm_destructive_actions);
-        }
-    });
+    let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
 
     // (0, 0) requests the full stored span. `chart_window` is the requested
     // window driving both the series fetch and — through the mirror effect
@@ -148,7 +126,7 @@ pub fn Prices() -> Element {
         from_time,
         to_time,
         touched,
-        page,
+        table,
         chart_window,
         full_span,
         table_selection: selection,
@@ -159,22 +137,14 @@ pub fn Prices() -> Element {
         // Read the reactive inputs synchronously so the resource tracks them.
         let ready = prepared().is_some();
         let symbol = fiat.code();
-        let current_page = page();
         let from = from_time();
         let to = to_time();
-        let sort_key = sort_by();
-        let direction = sort_dir();
         async move {
             if !ready {
                 return Ok(None);
             }
             let query = PriceTableQuery {
-                table: TableQuery {
-                    page: current_page,
-                    page_size: DEFAULT_PAGE_SIZE,
-                    sort_by: sort_key,
-                    sort_dir: direction,
-                },
+                table: table.query(DEFAULT_PAGE_SIZE),
                 symbol,
                 from_time: from,
                 to_time: to,
@@ -225,8 +195,8 @@ pub fn Prices() -> Element {
     // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(Some(data))) = prices() {
-            if data.items.is_empty() && page() > 0 {
-                page.set(page() - 1);
+            if data.items.is_empty() && table.page() > 0 {
+                table.page.set(table.page() - 1);
                 selection.clear();
             }
         }
@@ -244,7 +214,7 @@ pub fn Prices() -> Element {
             mut from_time,
             mut to_time,
             touched,
-            mut page,
+            table,
             chart_window,
             full_span,
             mut table_selection,
@@ -265,9 +235,9 @@ pub fn Prices() -> Element {
         };
         table_selection.clear();
         selection.set(DateSelection::from_epoch_bounds(Some(from), Some(to)));
-        from_time.set(day_start(from));
-        to_time.set(day_end(to));
-        page.set(0);
+        from_time.set(start_of_day(from));
+        to_time.set(end_of_day(to));
+        table.reset_page();
     });
 
     let symbol = fiat.code();
@@ -280,7 +250,6 @@ pub fn Prices() -> Element {
         )),
         None => None,
     };
-    let sort_direction_for = |key: &str| (sort_by().as_deref() == Some(key)).then_some(sort_dir());
     let stored_span = full_span();
     let date_bounds = (stored_span.0 > 0).then(|| {
         (
@@ -291,10 +260,8 @@ pub fn Prices() -> Element {
 
     rsx! {
         section { id: "prices", class: "md3-screen",
-            div { class: "md3-page-header",
-                h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                    "Historical Prices"
-                }
+            PageHeader {
+                title: "Historical Prices".to_string(),
                 section { class: "md3-date-filter-bar",
                     DatePicker {
                         id: "prices-date-range".to_string(),
@@ -397,7 +364,7 @@ pub fn Prices() -> Element {
                     };
                     rsx! {
                         div { class: "md3-table-container",
-                            table { class: "md3-table",
+                            table { class: "md3-table md3-prices-table",
                                 thead {
                                     tr {
                                         TableSelectionHeader {
@@ -419,7 +386,7 @@ pub fn Prices() -> Element {
                                                     if close_times.is_empty() {
                                                         return;
                                                     }
-                                                    if confirm_destructive() {
+                                                    if confirm_destructive {
                                                         delete_target.set(Some(close_times));
                                                     } else {
                                                         remove_prices(
@@ -433,24 +400,22 @@ pub fn Prices() -> Element {
                                                         );
                                                     }
                                                 },
-                                                {icon(ICON_DELETE)}
+                                                Icon { name: IconName::Delete, size: 20 }
                                             }
                                         }
                                         SortableHeader {
                                             label: "Date".to_string(),
-                                            active_direction: sort_direction_for("date"),
+                                            active_direction: table.direction_for("date"),
                                             on_sort: move |_| {
-                                                toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
-                                                page.set(0);
+                                                table.sort("date", SortDirection::Desc);
                                                 selection.clear();
                                             },
                                         }
                                         SortableHeader {
                                             label: format!("Price ({symbol})"),
-                                            active_direction: sort_direction_for("price"),
+                                            active_direction: table.direction_for("price"),
                                             on_sort: move |_| {
-                                                toggle_sort(sort_by, sort_dir, "price", SortDirection::Desc);
-                                                page.set(0);
+                                                table.sort("price", SortDirection::Desc);
                                                 selection.clear();
                                             },
                                         }
@@ -487,7 +452,7 @@ pub fn Prices() -> Element {
                                                                 disabled: deleting(),
                                                                 onclick: move |_| {
                                                                     let close_times = vec![close_time];
-                                                                    if confirm_destructive() {
+                                                                    if confirm_destructive {
                                                                         delete_target.set(Some(close_times));
                                                                     } else {
                                                                         remove_prices(
@@ -501,7 +466,7 @@ pub fn Prices() -> Element {
                                                                         );
                                                                     }
                                                                 },
-                                                                {icon(ICON_DELETE)}
+                                                                Icon { name: IconName::Delete, size: 20 }
                                                             }
                                                             button {
                                                                 r#type: "button",
@@ -509,7 +474,7 @@ pub fn Prices() -> Element {
                                                                 title: "Modify price",
                                                                 aria_label: "Modify the price at {format_datetime(close_time)}",
                                                                 onclick: move |_| edit_target.set(Some(edit_row.clone())),
-                                                                {icon(ICON_EDIT)}
+                                                                Icon { name: IconName::Edit, size: 20 }
                                                             }
                                                         }
                                                     }
@@ -544,11 +509,11 @@ pub fn Prices() -> Element {
                             }
                         }
                         TablePagination {
-                            page: page(),
+                            page: table.page(),
                             page_size: DEFAULT_PAGE_SIZE,
                             total: page_data.total,
                             on_page: move |next_page| {
-                                page.set(next_page);
+                                table.page.set(next_page);
                                 selection.clear();
                             },
                         }
@@ -694,23 +659,6 @@ fn remove_prices(
     });
 }
 
-/// Apply a header click to the sort state: clicking the active column
-/// toggles its direction; clicking another column selects it with its
-/// default direction (dates and prices read newest/highest first).
-fn toggle_sort(
-    mut sort_by: Signal<Option<String>>,
-    mut sort_dir: Signal<SortDirection>,
-    key: &str,
-    default_direction: SortDirection,
-) {
-    if sort_by().as_deref() == Some(key) {
-        sort_dir.set(sort_dir().toggled());
-    } else {
-        sort_by.set(Some(key.to_string()));
-        sort_dir.set(default_direction);
-    }
-}
-
 /// Chart card body: the trend chart itself plus its loading, error, and
 /// empty states (the chart component only renders data).
 fn chart_content(
@@ -820,7 +768,7 @@ fn apply_date_filter(filter: DateRangeState) {
         mut from_time,
         mut to_time,
         mut touched,
-        mut page,
+        table,
         mut chart_window,
         full_span,
         mut table_selection,
@@ -836,7 +784,7 @@ fn apply_date_filter(filter: DateRangeState) {
 
     from_time.set(from);
     to_time.set(to);
-    page.set(0);
+    table.reset_page();
     table_selection.clear();
 
     // Move the chart to the same boundaries. An open side resolves against
@@ -847,10 +795,10 @@ fn apply_date_filter(filter: DateRangeState) {
         let window_from = if from > 0 {
             from
         } else {
-            day_start(span_first)
+            start_of_day(span_first)
         };
-        let window_to = if to > 0 { to } else { day_end(span_last) };
-        if window_from <= day_start(span_first) && window_to >= day_end(span_last) {
+        let window_to = if to > 0 { to } else { end_of_day(span_last) };
+        if window_from <= start_of_day(span_first) && window_to >= end_of_day(span_last) {
             chart_window.set((0, 0));
         } else {
             chart_window.set((window_from, window_to));
@@ -869,7 +817,7 @@ fn reset_date_filter(filter: DateRangeState) {
         mut selection,
         mut from_time,
         mut to_time,
-        mut page,
+        table,
         mut chart_window,
         full_span,
         mut table_selection,
@@ -884,9 +832,9 @@ fn reset_date_filter(filter: DateRangeState) {
         Some(span_first),
         Some(span_last),
     ));
-    from_time.set(day_start(span_first));
-    to_time.set(day_end(span_last));
-    page.set(0);
+    from_time.set(start_of_day(span_first));
+    to_time.set(end_of_day(span_last));
+    table.reset_page();
     table_selection.clear();
     chart_window.set((0, 0));
     zoom_reset.set(zoom_reset() + 1);
@@ -942,19 +890,3 @@ fn ensure_conversions(
 }
 
 // Material icon paths (24px viewBox): edit and delete.
-const ICON_EDIT: &str = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
-const ICON_DELETE: &str =
-    "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
-
-/// Render one Material icon path as an inline SVG.
-fn icon(path: &str) -> Element {
-    rsx! {
-        svg {
-            view_box: "0 0 24 24",
-            width: "20",
-            height: "20",
-            fill: "currentColor",
-            path { d: "{path}" }
-        }
-    }
-}

@@ -10,6 +10,7 @@ mod components;
 #[cfg(feature = "server")]
 mod data;
 mod domain;
+mod navigation;
 mod screens;
 
 fn main() {

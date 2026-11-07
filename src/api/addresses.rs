@@ -3,21 +3,13 @@
 use dioxus::prelude::*;
 
 use crate::domain::address::{
-    AddressEntity, AddressListItem, AddressOverview, AddressOverviewQuery, AddressSaveOutcome,
+    AddressOverview, AddressOverviewQuery, AddressSaveOutcome, StoredAddress,
 };
 
 #[cfg(feature = "server")]
 use super::open_database;
 #[cfg(feature = "server")]
 use crate::application::addresses::{self, AddressService, AddressServiceError};
-
-#[server]
-#[get("/api/addresses")]
-pub async fn list_addresses_api() -> Result<Vec<AddressListItem>, ServerFnError> {
-    AddressService::connect(open_database()?)
-        .list_addresses()
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
 
 /// Addresses overview: every listed row sorted and scope-filtered in the
 /// backend for the KPI cards and the holdings chart, the requested table
@@ -29,14 +21,6 @@ pub async fn addresses_overview_api(
 ) -> Result<AddressOverview, ServerFnError> {
     AddressService::connect(open_database()?)
         .addresses_overview(&query)
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
-#[server]
-#[get("/api/addresses/:address")]
-pub async fn get_address_api(address: String) -> Result<AddressEntity, ServerFnError> {
-    AddressService::connect(open_database()?)
-        .get_address(&address)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
@@ -86,17 +70,9 @@ pub async fn update_address_api(
     description: Option<String>,
     exchange_id: Option<i64>,
     wallet_id: Option<i64>,
-) -> Result<AddressEntity, ServerFnError> {
+) -> Result<StoredAddress, ServerFnError> {
     AddressService::connect(open_database()?)
         .update_address(&address, description.as_deref(), exchange_id, wallet_id)
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
-#[server]
-#[delete("/api/addresses/:address")]
-pub async fn delete_address_api(address: String) -> Result<(), ServerFnError> {
-    AddressService::connect(open_database()?)
-        .delete_address(&address)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 

@@ -8,6 +8,8 @@
 
 use dioxus::prelude::*;
 
+use super::icon::{Icon, IconName};
+
 /// How long a toast stays visible before it is dismissed automatically.
 const TOAST_DURATION_MS: u32 = 4_000;
 
@@ -117,16 +119,26 @@ pub fn ToastHost() -> Element {
         return rsx! {};
     };
 
-    let (tone_class, role, live, icon_path) = match message.kind {
-        ToastKind::Success => ("md3-toast-success", "status", "polite", ICON_CHECK),
-        ToastKind::Error => ("md3-toast-error", "alert", "assertive", ICON_ERROR),
-        ToastKind::Info => ("md3-toast-info", "status", "polite", ICON_INFO),
+    let (tone_class, role, live, icon) = match message.kind {
+        ToastKind::Success => (
+            "md3-toast-success",
+            "status",
+            "polite",
+            IconName::CheckCircle,
+        ),
+        ToastKind::Error => (
+            "md3-toast-error",
+            "alert",
+            "assertive",
+            IconName::ErrorCircle,
+        ),
+        ToastKind::Info => ("md3-toast-info", "status", "polite", IconName::InfoCircle),
     };
 
     rsx! {
         div { class: "md3-toast-host",
             div { class: "md3-toast {tone_class}", role, aria_live: live,
-                {icon(icon_path)}
+                Icon { name: icon, size: 20 }
                 span { class: "md3-toast-text text-body-medium", "{message.text}" }
                 button {
                     r#type: "button",
@@ -134,29 +146,9 @@ pub fn ToastHost() -> Element {
                     title: "Dismiss",
                     aria_label: "Dismiss",
                     onclick: move |_| toast.current.set(None),
-                    {icon(ICON_CLOSE)}
+                    Icon { name: IconName::Close, size: 20 }
                 }
             }
-        }
-    }
-}
-
-// Material icon paths (24px viewBox): check circle, error, info, close.
-const ICON_CHECK: &str = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z";
-const ICON_ERROR: &str = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z";
-const ICON_INFO: &str = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z";
-const ICON_CLOSE: &str =
-    "M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z";
-
-/// Render one Material icon path as an inline SVG.
-fn icon(path: &str) -> Element {
-    rsx! {
-        svg {
-            view_box: "0 0 24 24",
-            width: "20",
-            height: "20",
-            fill: "currentColor",
-            path { d: "{path}" }
         }
     }
 }

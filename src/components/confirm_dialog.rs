@@ -7,6 +7,8 @@
 
 use dioxus::prelude::*;
 
+use super::Modal;
+
 /// Modal confirmation dialog.
 #[component]
 pub fn ConfirmDialog(
@@ -18,42 +20,24 @@ pub fn ConfirmDialog(
     on_cancel: EventHandler<()>,
 ) -> Element {
     rsx! {
-        div {
-            class: "md3-dialog-scrim",
-            role: "presentation",
-            onclick: move |_| on_cancel.call(()),
-            onkeydown: move |event| {
-                if event.key() == Key::Escape {
-                    on_cancel.call(());
+        Modal {
+            title: title,
+            title_id: "confirm-dialog-title".to_string(),
+            on_close: move |_| on_cancel.call(()),
+            p { class: "text-body-medium text-on-surface-variant", "{message}" }
+            div { class: "md3-dialog-actions",
+                button {
+                    r#type: "button",
+                    class: "md3-button-text",
+                    onclick: move |_| on_cancel.call(()),
+                    "{cancel_text}"
                 }
-            },
-            div {
-                class: "md3-dialog",
-                role: "dialog",
-                aria_modal: "true",
-                aria_labelledby: "confirm-dialog-title",
-                onclick: move |event| event.stop_propagation(),
-                h2 {
-                    id: "confirm-dialog-title",
-                    class: "text-headline-medium leading-headline-medium text-on-surface",
-                    "{title}"
-                }
-                p { class: "text-body-medium text-on-surface-variant", "{message}" }
-
-                div { class: "md3-dialog-actions",
-                    button {
-                        r#type: "button",
-                        class: "md3-button-text",
-                        onclick: move |_| on_cancel.call(()),
-                        "{cancel_text}"
-                    }
-                    button {
-                        r#type: "button",
-                        class: "md3-button-filled",
-                        autofocus: true,
-                        onclick: move |_| on_confirm.call(()),
-                        "{confirm_text}"
-                    }
+                button {
+                    r#type: "button",
+                    class: "md3-button-filled",
+                    autofocus: true,
+                    onclick: move |_| on_confirm.call(()),
+                    "{confirm_text}"
                 }
             }
         }

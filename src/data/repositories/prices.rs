@@ -9,8 +9,7 @@ use crate::domain::price::{Price, PriceRow};
 use crate::domain::table::SortDirection;
 
 /// Sortable columns of the historical prices table: the fixed allowlist the
-/// dynamic `ORDER BY` identifier is selected from (Section 6.3 of
-/// CONTRIBUTING.md). Client sort keys never reach SQL directly.
+/// dynamic `ORDER BY` identifier is selected from. Client sort keys never reach SQL directly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PriceSortColumn {
     /// Close time, API key `date`.
@@ -33,7 +32,7 @@ impl PriceSortColumn {
     /// `ORDER BY` expression of the column. Dates are stored as epoch
     /// seconds and closes as `REAL`, so ordering follows the typed storage
     /// class: dates compare as dates and numbers as numbers, never as
-    /// formatted strings (Section 5.11 of CONTRIBUTING.md).
+    /// formatted strings.
     fn order_expression(self) -> &'static str {
         match self {
             Self::CloseTime => "close_time",
@@ -237,7 +236,7 @@ pub fn list_prices_in_range(
 }
 
 /// Store many prices in a single transaction: the unit of work of a bulk
-/// sync (Section 6.4 of CONTRIBUTING.md). Returns the number of rows
+/// sync. Returns the number of rows
 /// actually inserted; existing `(symbol, close_time)` rows are left
 /// untouched, like [`store_price`].
 pub fn store_prices_bulk(database: &Database, prices: &[Price]) -> Result<u64, DatabaseError> {

@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 
 use crate::domain::exchange::{
-    ExchangeAccount, ExchangeAccountList, ExchangeAccountTableQuery, ExchangeDetail,
+    ExchangeAccount, ExchangeAccountDetail, ExchangeAccountList, ExchangeAccountTableQuery,
     ExchangeLinkOutcome, ExchangeReconcileBatchSummary, ExchangeTransaction,
     ExchangeTransactionSaveOutcome, ExchangeTransactionSaveRequest, ExchangeTransactionTableQuery,
     ImportDataMapping, ImportDataPreview, ImportDataSummary, OnChainLinkCandidateView,
@@ -17,7 +17,7 @@ use crate::application::exchanges::ExchangeService;
 
 #[server]
 #[post("/api/exchanges/list")]
-pub async fn list_exchanges_api(
+pub async fn list_exchange_accounts_api(
     query: ExchangeAccountTableQuery,
 ) -> Result<ExchangeAccountList, ServerFnError> {
     ExchangeService::connect(open_database()?)
@@ -28,7 +28,7 @@ pub async fn list_exchanges_api(
 
 #[server]
 #[get("/api/exchanges/:id")]
-pub async fn get_exchange_api(id: i64) -> Result<ExchangeDetail, ServerFnError> {
+pub async fn get_exchange_account_api(id: i64) -> Result<ExchangeAccountDetail, ServerFnError> {
     ExchangeService::connect(open_database()?)
         .detail(id)
         .await
@@ -39,7 +39,7 @@ pub async fn get_exchange_api(id: i64) -> Result<ExchangeDetail, ServerFnError> 
 /// explicit Manual Import mode.
 #[server]
 #[post("/api/exchanges")]
-pub async fn create_exchange_api(
+pub async fn create_exchange_account_api(
     name: String,
     provider_id: Option<i64>,
 ) -> Result<ExchangeAccount, ServerFnError> {
@@ -50,7 +50,7 @@ pub async fn create_exchange_api(
 
 #[server]
 #[put("/api/exchanges/:id")]
-pub async fn update_exchange_api(
+pub async fn update_exchange_account_api(
     id: i64,
     name: String,
     provider_id: Option<i64>,
@@ -60,19 +60,11 @@ pub async fn update_exchange_api(
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
-#[server]
-#[delete("/api/exchanges/:id")]
-pub async fn delete_exchange_api(id: i64) -> Result<bool, ServerFnError> {
-    ExchangeService::connect(open_database()?)
-        .delete_account(id)
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
 /// Delete several exchange accounts and their cascaded ledger rows in one
 /// transaction. Returns the number of deleted accounts.
 #[server]
 #[post("/api/exchanges/delete")]
-pub async fn delete_exchanges_api(ids: Vec<i64>) -> Result<usize, ServerFnError> {
+pub async fn delete_exchange_accounts_api(ids: Vec<i64>) -> Result<usize, ServerFnError> {
     ExchangeService::connect(open_database()?)
         .delete_accounts(&ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
@@ -125,13 +117,13 @@ pub async fn list_exchange_transactions_api(
 }
 
 #[server]
-#[get("/api/exchanges/:exchange_id/transactions/:transaction_id")]
+#[get("/api/exchanges/:account_id/transactions/:transaction_id")]
 pub async fn get_exchange_transaction_api(
-    exchange_id: i64,
+    account_id: i64,
     transaction_id: i64,
 ) -> Result<ExchangeTransaction, ServerFnError> {
     ExchangeService::connect(open_database()?)
-        .get_transaction(exchange_id, transaction_id)
+        .get_transaction(account_id, transaction_id)
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -147,35 +139,24 @@ pub async fn save_exchange_transaction_api(
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
-#[server]
-#[delete("/api/exchanges/:exchange_id/transactions/:transaction_id")]
-pub async fn delete_exchange_transaction_api(
-    exchange_id: i64,
-    transaction_id: i64,
-) -> Result<bool, ServerFnError> {
-    ExchangeService::connect(open_database()?)
-        .delete_transaction(exchange_id, transaction_id)
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
 /// Delete several ledger transactions of one account in one transaction.
 /// Returns the number of deleted rows.
 #[server]
-#[post("/api/exchanges/:exchange_id/transactions/delete")]
+#[post("/api/exchanges/:account_id/transactions/delete")]
 pub async fn delete_exchange_transactions_api(
-    exchange_id: i64,
+    account_id: i64,
     ids: Vec<i64>,
 ) -> Result<usize, ServerFnError> {
     ExchangeService::connect(open_database()?)
-        .delete_transactions(exchange_id, &ids)
+        .delete_transactions(account_id, &ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
 #[server]
-#[post("/api/exchanges/:exchange_id/reconcile")]
-pub async fn reconcile_exchange_api(exchange_id: i64) -> Result<(), ServerFnError> {
+#[post("/api/exchanges/:account_id/reconcile")]
+pub async fn reconcile_exchange_account_api(account_id: i64) -> Result<(), ServerFnError> {
     ExchangeService::connect(open_database()?)
-        .reconcile(exchange_id)
+        .reconcile(account_id)
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -184,7 +165,7 @@ pub async fn reconcile_exchange_api(exchange_id: i64) -> Result<(), ServerFnErro
 /// reconciled independently; the summary reports partial failures.
 #[server]
 #[post("/api/exchanges/reconcile")]
-pub async fn reconcile_exchanges_api(
+pub async fn reconcile_exchange_accounts_api(
     ids: Vec<i64>,
 ) -> Result<ExchangeReconcileBatchSummary, ServerFnError> {
     ExchangeService::connect(open_database()?)

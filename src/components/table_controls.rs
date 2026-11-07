@@ -1,5 +1,4 @@
-//! Reusable controls of the shared data-table pattern (Section 5.11 of
-//! CONTRIBUTING.md): the pagination bar with its editable page index,
+//! Reusable controls of the shared data-table pattern: the pagination bar with its editable page index,
 //! sortable column headers, and the opt-in multi-selection cells used by
 //! tables with bulk actions.
 //!
@@ -14,7 +13,79 @@ use std::hash::Hash;
 use dioxus::prelude::*;
 
 use crate::components::Checkbox;
-use crate::domain::table::SortDirection;
+use crate::domain::table::{SortDirection, TableQuery};
+
+/// Reactive page and sort state shared by every data table.
+#[derive(Clone, Copy, PartialEq)]
+pub struct TableState {
+    pub page: Signal<u32>,
+    pub sort_by: Signal<Option<String>>,
+    pub sort_dir: Signal<SortDirection>,
+}
+
+impl TableState {
+    /// Current 0-based page index.
+    pub fn page(self) -> u32 {
+        (self.page)()
+    }
+
+    /// The query for the current page and sort.
+    pub fn query(self, page_size: u32) -> TableQuery {
+        TableQuery {
+            page: self.page(),
+            page_size,
+            sort_by: (self.sort_by)(),
+            sort_dir: (self.sort_dir)(),
+        }
+    }
+
+    /// Direction this column currently sorts in, or `None` when inactive.
+    pub fn direction_for(self, key: &str) -> Option<SortDirection> {
+        ((self.sort_by)().as_deref() == Some(key)).then_some((self.sort_dir)())
+    }
+
+    /// Sort by `key`, toggling the direction of the active column, and restart
+    /// the table at the first page.
+    pub fn sort(mut self, key: &str, default_direction: SortDirection) {
+        let (sort_by, sort_dir) = toggled_sort(
+            (self.sort_by)().as_deref(),
+            (self.sort_dir)(),
+            key,
+            default_direction,
+        );
+        self.sort_by.set(sort_by);
+        self.sort_dir.set(sort_dir);
+        self.page.set(0);
+    }
+
+    /// Return to the first page after a filter change.
+    pub fn reset_page(mut self) {
+        self.page.set(0);
+    }
+}
+
+/// Create the page and sort state of one table.
+pub fn use_table_state(default_direction: SortDirection) -> TableState {
+    TableState {
+        page: use_signal(|| 0_u32),
+        sort_by: use_signal(|| Option::<String>::None),
+        sort_dir: use_signal(|| default_direction),
+    }
+}
+
+/// Next sort key and direction for a header click.
+pub fn toggled_sort(
+    current: Option<&str>,
+    current_direction: SortDirection,
+    key: &str,
+    default_direction: SortDirection,
+) -> (Option<String>, SortDirection) {
+    if current == Some(key) {
+        (Some(key.to_string()), current_direction.toggled())
+    } else {
+        (Some(key.to_string()), default_direction)
+    }
+}
 
 /// Pagination bar of a data table, rendered directly below it: Previous and
 /// Next around an editable 1-based page index and the totals. `page` is the
@@ -259,5 +330,41 @@ pub fn TableSelectionCell(checked: bool, label: String, on_change: EventHandler<
                 on_change: move |checked| on_change.call(checked),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::toggled_sort;
+    use crate::domain::table::SortDirection;
+
+    #[test]
+    fn clicking_a_new_column_uses_its_default_direction() {
+        assert_eq!(
+            toggled_sort(None, SortDirection::Desc, "date", SortDirection::Asc),
+            (Some("date".to_string()), SortDirection::Asc)
+        );
+    }
+
+    #[test]
+    fn clicking_the_active_column_toggles_the_direction() {
+        assert_eq!(
+            toggled_sort(
+                Some("date"),
+                SortDirection::Asc,
+                "date",
+                SortDirection::Desc
+            ),
+            (Some("date".to_string()), SortDirection::Desc)
+        );
+        assert_eq!(
+            toggled_sort(
+                Some("date"),
+                SortDirection::Desc,
+                "date",
+                SortDirection::Asc
+            ),
+            (Some("date".to_string()), SortDirection::Asc)
+        );
     }
 }

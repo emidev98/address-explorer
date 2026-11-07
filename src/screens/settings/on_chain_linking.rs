@@ -2,41 +2,37 @@
 
 use dioxus::prelude::*;
 
-use crate::api::settings::{get_exchange_settings_api, save_on_chain_link_scoring_api};
-use crate::components::{use_toast, Toast};
+use crate::api::settings::{get_on_chain_link_scoring_api, save_on_chain_link_scoring_api};
+use crate::components::{use_toast, PageHeader, Toast};
 use crate::domain::exchange::OnChainLinkScoringSettings;
 
 /// Exchange settings: weights and tolerances for on-chain linking.
 #[component]
-pub fn SettingsExchanges() -> Element {
+pub fn SettingsOnChainLinking() -> Element {
     let mut toast = use_toast();
     let mut scoring = use_signal(OnChainLinkScoringSettings::default);
     let mut scoring_saved = use_signal(OnChainLinkScoringSettings::default);
     let scoring_saving = use_signal(|| false);
 
-    let _load_exchange_settings = use_resource(move || async move {
-        match get_exchange_settings_api().await {
+    let _load_on_chain_link_scoring = use_resource(move || async move {
+        match get_on_chain_link_scoring_api().await {
             Ok(settings) => {
-                scoring_saved.set(settings.on_chain_link_scoring.clone());
-                scoring.set(settings.on_chain_link_scoring);
+                scoring_saved.set(settings.clone());
+                scoring.set(settings);
             }
             Err(error) => {
-                toast.error(format!("Could not load exchange settings: {error}"));
+                toast.error(format!("Could not load on-chain linking settings: {error}"));
             }
         }
     });
 
     rsx! {
-        div { class: "md3-page-header",
-            h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                "Settings (Exchanges)"
-            }
-        }
+        PageHeader { title: "On-chain Linking".to_string() }
 
         section { class: "md3-settings-section",
             div {
                 h3 { class: "text-title-medium leading-title-medium text-on-surface",
-                    "On-chain linking"
+                    "On-chain Linking"
                 }
                 p { class: "text-body-medium text-on-surface-variant",
                     "Weights are relative: higher values give that signal more influence in the 0 to 1 likelihood score. Imported rows auto-link only when the best candidate scores exactly 1.000."

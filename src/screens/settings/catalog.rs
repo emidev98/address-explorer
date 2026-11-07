@@ -7,18 +7,17 @@ use crate::api::catalogs::{
     catalog_types_delete_preview_api, delete_catalog_types_api, list_catalog_categories_api,
     list_catalog_types_api,
 };
-use crate::api::settings::get_exchange_settings_api;
 use crate::components::{
-    catalog_delete_summary_message, use_table_selection, use_toast, BadgeSize,
-    CatalogCategoriesDialog, CatalogDeleteDialog, CatalogImportDialog, CatalogTypeDialog, Kpi,
-    ProviderBadge, SortableHeader, TablePagination, TableSelection, TableSelectionCell,
-    TableSelectionHeader, Toast,
+    catalog_delete_summary_message, use_interface_settings, use_table_selection, use_table_state,
+    use_toast, BadgeSize, CatalogCategoriesDialog, CatalogDeleteDialog, CatalogImportDialog,
+    CatalogTypeDialog, Icon, IconName, Kpi, PageHeader, ProviderBadge, SortableHeader,
+    TablePagination, TableSelection, TableSelectionCell, TableSelectionHeader, Toast,
 };
 use crate::domain::catalog::{
     CatalogCategory, CatalogDeleteOutcome, CatalogDeletePreview, CatalogKind, CatalogType,
     CatalogTypePage,
 };
-use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
+use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
 
 #[component]
 pub fn SettingsWalletTypes() -> Element {
@@ -44,9 +43,7 @@ struct DeleteRequest {
 #[component]
 fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     let mut toast = use_toast();
-    let mut page = use_signal(|| 0_u32);
-    let sort_by = use_signal(|| Option::<String>::None);
-    let sort_dir = use_signal(|| SortDirection::Asc);
+    let mut table = use_table_state(SortDirection::Asc);
     let mut selection = use_table_selection::<i64>();
     let mut show_type_dialog = use_signal(|| false);
     let mut edit_target = use_signal(|| Option::<CatalogType>::None);
@@ -54,14 +51,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     let mut show_import = use_signal(|| false);
     let mut delete_request = use_signal(|| Option::<DeleteRequest>::None);
     let deleting = use_signal(|| false);
-    let mut confirm_destructive = use_signal(|| true);
-
-    let settings = use_resource(|| async move { get_exchange_settings_api().await.ok() });
-    use_effect(move || {
-        if let Some(Some(settings)) = settings() {
-            confirm_destructive.set(settings.confirm_destructive_actions);
-        }
-    });
+    let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
 
     let mut categories = use_resource(move || async move {
         list_catalog_categories_api(kind.as_str().to_string())
@@ -76,12 +66,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     };
 
     let mut list = use_resource(move || {
-        let query = TableQuery {
-            page: page(),
-            page_size: DEFAULT_PAGE_SIZE,
-            sort_by: sort_by(),
-            sort_dir: sort_dir(),
-        };
+        let query = table.query(DEFAULT_PAGE_SIZE);
         async move {
             list_catalog_types_api(kind.as_str().to_string(), query)
                 .await
@@ -93,8 +78,8 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = list() {
-            if data.page.items.is_empty() && page() > 0 {
-                page.set(page() - 1);
+            if data.page.items.is_empty() && table.page() > 0 {
+                table.page.set(table.page() - 1);
             }
         }
     });
@@ -199,7 +184,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                 kind,
                                                 ids,
                                                 title,
-                                                confirm_destructive(),
+                                                confirm_destructive,
                                                 toast,
                                                 delete_request,
                                                 list,
@@ -208,49 +193,49 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                 deleting,
                                             );
                                         },
-                                        {icon(ICON_DELETE)}
+                                        Icon { name: IconName::Delete, size: 20 }
                                     }
                                 }
                                 SortableHeader {
                                     label: "Name".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("name"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
+                                    active_direction: table.direction_for("name"),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selection, "name", SortDirection::Asc);
+                                        table.sort("name", SortDirection::Asc);
+                                        selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "Category".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("category"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
+                                    active_direction: table.direction_for("category"),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selection, "category", SortDirection::Asc);
+                                        table.sort("category", SortDirection::Asc);
+                                        selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "Custody".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("custody"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
+                                    active_direction: table.direction_for("custody"),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selection, "custody", SortDirection::Asc);
+                                        table.sort("custody", SortDirection::Asc);
+                                        selection.clear();
                                     },
                                 }
                                 if kind == CatalogKind::Wallet {
                                     SortableHeader {
                                         label: "Platform".to_string(),
-                                        active_direction: (sort_by().as_deref() == Some("platform"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .then_some(sort_dir()),
+                                        active_direction: table.direction_for("platform"),
                                         on_sort: move |_| {
-                                            apply_sort(sort_by, sort_dir, page, selection, "platform", SortDirection::Asc);
+                                            table.sort("platform", SortDirection::Asc);
+                                        selection.clear();
                                         },
                                     }
                                 }
                                 SortableHeader {
                                     label: "Addresses".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("addresses"))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .then_some(sort_dir()),
+                                    active_direction: table.direction_for("addresses"),
                                     on_sort: move |_| {
-                                        apply_sort(sort_by, sort_dir, page, selection, "addresses", SortDirection::Desc);
+                                        table.sort("addresses", SortDirection::Desc);
+                                        selection.clear();
                                     },
                                 }
                             }
@@ -288,7 +273,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                                 kind,
                                                                 vec![row_id],
                                                                 title.clone(),
-                                                                confirm_destructive(),
+                                                                confirm_destructive,
                                                                 toast,
                                                                 delete_request,
                                                                 list,
@@ -297,7 +282,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                                 deleting,
                                                             );
                                                         },
-                                                        {icon(ICON_DELETE)}
+                                                        Icon { name: IconName::Delete, size: 20 }
                                                     }
                                                     button {
                                                         r#type: "button",
@@ -308,7 +293,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                             edit_target.set(Some(edit_row.clone()));
                                                             show_type_dialog.set(true);
                                                         },
-                                                        {icon(ICON_EDIT)}
+                                                        Icon { name: IconName::Edit, size: 20 }
                                                     }
                                                 }
                                             }
@@ -345,11 +330,11 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                     }
                 }
                 TablePagination {
-                    page: page(),
+                    page: table.page(),
                     page_size: DEFAULT_PAGE_SIZE,
                     total,
                     on_page: move |next| {
-                        page.set(next);
+                        table.page.set(next);
                         selection.clear();
                     },
                 }
@@ -361,10 +346,8 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     };
 
     rsx! {
-        div { class: "md3-page-header",
-            h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                "Settings ({kind.label()})"
-            }
+        PageHeader {
+            title: kind.label().to_string(),
             div { class: "md3-page-actions",
                 button {
                     r#type: "button",
@@ -443,7 +426,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 kind,
                 on_close: move |_| {
                     show_categories.set(false);
-                    page.set(0);
+                    table.reset_page();
                     selection.clear();
                     categories.restart();
                     list.restart();
@@ -477,24 +460,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
             }
         }
     }
-}
-
-fn apply_sort(
-    mut sort_by: Signal<Option<String>>,
-    mut sort_dir: Signal<SortDirection>,
-    mut page: Signal<u32>,
-    mut selection: TableSelection<i64>,
-    key: &str,
-    default_direction: SortDirection,
-) {
-    if sort_by().as_deref() == Some(key) {
-        sort_dir.set(sort_dir().toggled());
-    } else {
-        sort_by.set(Some(key.to_string()));
-        sort_dir.set(default_direction);
-    }
-    page.set(0);
-    selection.clear();
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -569,21 +534,4 @@ fn perform_delete(
         }
         deleting.set(false);
     });
-}
-
-#[allow(clippy::too_many_arguments)]
-const ICON_EDIT: &str = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
-const ICON_DELETE: &str =
-    "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
-
-fn icon(path: &str) -> Element {
-    rsx! {
-        svg {
-            view_box: "0 0 24 24",
-            width: "20",
-            height: "20",
-            fill: "currentColor",
-            path { d: "{path}" }
-        }
-    }
 }

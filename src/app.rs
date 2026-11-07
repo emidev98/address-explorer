@@ -6,37 +6,40 @@ use crate::api::settings::{
     get_default_fiat_currency_api, get_interface_settings_api, get_theme_api,
 };
 use crate::components::theme::{apply as apply_theme, attribute_script, FontFaces};
-use crate::components::{provide_toast, FiatCurrency, InterfaceSettingsContext, ToastHost, Topbar};
+use crate::components::{
+    provide_toast, AppShell, FiatCurrency, InterfaceSettingsContext, ToastHost,
+};
 use crate::domain::interface_settings::InterfaceSettings;
 use crate::domain::price::USD_SYMBOL;
 use crate::domain::theme::ThemePreference;
 use crate::screens::{
-    Addresses, ExchangeDetail, Exchanges, Flow, Prices, SettingsExchangeTypes, SettingsExchanges,
-    SettingsGeneral, SettingsLayout, SettingsWalletTypes,
+    Addresses, ExchangeAccountDetail, Exchanges, FundsFlow, HistoricalPrices,
+    SettingsExchangeTypes, SettingsGeneral, SettingsLayout, SettingsOnChainLinking,
+    SettingsWalletTypes,
 };
 
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
 pub enum Route {
-    #[layout(Topbar)]
+    #[layout(AppShell)]
     #[route("/")]
     Addresses {},
-    #[route("/flow")]
-    Flow {},
+    #[route("/funds-flow")]
+    FundsFlow {},
     #[route("/exchanges")]
     Exchanges {},
-    #[route("/exchanges/:exchange_id?:transaction_id")]
-    ExchangeDetail {
-        exchange_id: i64,
+    #[route("/exchanges/:account_id?:transaction_id")]
+    ExchangeAccountDetail {
+        account_id: i64,
         transaction_id: Option<String>,
     },
-    #[route("/prices")]
-    Prices {},
+    #[route("/historical-prices")]
+    HistoricalPrices {},
     #[layout(SettingsLayout)]
     #[route("/settings")]
     SettingsGeneral {},
-    #[route("/settings/exchanges")]
-    SettingsExchanges {},
+    #[route("/settings/on-chain-linking")]
+    SettingsOnChainLinking {},
     #[route("/settings/wallet-types")]
     SettingsWalletTypes {},
     #[route("/settings/exchange-types")]
@@ -115,9 +118,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exchange_detail_route_round_trips_the_optional_transaction_query() {
-        let route = Route::ExchangeDetail {
-            exchange_id: 12,
+    fn exchange_account_detail_route_round_trips_the_optional_transaction_query() {
+        let route = Route::ExchangeAccountDetail {
+            account_id: 12,
             transaction_id: Some("abc".to_string()),
         };
         assert_eq!(route.to_string(), "/exchanges/12?transaction_id=abc");
@@ -126,8 +129,8 @@ mod tests {
             route
         );
 
-        let without_query = Route::ExchangeDetail {
-            exchange_id: 12,
+        let without_query = Route::ExchangeAccountDetail {
+            account_id: 12,
             transaction_id: None,
         };
         assert_eq!(without_query.to_string(), "/exchanges/12?");
@@ -138,8 +141,8 @@ mod tests {
     fn settings_routes_round_trip() {
         assert_eq!(Route::SettingsGeneral {}.to_string(), "/settings");
         assert_eq!(
-            Route::SettingsExchanges {}.to_string(),
-            "/settings/exchanges"
+            Route::SettingsOnChainLinking {}.to_string(),
+            "/settings/on-chain-linking"
         );
         assert_eq!(
             Route::SettingsWalletTypes {}.to_string(),
@@ -150,12 +153,14 @@ mod tests {
             "/settings/exchange-types"
         );
         assert_eq!(
-            "/settings/exchanges".parse::<Route>().unwrap(),
-            Route::SettingsExchanges {}
+            "/settings/on-chain-linking".parse::<Route>().unwrap(),
+            Route::SettingsOnChainLinking {}
         );
         assert_eq!(
             "/settings/wallet-types".parse::<Route>().unwrap(),
             Route::SettingsWalletTypes {}
         );
+        assert_eq!(Route::FundsFlow {}.to_string(), "/funds-flow");
+        assert_eq!(Route::HistoricalPrices {}.to_string(), "/historical-prices");
     }
 }

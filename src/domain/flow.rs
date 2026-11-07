@@ -1,5 +1,5 @@
 //! Funds-flow domain: filters, graph value types, and the pure builders behind
-//! the Flow screen.
+//! the Funds Flow screen.
 //!
 //! Two graph shapes are produced from the same filtered dataset:
 //!

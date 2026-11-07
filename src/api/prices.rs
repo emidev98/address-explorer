@@ -3,25 +3,14 @@
 use dioxus::prelude::*;
 
 use crate::domain::price::{
-    CurrencyHistorySummary, FiatCurrency, Price, PriceConversion, PricePage, PriceSeries,
-    PriceSyncSummary, PriceTableQuery, SyncGranularity,
+    CurrencyHistorySummary, FiatCurrency, Price, PricePage, PriceSeries, PriceSyncSummary,
+    PriceTableQuery, SyncGranularity,
 };
 
 #[cfg(feature = "server")]
 use super::open_database;
 #[cfg(feature = "server")]
 use crate::application::prices::{self, PriceService};
-
-/// Resolve the BTC price in `symbol` at `timestamp` (UTC seconds). The
-/// database is checked first; an API answer is stored before returning.
-#[server]
-#[post("/api/prices/get")]
-pub async fn get_price_api(symbol: String, timestamp: i64) -> Result<Price, ServerFnError> {
-    PriceService::connect(open_database()?)
-        .get_price(&symbol, timestamp)
-        .await
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
 
 /// Resolve the most recent BTC price in `symbol`: the freshest stored close
 /// (an intraday observation when one was synced), falling back to the previous
@@ -31,21 +20,6 @@ pub async fn get_price_api(symbol: String, timestamp: i64) -> Result<Price, Serv
 pub async fn latest_price_api(symbol: String) -> Result<Price, ServerFnError> {
     PriceService::connect(open_database()?)
         .latest_price(&symbol)
-        .await
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
-/// Convert the BTC price quoted in `from_symbol` into `to_symbol` at the same
-/// moment, e.g. a historical EUR → USD conversion anchored to the BTC price.
-#[server]
-#[post("/api/prices/convert")]
-pub async fn convert_price_api(
-    from_symbol: String,
-    to_symbol: String,
-    timestamp: i64,
-) -> Result<PriceConversion, ServerFnError> {
-    PriceService::connect(open_database()?)
-        .convert_price(&from_symbol, &to_symbol, timestamp)
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

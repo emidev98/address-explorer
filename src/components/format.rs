@@ -28,7 +28,7 @@ pub fn format_btc(satoshis: i64) -> String {
 }
 
 /// Format a USD amount in en-US currency style, e.g. `$1,234.56`.
-pub fn format_usd(amount: f64) -> String {
+fn format_usd(amount: f64) -> String {
     if !amount.is_finite() {
         return "-".to_string();
     }
@@ -67,6 +67,15 @@ pub fn format_fiat(amount: f64, symbol: &str) -> String {
     }
 }
 
+/// Shorten a transaction hash to `first10...last8` when it is long.
+pub fn format_tx_hash(hash: &str) -> String {
+    if hash.len() <= 18 {
+        hash.to_string()
+    } else {
+        format!("{}...{}", &hash[..10], &hash[hash.len() - 8..])
+    }
+}
+
 /// Shorten an address to `first6…last4`, e.g. `bc1qar…f5mdq`.
 pub fn format_address(address: &str) -> String {
     let head: String = address.chars().take(6).collect();
@@ -96,7 +105,7 @@ fn group_thousands(value: u128) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_address, format_btc, format_usd};
+    use super::{format_address, format_btc, format_tx_hash, format_usd};
 
     #[test]
     fn btc_amounts_render_like_the_utxo_utils_formatter() {
@@ -132,6 +141,15 @@ mod tests {
         assert_eq!(format_fiat(-12.5, "AUD"), "-12.50 AUD");
         assert_eq!(format_fiat(0.0, "EUR"), "0.00 EUR");
         assert_eq!(format_fiat(f64::NAN, "EUR"), "-");
+    }
+
+    #[test]
+    fn transaction_hashes_shorten_only_when_long() {
+        assert_eq!(format_tx_hash("abcd"), "abcd");
+        assert_eq!(
+            format_tx_hash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            "0123456789...89abcdef"
+        );
     }
 
     #[test]

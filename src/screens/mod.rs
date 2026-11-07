@@ -1,15 +1,16 @@
 mod addresses;
-mod exchange_detail;
+mod exchange_account_detail;
 mod exchanges;
-mod flow;
-mod prices;
+mod funds_flow;
+mod historical_prices;
 mod settings;
 
 pub use addresses::Addresses;
-pub use exchange_detail::ExchangeDetail;
+pub use exchange_account_detail::ExchangeAccountDetail;
 pub use exchanges::Exchanges;
-pub use flow::Flow;
-pub use prices::Prices;
+pub use funds_flow::FundsFlow;
+pub use historical_prices::HistoricalPrices;
 pub use settings::{
-    SettingsExchangeTypes, SettingsExchanges, SettingsGeneral, SettingsLayout, SettingsWalletTypes,
+    SettingsExchangeTypes, SettingsGeneral, SettingsLayout, SettingsOnChainLinking,
+    SettingsWalletTypes,
 };

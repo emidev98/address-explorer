@@ -135,11 +135,16 @@ pub struct ExchangeAccount {
     pub last_modified_at: i64,
 }
 
-/// Human-readable duplicate row shown by the resolution dialog.
+/// Duplicate ledger row shown by the resolution dialog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExchangeDuplicateInfo {
     pub transaction_id: i64,
-    pub summary: String,
+    pub tx_type: ExchangeTxType,
+    pub amount_sats: i64,
+    pub currency: String,
+    pub timestamp: i64,
+    pub tx_hash: Option<String>,
+    pub description: Option<String>,
 }
 
 /// One exchange transaction together with its derived fiat conversion.
@@ -255,7 +260,7 @@ pub struct ExchangeAccountList {
 /// Account detail header plus the KPIs that are independent of the current
 /// table page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExchangeDetail {
+pub struct ExchangeAccountDetail {
     pub account: ExchangeAccount,
     pub kpis: ExchangeKpis,
     pub conversion_warning: Option<String>,
@@ -431,22 +436,6 @@ pub struct ExchangeCandidateAddress {
 pub enum ExchangeLinkOutcome {
     Linked(Box<ExchangeTransaction>),
     Duplicate(ExchangeDuplicateInfo),
-}
-
-/// Confirmation setting plus reconciliation scoring settings.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ExchangeSettings {
-    pub confirm_destructive_actions: bool,
-    pub on_chain_link_scoring: OnChainLinkScoringSettings,
-}
-
-impl Default for ExchangeSettings {
-    fn default() -> Self {
-        Self {
-            confirm_destructive_actions: true,
-            on_chain_link_scoring: OnChainLinkScoringSettings::default(),
-        }
-    }
 }
 
 /// Relative weights and tolerances of the on-chain matching score.

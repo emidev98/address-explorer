@@ -1,14 +1,14 @@
-//! Settings shell. General, Exchanges, Wallet Types, and Exchange Types are
-//! separate routes selected from the Settings group in the application
+//! Settings shell. General, On-chain Linking, Wallet Types, and Exchange Types
+//! are separate routes selected from the Settings group in the application
 //! navigation (the top app bar dropdown, side panel, or mobile drawer).
 
 mod catalog;
-mod exchanges;
 mod general;
+mod on_chain_linking;
 
 pub use catalog::{SettingsExchangeTypes, SettingsWalletTypes};
-pub use exchanges::SettingsExchanges;
 pub use general::SettingsGeneral;
+pub use on_chain_linking::SettingsOnChainLinking;
 
 use dioxus::prelude::*;
 

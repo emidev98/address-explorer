@@ -56,7 +56,7 @@ impl NavigationPosition {
 }
 
 /// Presentation preferences shared by the application shell.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceSettings {
     /// Show the format hint and validation message below date-range fields
     /// across the application. Hidden by default so compact filter layouts
@@ -68,6 +68,24 @@ pub struct InterfaceSettings {
     /// Whether the persistent side panel is compressed into an icon rail.
     #[serde(default)]
     pub side_nav_collapsed: bool,
+    /// Ask before destructive actions that remove related data.
+    #[serde(default = "default_confirm_destructive_actions")]
+    pub confirm_destructive_actions: bool,
+}
+
+fn default_confirm_destructive_actions() -> bool {
+    true
+}
+
+impl Default for InterfaceSettings {
+    fn default() -> Self {
+        Self {
+            show_date_range_support: false,
+            navigation_position: NavigationPosition::Auto,
+            side_nav_collapsed: false,
+            confirm_destructive_actions: true,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -80,6 +98,7 @@ mod tests {
         assert!(!settings.show_date_range_support);
         assert_eq!(settings.navigation_position, NavigationPosition::Auto);
         assert!(!settings.side_nav_collapsed);
+        assert!(settings.confirm_destructive_actions);
     }
 
     #[test]
@@ -107,5 +126,6 @@ mod tests {
         assert!(settings.show_date_range_support);
         assert_eq!(settings.navigation_position, NavigationPosition::Auto);
         assert!(!settings.side_nav_collapsed);
+        assert!(settings.confirm_destructive_actions);
     }
 }

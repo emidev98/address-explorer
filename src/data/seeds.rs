@@ -9,13 +9,11 @@
 //! - duplicate close times keep the first occurrence in file order, enforced
 //!   with `INSERT OR IGNORE`, which also makes a re-run of the import a no-op.
 //!
-//! The bundled exchange address collection in
-//! `assets/exchange_samples/exchange_addresses.csv` and the researched catalog
-//! in `migrations/0019_addresses_data.sql` become exchange-scoped rows of the
-//! `addresses` table through the `0019_addresses_data` entry. The CSV is embedded
-//! with `include_str!` so packaged builds do not need a runtime file lookup,
-//! and a conflict on the address primary key is ignored so an existing address
-//! keeps the user's description and classification.
+//! The researched catalog in `migrations/0019_addresses_data.sql` becomes the
+//! exchange-scoped rows of the `addresses` table through the
+//! `0019_addresses_data` entry. Conflicts on the address primary key are
+//! ignored so an existing address keeps the user's description and
+//! classification.
 //!
 //! Seed migrations run only for on-disk databases (`open_path`,
 //! `open_default`); see `run_migrations` in `migrations.rs`.
@@ -29,8 +27,6 @@ use rusqlite::{params, Connection};
 use super::pricing_format;
 use super::DatabaseError;
 use crate::data::repositories::exchanges as exchange_repository;
-use crate::domain::address::validate_bitcoin_address;
-use crate::domain::exchange::csv::parse_csv_text;
 
 /// Quote symbol of the imported price history.
 pub const BTC_USD_SYMBOL: &str = "USD";
@@ -38,15 +34,9 @@ pub const BTC_USD_SYMBOL: &str = "USD";
 const PACKED_RELATIVE_PATH: &str = "assets/pricing/btc_usd.bin";
 const PACKED_ENV_VAR: &str = "ADDRESS_EXPLORER_PRICING_FILE";
 
-/// Bundled public exchange wallets, imported first by the `0019_addresses_data`
-/// seed migration. See `assets/exchange_samples/README.md` for attribution
-/// sources.
-const EXCHANGE_ADDRESSES_CSV: &str =
-    include_str!("../../assets/exchange_samples/exchange_addresses.csv");
-
-/// Full researched exchange-wallet catalog, imported by the `0019_addresses_data`
-/// seed migration after the CSV bundle. Every row is tagged by exchange name
-/// and existing addresses keep their user-edited description and owner.
+/// Researched exchange-wallet catalog imported by the `0019_addresses_data`
+/// seed migration. Every row is tagged by exchange name and existing addresses
+/// keep their user-edited description and owner.
 const EXCHANGE_ADDRESS_CATALOG_SQL: &str = include_str!("migrations/0019_addresses_data.sql");
 
 /// Number of exchange wallets the catalog is expected to cover. Keep in sync
@@ -139,58 +129,10 @@ pub fn import_packed_prices(connection: &Connection, path: &Path) -> Result<usiz
 
 /// Data migration `0019_addresses_data` entry point.
 ///
-/// Imports the bundled CSV collection first, then the complete researched
-/// catalog, so the CSV's descriptions win for the addresses it introduced,
-/// exactly as the historical incremental sequence did. Both steps are
-/// idempotent and never overwrite a user-edited description or classification.
+/// Imports the researched catalog. The migration is idempotent and never
+/// overwrites a user-edited description or classification.
 pub fn addresses(connection: &Connection) -> Result<(), DatabaseError> {
-    exchange_addresses(connection)?;
     exchange_address_catalog(connection)
-}
-
-/// Imports the bundled public exchange wallets from the CSV collection as
-/// exchange-scoped `addresses` rows. Existing addresses are left untouched so
-/// a re-run never overwrites a user-edited description or classification.
-pub fn exchange_addresses(connection: &Connection) -> Result<(), DatabaseError> {
-    let document = parse_csv_text(EXCHANGE_ADDRESSES_CSV).map_err(DatabaseError::new)?;
-    for header in ["exchange", "address", "description"] {
-        if !document.headers.iter().any(|value| value == header) {
-            return Err(DatabaseError::new(format!(
-                "exchange address collection is missing the `{header}` column"
-            )));
-        }
-    }
-    if document.rows.is_empty() {
-        return Err(DatabaseError::new(
-            "exchange address collection contains no rows",
-        ));
-    }
-
-    let exchange_ids = exchange_type_ids(connection)?;
-    let mut statement = connection.prepare(
-        "INSERT INTO addresses (
-            address, description, exchange_id,
-            chain_funded_txo_count, chain_funded_txo_sum, chain_spent_txo_count,
-            chain_spent_txo_sum, chain_tx_count,
-            mempool_funded_txo_count, mempool_funded_txo_sum, mempool_spent_txo_count,
-            mempool_spent_txo_sum, mempool_tx_count
-         ) VALUES (?1, ?2, ?3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-         ON CONFLICT(address) DO NOTHING",
-    )?;
-
-    for row in &document.rows {
-        let exchange = required_field(row, "exchange")?;
-        let exchange_id = *exchange_ids.get(exchange).ok_or_else(|| {
-            DatabaseError::new(format!(
-                "exchange address collection references an unknown exchange: {exchange}"
-            ))
-        })?;
-        let address = validate_bitcoin_address(required_field(row, "address")?)
-            .map_err(DatabaseError::new)?;
-        let description = required_field(row, "description")?;
-        statement.execute(params![address, description, exchange_id])?;
-    }
-    Ok(())
 }
 
 /// Imports the researched exchange-wallet catalog from
@@ -235,27 +177,12 @@ fn exchange_type_ids(connection: &Connection) -> Result<BTreeMap<String, i64>, D
     Ok(ids)
 }
 
-/// Required, non-empty field of one address-collection row.
-fn required_field<'a>(
-    row: &'a BTreeMap<String, String>,
-    field: &str,
-) -> Result<&'a str, DatabaseError> {
-    row.get(field)
-        .map(String::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            DatabaseError::new(format!(
-                "exchange address collection row is missing `{field}`"
-            ))
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::migrations;
     use crate::data::Database;
+    use crate::domain::address::validate_bitcoin_address;
     use crate::domain::civil_time::epoch_seconds;
 
     struct TempPricingFile(PathBuf);
@@ -391,68 +318,12 @@ mod tests {
     }
 
     #[test]
-    fn exchange_address_seed_stores_exchange_scoped_rows_idempotently() {
-        let database = Database::open_in_memory().unwrap();
-        let connection = database.connection().unwrap();
-
-        // A re-run must never duplicate or overwrite the stored rows.
-        exchange_addresses(&connection).unwrap();
-        exchange_addresses(&connection).unwrap();
-
-        let mut statement = connection
-            .prepare(
-                "SELECT a.address, a.description, e.name
-                 FROM addresses a
-                 JOIN exchanges_types e ON e.id = a.exchange_id",
-            )
-            .unwrap();
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap();
-
-        assert_eq!(rows.len(), 8);
-        for (address, description, _) in &rows {
-            assert_eq!(
-                validate_bitcoin_address(address).unwrap(),
-                *address,
-                "the seed must only store canonical mainnet addresses"
-            );
-            assert!(description
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty()));
-        }
-        assert_eq!(
-            rows.iter().filter(|(_, _, name)| name == "Binance").count(),
-            4
-        );
-        assert_eq!(
-            rows.iter()
-                .filter(|(_, _, name)| name == "Crypto.com")
-                .count(),
-            2
-        );
-        assert_eq!(
-            rows.iter().filter(|(_, _, name)| name == "Revolut").count(),
-            2
-        );
-    }
-
-    #[test]
     fn exchange_address_catalog_imports_verified_wallets_idempotently() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
 
-        // The CSV bundle runs first; the user then labels one of those rows.
-        // The researched catalog must not overwrite either choice.
-        exchange_addresses(&connection).unwrap();
+        exchange_address_catalog(&connection).unwrap();
+        // A user-edited description must survive a catalog re-run.
         connection
             .execute(
                 "UPDATE addresses SET description = 'Wallet 1'
@@ -521,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn addresses_seed_imports_the_csv_bundle_before_the_catalog() {
+    fn addresses_seed_imports_the_catalog_idempotently() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
 
@@ -538,8 +409,7 @@ mod tests {
             .unwrap();
         assert_eq!(total, EXCHANGE_ADDRESS_CATALOG_SIZE);
 
-        // The CSV bundle is imported first, so its label wins over the
-        // catalog's later description for the same address.
+        // The catalog supplies the description for a fresh database.
         let description: String = connection
             .query_row(
                 "SELECT description FROM addresses
@@ -548,7 +418,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(description, "Binance cold wallet 2");
+        assert_eq!(description, "Binance BTCB reserve");
     }
 
     #[test]

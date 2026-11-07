@@ -1,8 +1,7 @@
 //! Connection creation and SQLite configuration.
 //!
 //! `Database` owns the single connection behind a mutex so repository calls
-//! stay serialized and blocking work never reaches the UI path (Section 6.2
-//! of CONTRIBUTING.md).
+//! stay serialized and blocking work never reaches the UI path.
 
 use rusqlite::Connection;
 use std::fs;
@@ -53,7 +52,7 @@ impl From<std::io::Error> for DatabaseError {
 /// Cloning shares the same mutex-protected connection, so application
 /// services can compose (for example the address service delegating a
 /// transaction sync) without opening a second connection; the mutex keeps
-/// every access serialized (Section 6.2 of CONTRIBUTING.md).
+/// every access serialized.
 #[derive(Clone)]
 pub struct Database {
     connection: std::sync::Arc<Mutex<Connection>>,
@@ -62,9 +61,9 @@ pub struct Database {
 impl Database {
     /// Resolve the database file location.
     ///
-    /// In debug builds this resolves to `<workspace>/target/db/<file>`.
-    /// In release builds it resolves to the user's home directory under a folder
-    /// named after the application.
+    /// Debug builds use `<workspace>/target/db/<file>`. Release builds use the
+    /// platform application-data directory, falling back to the legacy
+    /// `~/address-explorer/<file>` when that database already exists.
     pub fn default_path() -> Result<PathBuf, DatabaseError> {
         if let Ok(path) = std::env::var("DATABASE_PATH") {
             if !path.trim().is_empty() {
@@ -81,15 +80,25 @@ impl Database {
                 .join("target")
                 .join("db");
             fs::create_dir_all(&directory)?;
-            Ok(directory.join(DB_FILE_NAME))
-        } else {
-            let home = dirs::home_dir().ok_or_else(|| {
-                DatabaseError::new("could not determine the user's home directory")
-            })?;
-            let directory = home.join(APP_NAME);
-            fs::create_dir_all(&directory)?;
-            Ok(directory.join(DB_FILE_NAME))
+            return Ok(directory.join(DB_FILE_NAME));
         }
+
+        // Keep using a database created by an older build before moving to
+        // the platform application-data directory.
+        if let Some(legacy) = dirs::home_dir().map(|home| home.join(APP_NAME).join(DB_FILE_NAME)) {
+            if legacy.is_file() {
+                return Ok(legacy);
+            }
+        }
+
+        let directory = dirs::data_dir()
+            .or_else(dirs::home_dir)
+            .map(|base| base.join(APP_NAME))
+            .ok_or_else(|| {
+                DatabaseError::new("could not determine the application-data directory")
+            })?;
+        fs::create_dir_all(&directory)?;
+        Ok(directory.join(DB_FILE_NAME))
     }
 
     pub fn open_path(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {

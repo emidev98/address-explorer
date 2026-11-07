@@ -5,9 +5,9 @@
 
 use crate::data::repositories::settings as settings_repository;
 use crate::data::{Database, DatabaseError};
-use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
+use crate::domain::exchange::OnChainLinkScoringSettings;
 use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
-use crate::domain::price::{normalize_symbol, PriceError, USD_SYMBOL};
+use crate::domain::price::{normalize_default_symbol, normalize_symbol, PriceError};
 use crate::domain::theme::ThemePreference;
 
 /// Failures of the settings service: database access and invalid preference
@@ -37,12 +37,7 @@ pub fn save_theme(database: &Database, preference: &ThemePreference) -> Result<(
 /// code must not leak into labels or currency formatting.
 pub fn load_default_fiat_currency(database: &Database) -> Result<String, DatabaseError> {
     let symbol = settings_repository::load_default_fiat_currency(database)?;
-    let symbol = symbol.trim();
-    Ok(if symbol.is_empty() {
-        USD_SYMBOL.to_string()
-    } else {
-        symbol.to_ascii_uppercase()
-    })
+    Ok(normalize_default_symbol(&symbol))
 }
 
 /// Validate and persist the default fiat currency, returning the normalized
@@ -56,8 +51,10 @@ pub fn save_default_fiat_currency(
     Ok(symbol)
 }
 
-pub fn load_exchange_settings(database: &Database) -> Result<ExchangeSettings, DatabaseError> {
-    settings_repository::load_exchange_settings(database)
+pub fn load_on_chain_link_scoring(
+    database: &Database,
+) -> Result<OnChainLinkScoringSettings, DatabaseError> {
+    settings_repository::load_on_chain_link_scoring(database)
 }
 
 pub fn save_confirm_destructive_actions(

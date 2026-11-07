@@ -1,7 +1,9 @@
-//! UTC civil-date conversions shared by the pricing data migrations and the
-//! price service. Pure integer algorithms (Howard Hinnant's days-from-civil)
-//! keep these conversions dependency-free.
+//! UTC civil-date conversions shared by the application. Pure integer
+//! algorithms (Howard Hinnant's days-from-civil) keep them dependency-free.
 #![allow(dead_code)]
+
+/// Seconds in one UTC day.
+pub const SECONDS_PER_DAY: i64 = 86_400;
 
 /// Days since 1970-01-01 for a proleptic Gregorian date.
 pub const fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
@@ -64,6 +66,39 @@ pub fn format_datetime(epoch_second: i64) -> String {
         seconds_of_day % 3_600 / 60,
         seconds_of_day % 60,
     )
+}
+
+/// Start of the UTC day containing `epoch_second`.
+pub fn start_of_day(epoch_second: i64) -> i64 {
+    epoch_second.div_euclid(SECONDS_PER_DAY) * SECONDS_PER_DAY
+}
+
+/// End of the UTC day containing `epoch_second`, inclusive.
+pub fn end_of_day(epoch_second: i64) -> i64 {
+    start_of_day(epoch_second) + SECONDS_PER_DAY - 1
+}
+
+/// Format an epoch timestamp as `YYYY-MM-DD HH:mm` in UTC.
+pub fn format_short_datetime(epoch_second: i64) -> String {
+    format_datetime(epoch_second)
+        .get(..16)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Current UTC epoch seconds.
+pub fn now_epoch_seconds() -> i64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        (js_sys::Date::now() / 1_000.0) as i64
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0)
+    }
 }
 
 /// Format an epoch timestamp as an ISO 8601 UTC instant accepted by the
@@ -204,6 +239,15 @@ mod tests {
         );
         // Negative timestamps stay on the proleptic calendar.
         assert_eq!(format_datetime(-1), "1969-12-31 23:59:59");
+    }
+
+    #[test]
+    fn day_bounds_and_short_datetime_use_utc_days() {
+        let instant = epoch_seconds(2026, 6, 15, 23, 29, 59);
+        assert_eq!(start_of_day(instant), epoch_seconds(2026, 6, 15, 0, 0, 0));
+        assert_eq!(end_of_day(instant), epoch_seconds(2026, 6, 15, 23, 59, 59));
+        assert_eq!(format_short_datetime(instant), "2026-06-15 23:29");
+        assert_eq!(start_of_day(-1), epoch_seconds(1969, 12, 31, 0, 0, 0));
     }
 
     #[test]

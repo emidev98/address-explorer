@@ -4,36 +4,35 @@
 use dioxus::prelude::*;
 
 use crate::api::exchanges::{
-    delete_exchange_transactions_api, get_exchange_api, get_exchange_transaction_api,
-    list_exchange_transactions_api, reconcile_exchange_api,
+    delete_exchange_transactions_api, get_exchange_account_api, get_exchange_transaction_api,
+    list_exchange_transactions_api, reconcile_exchange_account_api,
 };
-use crate::api::settings::get_exchange_settings_api;
 use crate::app::Route;
-use crate::components::format::{format_btc, format_fiat};
+use crate::components::format::{format_btc, format_fiat, format_tx_hash};
 use crate::components::{
-    use_fiat_currency, use_table_selection, use_toast, ConfirmDialog, ExchangeInspector,
-    ExchangeKpiGrid, ExchangeLinkDialog, ImportDataDialog, SortableHeader, TablePagination,
+    import_data_summary_message, use_fiat_currency, use_interface_settings, use_table_selection,
+    use_table_state, use_toast, ConfirmDialog, ExchangeInspector, ExchangeKpiGrid,
+    ExchangeLinkDialog, Icon, IconName, ImportDataDialog, SortableHeader, TablePagination,
     TableSelection, TableSelectionCell, TableSelectionHeader, Toast,
 };
 use crate::domain::civil_time;
 use crate::domain::exchange::csv::is_bitcoin_currency;
 use crate::domain::exchange::{
-    ExchangeDetail as ExchangeDetailData, ExchangeTransaction, ExchangeTransactionTableQuery,
-    ImportDataSummary,
+    ExchangeAccountDetail as ExchangeAccountDetailData, ExchangeTransaction,
+    ExchangeTransactionTableQuery, ImportDataSummary,
 };
-use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
+use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
 
 #[component]
-pub fn ExchangeDetail(
-    exchange_id: i64,
+pub fn ExchangeAccountDetail(
+    account_id: i64,
     #[props(default)] transaction_id: Option<String>,
 ) -> Element {
+    let exchange_id = account_id;
     let mut toast = use_toast();
     let fiat = use_fiat_currency();
     let navigator = use_navigator();
-    let mut page = use_signal(|| 0_u32);
-    let sort_by = use_signal(|| Option::<String>::None);
-    let sort_dir = use_signal(|| SortDirection::Desc);
+    let mut table = use_table_state(SortDirection::Desc);
     let mut editor_open = use_signal(|| false);
     let mut editor_transaction = use_signal(|| Option::<ExchangeTransaction>::None);
     let mut loaded_query = use_signal(|| Option::<String>::None);
@@ -42,14 +41,7 @@ pub fn ExchangeDetail(
     let mut delete_target = use_signal(|| Option::<Vec<ExchangeTransaction>>::None);
     let mut selection = use_table_selection::<i64>();
     let mut reconciling = use_signal(|| false);
-    let mut confirm_destructive = use_signal(|| true);
-
-    let settings = use_resource(|| async move { get_exchange_settings_api().await.ok() });
-    use_effect(move || {
-        if let Some(Some(settings)) = settings() {
-            confirm_destructive.set(settings.confirm_destructive_actions);
-        }
-    });
+    let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
 
     let mut detail = use_resource(move || {
         // The server derives the default-currency values from the saved
@@ -57,25 +49,17 @@ pub fn ExchangeDetail(
         // currency change.
         let _currency = fiat.code();
         async move {
-            get_exchange_api(exchange_id)
+            get_exchange_account_api(exchange_id)
                 .await
                 .map_err(|error| error.to_string())
         }
     });
     let mut transactions = use_resource(move || {
         let _currency = fiat.code();
-        let current_page = page();
-        let sort_key = sort_by();
-        let direction = sort_dir();
         async move {
             list_exchange_transactions_api(ExchangeTransactionTableQuery {
                 exchange_id,
-                table: TableQuery {
-                    page: current_page,
-                    page_size: DEFAULT_PAGE_SIZE,
-                    sort_by: sort_key,
-                    sort_dir: direction,
-                },
+                table: table.query(DEFAULT_PAGE_SIZE),
             })
             .await
             .map_err(|error| error.to_string())
@@ -86,8 +70,8 @@ pub fn ExchangeDetail(
     // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = transactions() {
-            if data.items.is_empty() && page() > 0 {
-                page.set(page() - 1);
+            if data.items.is_empty() && table.page() > 0 {
+                table.page.set(table.page() - 1);
                 selection.clear();
             }
         }
@@ -227,7 +211,7 @@ pub fn ExchangeDetail(
                                             {
                                                 close_editor.call(());
                                             }
-                                            if confirm_destructive() {
+                                            if confirm_destructive {
                                                 delete_target.set(Some(rows));
                                             } else {
                                                 remove_transactions(
@@ -240,70 +224,63 @@ pub fn ExchangeDetail(
                                                 );
                                             }
                                         },
-                                        {icon(ICON_DELETE)}
+                                        Icon { name: IconName::Delete, size: 20 }
                                     }
                                 }
                                 SortableHeader {
                                     label: "Date".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("date")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("date"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "date", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("date", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "Type".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("type")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("type"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "type", SortDirection::Asc);
-                                        page.set(0);
+                                        table.sort("type", SortDirection::Asc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "Amount".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("amount")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("amount"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "amount", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("amount", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
                                 th { "Value ({table_currency})" }
                                 SortableHeader {
                                     label: "Fee".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("fee")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("fee"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "fee", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("fee", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "On-chain".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("on_chain")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("on_chain"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "on_chain", SortDirection::Asc);
-                                        page.set(0);
+                                        table.sort("on_chain", SortDirection::Asc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
-                                    label: "Exchange TX Hash".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("tx_hash")).then_some(sort_dir()),
+                                    label: "Exchange Tx Hash".to_string(),
+                                    active_direction: table.direction_for("tx_hash"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "tx_hash", SortDirection::Asc);
-                                        page.set(0);
+                                        table.sort("tx_hash", SortDirection::Asc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "Description".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("description")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("description"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "description", SortDirection::Asc);
-                                        page.set(0);
+                                        table.sort("description", SortDirection::Asc);
                                         selection.clear();
                                     },
                                 }
@@ -368,7 +345,7 @@ pub fn ExchangeDetail(
                                                             {
                                                                 close_editor.call(());
                                                             }
-                                                            if confirm_destructive() {
+                                                            if confirm_destructive {
                                                                 delete_target.set(Some(vec![delete_row.clone()]));
                                                             } else {
                                                                 remove_transactions(
@@ -381,7 +358,7 @@ pub fn ExchangeDetail(
                                                                 );
                                                             }
                                                         },
-                                                        {icon(ICON_DELETE)}
+                                                        Icon { name: IconName::Delete, size: 20 }
                                                     }
                                                     button {
                                                         r#type: "button",
@@ -395,7 +372,7 @@ pub fn ExchangeDetail(
                                                             loaded_query.set(Some(edit_action_row.id.to_string()));
                                                             navigate_to_detail(navigator, exchange_id, Some(edit_action_row.id));
                                                         },
-                                                        {icon(ICON_EDIT)}
+                                                        Icon { name: IconName::Edit, size: 20 }
                                                     }
                                                 }
                                             }
@@ -444,11 +421,11 @@ pub fn ExchangeDetail(
                     }
                 }
                 TablePagination {
-                    page: page(),
+                    page: table.page(),
                     page_size: DEFAULT_PAGE_SIZE,
                     total,
                     on_page: move |next| {
-                        page.set(next);
+                        table.page.set(next);
                         selection.clear();
                     },
                 }
@@ -493,7 +470,7 @@ pub fn ExchangeDetail(
                         class: "md3-icon-button md3-exchange-back-button",
                         aria_label: "Back to exchanges",
                         title: "Back to exchanges",
-                        {icon(ICON_BACK)}
+                        Icon { name: IconName::Back, size: 20 }
                     }
                     h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
                         "{account.name}"
@@ -527,7 +504,7 @@ pub fn ExchangeDetail(
                         onclick: move |_| {
                             reconciling.set(true);
                             spawn(async move {
-                                match reconcile_exchange_api(exchange_id).await {
+                                match reconcile_exchange_account_api(exchange_id).await {
                                     Ok(()) => toast.success("Exchange reconciliation complete."),
                                     Err(error) => {
                                         toast.error(format!("Could not reconcile this exchange: {error}"))
@@ -667,34 +644,20 @@ pub fn ExchangeDetail(
     }
 }
 
-fn toggle_sort(
-    mut sort_by: Signal<Option<String>>,
-    mut sort_dir: Signal<SortDirection>,
-    key: &str,
-    default_direction: SortDirection,
-) {
-    if sort_by().as_deref() == Some(key) {
-        sort_dir.set(sort_dir().toggled());
-    } else {
-        sort_by.set(Some(key.to_string()));
-        sort_dir.set(default_direction);
-    }
-}
-
 fn navigate_to_detail(
     navigator: dioxus::router::Navigator,
     exchange_id: i64,
     transaction_id: Option<i64>,
 ) {
-    navigator.replace(Route::ExchangeDetail {
-        exchange_id,
+    navigator.replace(Route::ExchangeAccountDetail {
+        account_id: exchange_id,
         transaction_id: transaction_id.map(|id| id.to_string()),
     });
 }
 
 fn remove_transactions(
     mut toast: Toast,
-    mut detail: Resource<Result<ExchangeDetailData, String>>,
+    mut detail: Resource<Result<ExchangeAccountDetailData, String>>,
     mut transactions: Resource<
         Result<crate::domain::table::TablePage<ExchangeTransaction>, String>,
     >,
@@ -732,55 +695,6 @@ fn format_fee(fee: Option<f64>, currency: Option<&str>, converted: Option<(f64, 
     match converted {
         Some((amount, target)) => format_fiat(amount, target),
         None => "-".to_string(),
-    }
-}
-
-fn format_tx_hash(hash: &str) -> String {
-    if hash.len() <= 18 {
-        hash.to_string()
-    } else {
-        format!("{}...{}", &hash[..10], &hash[hash.len() - 8..])
-    }
-}
-
-fn import_data_summary_message(summary: &ImportDataSummary) -> String {
-    let mut message = format!(
-        "Imported {} transaction(s){}{}.",
-        summary.inserted,
-        if summary.auto_linked > 0 {
-            format!(", auto-linked {}", summary.auto_linked)
-        } else {
-            String::new()
-        },
-        if summary.duplicates > 0 {
-            format!(", skipped {} duplicate(s)", summary.duplicates)
-        } else {
-            String::new()
-        }
-    );
-    if summary.skipped_non_btc > 0 {
-        message.push_str(&format!(
-            " Skipped {} non-BTC row(s).",
-            summary.skipped_non_btc
-        ));
-    }
-    message
-}
-
-const ICON_BACK: &str = "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z";
-const ICON_EDIT: &str = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
-const ICON_DELETE: &str =
-    "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
-
-fn icon(path: &str) -> Element {
-    rsx! {
-        svg {
-            view_box: "0 0 24 24",
-            width: "20",
-            height: "20",
-            fill: "currentColor",
-            path { d: "{path}" }
-        }
     }
 }
 

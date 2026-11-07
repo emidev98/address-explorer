@@ -4,60 +4,44 @@ use std::collections::BTreeMap;
 
 use dioxus::prelude::*;
 
-use crate::api::exchanges::{delete_exchanges_api, list_exchanges_api, reconcile_exchanges_api};
-use crate::api::settings::get_exchange_settings_api;
+use crate::api::exchanges::{
+    delete_exchange_accounts_api, list_exchange_accounts_api, reconcile_exchange_accounts_api,
+};
 use crate::app::Route;
 use crate::components::{
-    use_fiat_currency, use_table_selection, use_toast, BadgeSize, ConfirmDialog,
-    ExchangeAccountDialog, ExchangeCountKpi, ExchangeKpiGrid, ImportDataDialog, ProviderBadge,
-    SortableHeader, TablePagination, TableSelection, TableSelectionCell, TableSelectionHeader,
-    Toast, ToastKind,
+    import_data_summary_message, use_fiat_currency, use_interface_settings, use_table_selection,
+    use_table_state, use_toast, BadgeSize, ConfirmDialog, ExchangeAccountDialog, ExchangeCountKpi,
+    ExchangeKpiGrid, Icon, IconName, ImportDataDialog, PageHeader, ProviderBadge, SortableHeader,
+    TablePagination, TableSelection, TableSelectionCell, TableSelectionHeader, Toast, ToastKind,
 };
 use crate::domain::civil_time;
 use crate::domain::exchange::{
     ExchangeAccount, ExchangeAccountList, ExchangeAccountRow, ExchangeAccountTableQuery,
     ExchangeReconcileBatchSummary, ExchangeReconcileFailure, ImportDataSummary,
 };
-use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
+use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
 
 #[component]
 pub fn Exchanges() -> Element {
     let mut toast = use_toast();
     let fiat = use_fiat_currency();
     let navigator = use_navigator();
-    let mut page = use_signal(|| 0_u32);
-    let sort_by = use_signal(|| Option::<String>::None);
-    let sort_dir = use_signal(|| SortDirection::Desc);
+    let mut table = use_table_state(SortDirection::Desc);
     let mut show_import_data = use_signal(|| false);
     let mut edit_target = use_signal(|| Option::<ExchangeAccount>::None);
     let mut delete_target = use_signal(|| Option::<Vec<ExchangeAccountRow>>::None);
     let mut selection = use_table_selection::<i64>();
-    let mut confirm_destructive = use_signal(|| true);
+    let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
     let mut reconciling = use_signal(|| false);
     let reconciling_ids = use_signal(BTreeMap::<i64, bool>::new);
-
-    let settings = use_resource(|| async move { get_exchange_settings_api().await.ok() });
-    use_effect(move || {
-        if let Some(Some(settings)) = settings() {
-            confirm_destructive.set(settings.confirm_destructive_actions);
-        }
-    });
 
     let mut list = use_resource(move || {
         // The server values the KPIs in the saved default currency; reading
         // the shared signal refetches the cards when the setting changes.
         let _currency = fiat.code();
-        let current_page = page();
-        let sort_key = sort_by();
-        let direction = sort_dir();
         async move {
-            list_exchanges_api(ExchangeAccountTableQuery {
-                table: TableQuery {
-                    page: current_page,
-                    page_size: DEFAULT_PAGE_SIZE,
-                    sort_by: sort_key,
-                    sort_dir: direction,
-                },
+            list_exchange_accounts_api(ExchangeAccountTableQuery {
+                table: table.query(DEFAULT_PAGE_SIZE),
             })
             .await
             .map_err(|error| error.to_string())
@@ -68,8 +52,8 @@ pub fn Exchanges() -> Element {
     // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = list() {
-            if data.page.items.is_empty() && page() > 0 {
-                page.set(page() - 1);
+            if data.page.items.is_empty() && table.page() > 0 {
+                table.page.set(table.page() - 1);
                 selection.clear();
             }
         }
@@ -168,7 +152,7 @@ pub fn Exchanges() -> Element {
                                                 }
                                                 reconciling.set(true);
                                                 spawn(async move {
-                                                    match reconcile_exchanges_api(ids).await {
+                                                    match reconcile_exchange_accounts_api(ids).await {
                                                         Ok(summary) => {
                                                             let (kind, message) =
                                                                 reconcile_batch_summary_toast(&summary);
@@ -188,7 +172,7 @@ pub fn Exchanges() -> Element {
                                             if *reconciling.read() {
                                                 "…"
                                             } else {
-                                                {icon(ICON_SYNC)}
+                                                Icon { name: IconName::Sync, size: 20 }
                                             }
                                         }
                                         button {
@@ -209,68 +193,62 @@ pub fn Exchanges() -> Element {
                                                 if accounts.is_empty() {
                                                     return;
                                                 }
-                                                if confirm_destructive() {
+                                                if confirm_destructive {
                                                     delete_target.set(Some(accounts));
                                                 } else {
                                                     remove_exchanges(toast, list, selection, accounts);
                                                 }
                                             },
-                                            {icon(ICON_DELETE)}
+                                            Icon { name: IconName::Delete, size: 20 }
                                         }
                                     }
                                 }
                                 SortableHeader {
-                                    label: "Name".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("name")).then_some(sort_dir()),
+                                    label: "Account".to_string(),
+                                    active_direction: table.direction_for("name"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "name", SortDirection::Asc);
-                                        page.set(0);
+                                        table.sort("name", SortDirection::Asc);
                                         selection.clear();
                                     },
                                 }
-                                th { "Exchange" }
+                                th { "Provider" }
                                 SortableHeader {
                                     label: "Txs".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("txs")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("txs"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "txs", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("txs", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
-                                    label: "Txs OnChain".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("onchain")).then_some(sort_dir()),
+                                    label: "On-chain Txs".to_string(),
+                                    active_direction: table.direction_for("onchain"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "onchain", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("onchain", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "First Transaction".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("first_tx")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("first_tx"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "first_tx", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("first_tx", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "Last Transaction".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("last_tx")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("last_tx"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "last_tx", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("last_tx", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
                                 SortableHeader {
                                     label: "Last Modification".to_string(),
-                                    active_direction: (sort_by().as_deref() == Some("last_modified")).then_some(sort_dir()),
+                                    active_direction: table.direction_for("last_modified"),
                                     on_sort: move |_| {
-                                        toggle_sort(sort_by, sort_dir, "last_modified", SortDirection::Desc);
-                                        page.set(0);
+                                        table.sort("last_modified", SortDirection::Desc);
                                         selection.clear();
                                     },
                                 }
@@ -290,11 +268,11 @@ pub fn Exchanges() -> Element {
                                     let row_selected = selected_snapshot.contains(&row.id);
                                     let first = row
                                         .first_tx_time
-                                        .map(format_short_datetime)
+                                        .map(civil_time::format_short_datetime)
                                         .unwrap_or_else(|| "-".to_string());
                                     let last = row
                                         .last_tx_time
-                                        .map(format_short_datetime)
+                                        .map(civil_time::format_short_datetime)
                                         .unwrap_or_else(|| "-".to_string());
                                     let modified = civil_time::format_date(row.last_modified_at);
                                     rsx! {
@@ -302,8 +280,8 @@ pub fn Exchanges() -> Element {
                                             class: if row_selected { "md3-exchange-row md3-table-row-selected" } else { "md3-exchange-row" },
                                             onclick: move |_| {
                                                 navigator
-                                                    .push(Route::ExchangeDetail {
-                                                        exchange_id: view_row.id,
+                                                    .push(Route::ExchangeAccountDetail {
+                                                        account_id: view_row.id,
                                                         transaction_id: None,
                                                     });
                                             },
@@ -330,7 +308,7 @@ pub fn Exchanges() -> Element {
                                                         if row_reconciling {
                                                             "…"
                                                         } else {
-                                                            {icon(ICON_SYNC)}
+                                                            Icon { name: IconName::Sync, size: 20 }
                                                         }
                                                     }
                                                     button {
@@ -340,13 +318,13 @@ pub fn Exchanges() -> Element {
                                                         aria_label: "Remove exchange",
                                                         onclick: move |event| {
                                                             event.stop_propagation();
-                                                            if confirm_destructive() {
+                                                            if confirm_destructive {
                                                                 delete_target.set(Some(vec![delete_row.clone()]));
                                                             } else {
                                                                 remove_exchanges(toast, list, selection, vec![delete_row.clone()]);
                                                             }
                                                         },
-                                                        {icon(ICON_DELETE)}
+                                                        Icon { name: IconName::Delete, size: 20 }
                                                     }
                                                     button {
                                                         r#type: "button",
@@ -368,7 +346,7 @@ pub fn Exchanges() -> Element {
                                                                     }),
                                                                 );
                                                         },
-                                                        {icon(ICON_EDIT)}
+                                                        Icon { name: IconName::Edit, size: 20 }
                                                     }
                                                 }
                                             }
@@ -380,8 +358,8 @@ pub fn Exchanges() -> Element {
                                                     onclick: move |event| {
                                                         event.stop_propagation();
                                                         navigator
-                                                            .push(Route::ExchangeDetail {
-                                                                exchange_id: view_row.id,
+                                                            .push(Route::ExchangeAccountDetail {
+                                                                account_id: view_row.id,
                                                                 transaction_id: None,
                                                             });
                                                     },
@@ -419,11 +397,11 @@ pub fn Exchanges() -> Element {
                     }
                 }
                 TablePagination {
-                    page: page(),
+                    page: table.page(),
                     page_size: DEFAULT_PAGE_SIZE,
                     total,
                     on_page: move |next| {
-                        page.set(next);
+                        table.page.set(next);
                         selection.clear();
                     },
                 }
@@ -433,10 +411,8 @@ pub fn Exchanges() -> Element {
 
     rsx! {
         section { id: "exchanges", class: "md3-screen",
-            div { class: "md3-page-header",
-                h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                    "Exchanges"
-                }
+            PageHeader {
+                title: "Exchanges".to_string(),
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
@@ -517,20 +493,6 @@ pub fn Exchanges() -> Element {
     }
 }
 
-fn toggle_sort(
-    mut sort_by: Signal<Option<String>>,
-    mut sort_dir: Signal<SortDirection>,
-    key: &str,
-    default_direction: SortDirection,
-) {
-    if sort_by().as_deref() == Some(key) {
-        sort_dir.set(sort_dir().toggled());
-    } else {
-        sort_by.set(Some(key.to_string()));
-        sort_dir.set(default_direction);
-    }
-}
-
 /// Reconcile one exchange row. The row stays disabled until its own request
 /// finishes; other rows and the bulk action remain independent.
 fn start_row_reconcile(
@@ -549,7 +511,7 @@ fn start_row_reconcile(
     }
     reconciling_ids.write().insert(exchange_id, true);
     spawn(async move {
-        match reconcile_exchanges_api(vec![exchange_id]).await {
+        match reconcile_exchange_accounts_api(vec![exchange_id]).await {
             Ok(summary) => {
                 let (kind, message) = reconcile_batch_summary_toast(&summary);
                 toast.show(kind, message);
@@ -580,7 +542,7 @@ fn remove_exchanges(
         .collect::<Vec<_>>();
     let tx_count: i64 = accounts.iter().map(|account| account.tx_count).sum();
     spawn(async move {
-        match delete_exchanges_api(ids).await {
+        match delete_exchange_accounts_api(ids).await {
             Ok(0) => toast.error("No exchanges were found to remove."),
             Ok(_) if names.len() == 1 => toast.success(format!(
                 "Exchange \"{}\" and its {tx_count} transactions removed.",
@@ -652,68 +614,6 @@ fn exchange_noun(count: usize) -> &'static str {
         "exchange"
     } else {
         "exchanges"
-    }
-}
-
-fn import_data_summary_message(summary: &ImportDataSummary) -> String {
-    if summary.inserted == 0 && summary.created {
-        return format!(
-            "Exchange account created.{}",
-            if summary.skipped_non_btc > 0 {
-                format!(" Skipped {} non-BTC rows.", summary.skipped_non_btc)
-            } else {
-                String::new()
-            }
-        );
-    }
-    let mut message = format!(
-        "{} {} transaction{}{}{}.",
-        if summary.created {
-            "Account created and imported"
-        } else {
-            "Imported"
-        },
-        summary.inserted,
-        if summary.inserted == 1 { "" } else { "s" },
-        if summary.auto_linked > 0 {
-            format!(", auto-linked {}", summary.auto_linked)
-        } else {
-            String::new()
-        },
-        if summary.duplicates > 0 {
-            format!(", skipped {} duplicate(s)", summary.duplicates)
-        } else {
-            String::new()
-        }
-    );
-    if summary.skipped_non_btc > 0 {
-        message.push_str(&format!(
-            " Skipped {} non-BTC row(s).",
-            summary.skipped_non_btc
-        ));
-    }
-    message
-}
-
-fn format_short_datetime(timestamp: i64) -> String {
-    let formatted = civil_time::format_datetime(timestamp);
-    formatted.get(..16).unwrap_or(&formatted).to_string()
-}
-
-const ICON_SYNC: &str = "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
-const ICON_EDIT: &str = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
-const ICON_DELETE: &str =
-    "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
-
-fn icon(path: &str) -> Element {
-    rsx! {
-        svg {
-            view_box: "0 0 24 24",
-            width: "20",
-            height: "20",
-            fill: "currentColor",
-            path { d: "{path}" }
-        }
     }
 }
 

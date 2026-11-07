@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 
-use crate::domain::exchange::{ExchangeSettings, OnChainLinkScoringSettings};
+use crate::domain::exchange::OnChainLinkScoringSettings;
 use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
 use crate::domain::theme::ThemePreference;
 
@@ -43,9 +43,9 @@ pub async fn save_default_fiat_currency_api(symbol: String) -> Result<String, Se
 }
 
 #[server]
-#[get("/api/settings/exchanges")]
-pub async fn get_exchange_settings_api() -> Result<ExchangeSettings, ServerFnError> {
-    settings::load_exchange_settings(&open_database()?)
+#[get("/api/settings/on-chain-link-scoring")]
+pub async fn get_on_chain_link_scoring_api() -> Result<OnChainLinkScoringSettings, ServerFnError> {
+    settings::load_on_chain_link_scoring(&open_database()?)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
@@ -61,7 +61,7 @@ pub async fn save_confirm_destructive_actions_api(enabled: bool) -> Result<(), S
 pub async fn save_on_chain_link_scoring_api(
     settings: OnChainLinkScoringSettings,
 ) -> Result<OnChainLinkScoringSettings, ServerFnError> {
-    crate::application::settings::save_on_chain_link_scoring(&open_database()?, &settings)
+    settings::save_on_chain_link_scoring(&open_database()?, &settings)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
@@ -77,7 +77,7 @@ pub async fn get_interface_settings_api() -> Result<InterfaceSettings, ServerFnE
 /// Persist the date-range support-text visibility.
 #[server]
 #[post("/api/settings/date-range-support")]
-pub async fn save_date_range_support_api(enabled: bool) -> Result<(), ServerFnError> {
+pub async fn save_show_date_range_support_api(enabled: bool) -> Result<(), ServerFnError> {
     settings::save_show_date_range_support(&open_database()?, enabled)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

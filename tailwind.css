@@ -1962,7 +1962,7 @@
     border-radius: var(--radius-md3-full);
     font-size: var(--text-label-medium);
     font-weight: 600;
-    line-height: 1;
+    line-height: 2;
     letter-spacing: 0.02em;
     box-shadow: inset 0 0 0 1px rgb(0 0 0 / 8%);
   }

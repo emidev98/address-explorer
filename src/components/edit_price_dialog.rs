@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::prices::update_price_api;
 use crate::components::format::format_fiat;
-use crate::components::use_toast;
+use crate::components::{use_toast, Modal};
 use crate::domain::civil_time::format_datetime;
 use crate::domain::price::Price;
 
@@ -19,7 +19,6 @@ pub fn EditPriceDialog(
     let mut value = use_signal(|| price.close.to_string());
     let mut loading = use_signal(|| false);
 
-    let close = move |_| on_close.call(());
     let save = {
         let price = price.clone();
         move |_| {
@@ -55,66 +54,47 @@ pub fn EditPriceDialog(
     };
 
     rsx! {
-        div {
-            class: "md3-dialog-scrim",
-            role: "presentation",
-            onclick: close,
-            onkeydown: move |event| {
-                if event.key() == Key::Escape {
-                    on_close.call(());
+        Modal {
+            title: "Modify price".to_string(),
+            title_id: "edit-price-title".to_string(),
+            on_close: move |_| on_close.call(()),
+            p { class: "text-body-medium text-on-surface-variant",
+                "Update the {price.symbol} close of {format_datetime(price.close_time)} (UTC), currently {format_fiat(price.close, &price.symbol)}."
+            }
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "edit-price-input",
+                "New price ({price.symbol})"
+            }
+            div { class: "md3-text-field",
+                input {
+                    id: "edit-price-input",
+                    class: "md3-input",
+                    r#type: "text",
+                    inputmode: "decimal",
+                    value: "{value}",
+                    autofocus: true,
+                    oninput: move |event| value.set(event.value()),
+                    disabled: *loading.read(),
                 }
-            },
-            div {
-                class: "md3-dialog",
-                role: "dialog",
-                aria_modal: "true",
-                aria_labelledby: "edit-price-title",
-                onclick: move |event| event.stop_propagation(),
-                h2 {
-                    id: "edit-price-title",
-                    class: "text-headline-medium leading-headline-medium text-on-surface",
-                    "Modify price"
+            }
+            div { class: "md3-dialog-actions",
+                button {
+                    r#type: "button",
+                    class: "md3-button-text",
+                    onclick: move |_| on_close.call(()),
+                    disabled: *loading.read(),
+                    "Cancel"
                 }
-                p { class: "text-body-medium text-on-surface-variant",
-                    "Update the {price.symbol} close of {format_datetime(price.close_time)} (UTC), currently {format_fiat(price.close, &price.symbol)}."
-                }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "edit-price-input",
-                    "New price ({price.symbol})"
-                }
-                div { class: "md3-text-field",
-                    input {
-                        id: "edit-price-input",
-                        class: "md3-input",
-                        r#type: "text",
-                        inputmode: "decimal",
-                        value: "{value}",
-                        autofocus: true,
-                        oninput: move |event| value.set(event.value()),
-                        disabled: *loading.read(),
-                    }
-                }
-
-                div { class: "md3-dialog-actions",
-                    button {
-                        r#type: "button",
-                        class: "md3-button-text",
-                        onclick: close,
-                        disabled: *loading.read(),
-                        "Cancel"
-                    }
-                    button {
-                        r#type: "button",
-                        class: "md3-button-filled",
-                        onclick: save,
-                        disabled: *loading.read(),
-                        if *loading.read() {
-                            "Saving..."
-                        } else {
-                            "Save"
-                        }
+                button {
+                    r#type: "button",
+                    class: "md3-button-filled",
+                    onclick: save,
+                    disabled: *loading.read(),
+                    if *loading.read() {
+                        "Saving..."
+                    } else {
+                        "Save"
                     }
                 }
             }

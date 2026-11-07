@@ -7,9 +7,9 @@
 
 use dioxus::prelude::*;
 
-const ICON_CHECK: &str = "M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z";
+use super::icon::IconName;
+
 // A 10 px wide, 2 px tall mark in the 18 px icon box.
-const ICON_DASH: &str = "M5.333 10.667h13.334v2.666H5.333z";
 
 /// A Material 3 checkbox with an optional visible label.
 ///
@@ -60,8 +60,8 @@ pub fn Checkbox(
                 span { class: "md3-checkbox-state-layer", aria_hidden: "true" }
                 span { class: "md3-checkbox-box", aria_hidden: "true",
                     svg { class: "md3-checkbox-icon", view_box: "0 0 24 24",
-                        path { class: "md3-checkbox-check", d: ICON_CHECK }
-                        path { class: "md3-checkbox-dash", d: ICON_DASH }
+                        path { class: "md3-checkbox-check", d: IconName::Check.path() }
+                        path { class: "md3-checkbox-dash", d: IconName::Dash.path() }
                     }
                 }
             }

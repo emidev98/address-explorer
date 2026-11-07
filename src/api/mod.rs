@@ -1,7 +1,7 @@
 //! API controllers: the `#[server]` entry points of the application.
 //!
 //! Each module groups the endpoints of one domain. Controllers are thin by
-//! contract (Section 7.2 of CONTRIBUTING.md): they open the database, call
+//! contract: they open the database, call
 //! exactly one application service operation, and translate errors into
 //! `ServerFnError`. They contain no business rules and no SQL.
 

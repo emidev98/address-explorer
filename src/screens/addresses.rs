@@ -3,23 +3,22 @@ use std::collections::BTreeMap;
 use dioxus::prelude::*;
 
 use crate::api::addresses::{addresses_overview_api, delete_addresses_api, validate_address_api};
-use crate::api::prices::latest_price_api;
-use crate::api::settings::get_exchange_settings_api;
 use crate::api::transactions::{sync_address_transactions_api, sync_addresses_transactions_api};
 use crate::components::format::{format_address, format_btc, format_fiat};
 use crate::components::{
-    read_clipboard_text, use_fiat_currency, use_table_selection, use_toast, write_clipboard_text,
-    AddressEditData, BadgeSize, BalanceKpi, ConfirmDialog, HoldingSlice, HoldingsDistributionChart,
-    ImportAddressDialog, ImportAddressDialogMode, Kpi, ProviderBadge, SortableHeader,
+    read_clipboard_text, use_fiat_currency, use_interface_settings, use_latest_price,
+    use_table_selection, use_table_state, use_toast, write_clipboard_text, AddressEditData,
+    BadgeSize, BalanceKpi, ConfirmDialog, HoldingSlice, HoldingsDistributionChart, Icon, IconName,
+    ImportAddressDialog, ImportAddressDialogMode, Kpi, PageHeader, ProviderBadge, SortableHeader,
     TablePagination, TableSelection, TableSelectionCell, TableSelectionHeader, Toast, ToastKind,
 };
 use crate::domain::address::{
-    AddressEntity, AddressImportResult, AddressOverview, AddressOverviewItem, AddressOverviewQuery,
-    AddressScope, AddressScopeFilter,
+    AddressImportResult, AddressOverview, AddressOverviewItem, AddressOverviewQuery, AddressScope,
+    AddressScopeFilter, StoredAddress,
 };
 use crate::domain::civil_time::format_datetime;
 use crate::domain::price::sats_to_fiat;
-use crate::domain::table::{SortDirection, TableQuery, DEFAULT_PAGE_SIZE};
+use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
 use crate::domain::transaction::{TransactionSyncBatchSummary, TransactionSyncSummary};
 
 /// Per-address transaction sync state shown in the addresses table actions.
@@ -30,7 +29,7 @@ struct SyncState {
 
 /// Addresses screen: KPIs, the holdings distribution treemap, and the
 /// addresses table, replicating the UTXO Utils Addresses page on this
-/// application's data (see `docs/addresses-page.md`).
+/// application's data.
 #[component]
 pub fn Addresses() -> Element {
     let mut toast = use_toast();
@@ -41,47 +40,31 @@ pub fn Addresses() -> Element {
     let sync_states = use_signal(BTreeMap::<String, SyncState>::new);
     let bulk_sync_loading = use_signal(|| false);
     let mut selection = use_table_selection::<String>();
-    // Backend-driven table state (Section 5.11 of CONTRIBUTING.md): the page,
+    // Backend-driven table state: the page,
     // sort, and scope filter are part of the overview query, so changing them
     // re-runs the request. The response still carries every matching row for
     // the KPIs and the holdings chart, plus the requested table page.
-    let mut page = use_signal(|| 0_u32);
-    let sort_by = use_signal(|| Option::<String>::None);
-    let sort_dir = use_signal(SortDirection::default);
+    let mut table = use_table_state(SortDirection::default());
     let mut scope_filter = use_signal(AddressScopeFilter::default);
-    let mut confirm_destructive = use_signal(|| true);
+    let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
     let fiat = use_fiat_currency();
 
     let mut overview = use_resource(move || async move {
         addresses_overview_api(AddressOverviewQuery {
-            table: TableQuery {
-                page: page(),
-                page_size: DEFAULT_PAGE_SIZE,
-                sort_by: sort_by(),
-                sort_dir: sort_dir(),
-            },
+            table: table.query(DEFAULT_PAGE_SIZE),
             scope: scope_filter(),
         })
         .await
         .map_err(|err| err.to_string())
     });
-    let exchange_settings = use_resource(|| async move { get_exchange_settings_api().await.ok() });
-    use_effect(move || {
-        if let Some(Some(settings)) = exchange_settings() {
-            confirm_destructive.set(settings.confirm_destructive_actions);
-        }
-    });
-    let latest_price = use_resource(move || {
-        let symbol = fiat.code();
-        async move { latest_price_api(symbol).await.ok().map(|price| price.close) }
-    });
+    let latest_price = use_latest_price();
 
     // A deletion can empty the current page while earlier pages still have
     // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = overview() {
-            if data.page.items.is_empty() && page() > 0 {
-                page.set(page() - 1);
+            if data.page.items.is_empty() && table.page() > 0 {
+                table.page.set(table.page() - 1);
                 selection.clear();
             }
         }
@@ -150,8 +133,6 @@ pub fn Addresses() -> Element {
             balance_sats: item.spendable_balance_sats,
         })
         .collect();
-
-    let sort_direction_for = |key: &str| (sort_by().as_deref() == Some(key)).then_some(sort_dir());
 
     let page_ids = table_items
         .iter()
@@ -232,7 +213,7 @@ pub fn Addresses() -> Element {
                                         if bulk_sync_loading() {
                                             "…"
                                         } else {
-                                            {icon(ICON_SYNC)}
+                                            Icon { name: IconName::Sync, size: 20 }
                                         }
                                     }
                                     button {
@@ -248,27 +229,27 @@ pub fn Addresses() -> Element {
                                                 addresses_to_remove,
                                                 overview,
                                                 selection,
-                                                confirm_destructive(),
+                                                confirm_destructive,
                                                 addresses,
                                             );
                                         },
-                                        {icon(ICON_DELETE)}
+                                        Icon { name: IconName::Delete, size: 20 }
                                     }
                                 }
                             }
                             SortableHeader {
                                 label: "Address".to_string(),
-                                active_direction: sort_direction_for("address"),
+                                active_direction: table.direction_for("address"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, page, "address", SortDirection::Asc);
+                                    table.sort("address", SortDirection::Asc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
                                 label: "Label".to_string(),
-                                active_direction: sort_direction_for("label"),
+                                active_direction: table.direction_for("label"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, page, "label", SortDirection::Asc);
+                                    table.sort("label", SortDirection::Asc);
                                     selection.clear();
                                 },
                             }
@@ -291,7 +272,7 @@ pub fn Addresses() -> Element {
                                                 aria_pressed: (scope_filter() == filter).to_string(),
                                                 onclick: move |_| {
                                                     scope_filter.set(filter);
-                                                    page.set(0);
+                                                    table.reset_page();
                                                     selection.clear();
                                                 },
                                                 "{filter_label}"
@@ -302,41 +283,41 @@ pub fn Addresses() -> Element {
                             }
                             SortableHeader {
                                 label: "Txs".to_string(),
-                                active_direction: sort_direction_for("txs"),
+                                active_direction: table.direction_for("txs"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, page, "txs", SortDirection::Desc);
+                                    table.sort("txs", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
                                 label: "Spendable Balance".to_string(),
-                                active_direction: sort_direction_for("balance"),
+                                active_direction: table.direction_for("balance"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, page, "balance", SortDirection::Desc);
+                                    table.sort("balance", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
-                                label: "Current price".to_string(),
-                                active_direction: sort_direction_for("price"),
+                                label: "Current Price".to_string(),
+                                active_direction: table.direction_for("price"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, page, "price", SortDirection::Desc);
+                                    table.sort("price", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
-                                label: "First received tx".to_string(),
-                                active_direction: sort_direction_for("first_tx"),
+                                label: "First Transaction".to_string(),
+                                active_direction: table.direction_for("first_tx"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, page, "first_tx", SortDirection::Desc);
+                                    table.sort("first_tx", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
                             SortableHeader {
-                                label: "Last sent tx".to_string(),
-                                active_direction: sort_direction_for("last_tx"),
+                                label: "Last Transaction".to_string(),
+                                active_direction: table.direction_for("last_tx"),
                                 on_sort: move |_| {
-                                    toggle_sort(sort_by, sort_dir, page, "last_tx", SortDirection::Desc);
+                                    table.sort("last_tx", SortDirection::Desc);
                                     selection.clear();
                                 },
                             }
@@ -410,7 +391,7 @@ pub fn Addresses() -> Element {
                                                             title: "Transaction indexing stopped on the mempool rate limit. Sync again to resume from where it stopped.",
                                                             role: "img",
                                                             aria_label: "Transaction indexing incomplete",
-                                                            {icon(ICON_WARNING)}
+                                                            Icon { name: IconName::Warning, size: 20 }
                                                         }
                                                     }
                                                     button {
@@ -431,7 +412,7 @@ pub fn Addresses() -> Element {
                                                         if sync_state.loading {
                                                             "…"
                                                         } else {
-                                                            {icon(ICON_SYNC)}
+                                                            Icon { name: IconName::Sync, size: 20 }
                                                         }
                                                     }
                                                     button {
@@ -445,11 +426,11 @@ pub fn Addresses() -> Element {
                                                                 addresses_to_remove,
                                                                 overview,
                                                                 selection,
-                                                                confirm_destructive(),
+                                                                confirm_destructive,
                                                                 vec![delete_address.clone()],
                                                             );
                                                         },
-                                                        {icon(ICON_DELETE)}
+                                                        Icon { name: IconName::Delete, size: 20 }
                                                     }
                                                     button {
                                                         r#type: "button",
@@ -460,7 +441,7 @@ pub fn Addresses() -> Element {
                                                             edit_target.set(Some(row.clone()));
                                                             show_import_dialog.set(true);
                                                         },
-                                                        {icon(ICON_EDIT)}
+                                                        Icon { name: IconName::Edit, size: 20 }
                                                     }
                                                 }
                                             }
@@ -474,7 +455,7 @@ pub fn Addresses() -> Element {
                                                         onclick: move |_| {
                                                             copy_address(toast, copy_target.clone());
                                                         },
-                                                        {icon(ICON_COPY)}
+                                                        Icon { name: IconName::Copy, size: 20 }
                                                     }
                                                     span { "{short_address}" }
                                                 }
@@ -495,11 +476,11 @@ pub fn Addresses() -> Element {
                 }
             }
             TablePagination {
-                page: page(),
+                page: table.page(),
                 page_size: DEFAULT_PAGE_SIZE,
                 total: table_total,
                 on_page: move |next| {
-                    page.set(next);
+                    table.page.set(next);
                     selection.clear();
                 },
             }
@@ -520,10 +501,8 @@ pub fn Addresses() -> Element {
 
     rsx! {
         section { id: "addresses", class: "md3-screen",
-            div { class: "md3-page-header",
-                h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                    "Addresses"
-                }
+            PageHeader {
+                title: "Addresses".to_string(),
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
@@ -613,7 +592,7 @@ pub fn Addresses() -> Element {
                         edit_target.set(None);
                         overview.restart();
                     },
-                    on_updated: move |updated: AddressEntity| {
+                    on_updated: move |updated: StoredAddress| {
                         toast.success(format!("Address {} updated.", format_address(&updated.address)));
                         show_import_dialog.set(false);
                         edit_target.set(None);
@@ -655,25 +634,6 @@ pub fn Addresses() -> Element {
             }
         }
     }
-}
-
-/// Apply a header click to the sort state: clicking the active column
-/// toggles its direction; clicking another column selects it with its
-/// default direction (text reads A→Z, figures read highest/newest first).
-fn toggle_sort(
-    mut sort_by: Signal<Option<String>>,
-    mut sort_dir: Signal<SortDirection>,
-    mut page: Signal<u32>,
-    key: &str,
-    default_direction: SortDirection,
-) {
-    if sort_by().as_deref() == Some(key) {
-        sort_dir.set(sort_dir().toggled());
-    } else {
-        sort_by.set(Some(key.to_string()));
-        sort_dir.set(default_direction);
-    }
-    page.set(0);
 }
 
 /// Scope cell: the provider's brand badge, its kind, and its catalog name,
@@ -1061,25 +1021,6 @@ fn sync_summary_toast(
 }
 
 // Material icon paths (24px viewBox) for the table actions and copy cell.
-const ICON_SYNC: &str = "M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z";
-const ICON_EDIT: &str = "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z";
-const ICON_DELETE: &str =
-    "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
-const ICON_COPY: &str = "M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z";
-const ICON_WARNING: &str = "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z";
-
-/// Render one Material icon path as an inline SVG.
-fn icon(path: &str) -> Element {
-    rsx! {
-        svg {
-            view_box: "0 0 24 24",
-            width: "20",
-            height: "20",
-            fill: "currentColor",
-            path { d: "{path}" }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

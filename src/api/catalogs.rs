@@ -39,14 +39,6 @@ pub async fn list_catalog_types_api(
 }
 
 #[server]
-#[get("/api/settings/catalogs/:kind/types/:id")]
-pub async fn get_catalog_type_api(kind: String, id: i64) -> Result<CatalogType, ServerFnError> {
-    CatalogService::connect(open_database()?)
-        .get_type(parse_kind(&kind)?, id)
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
-#[server]
 #[post("/api/settings/catalogs/:kind/types")]
 pub async fn create_catalog_type_api(
     kind: String,
@@ -176,21 +168,5 @@ pub async fn catalog_import_api(
 pub async fn catalog_options_api(kind: String) -> Result<Vec<CatalogEntry>, ServerFnError> {
     CatalogService::connect(open_database()?)
         .options(parse_kind(&kind)?)
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
-#[server]
-#[get("/api/exchanges/types")]
-pub async fn list_exchange_types_api() -> Result<Vec<CatalogEntry>, ServerFnError> {
-    CatalogService::connect(open_database()?)
-        .options(CatalogKind::Exchange)
-        .map_err(|error| ServerFnError::new(error.to_string()))
-}
-
-#[server]
-#[get("/api/wallets/types")]
-pub async fn list_wallet_types_api() -> Result<Vec<CatalogEntry>, ServerFnError> {
-    CatalogService::connect(open_database()?)
-        .options(CatalogKind::Wallet)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

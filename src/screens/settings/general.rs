@@ -2,12 +2,12 @@ use dioxus::prelude::*;
 
 use crate::api::prices::ensure_currency_history_api;
 use crate::api::settings::{
-    get_exchange_settings_api, save_confirm_destructive_actions_api, save_date_range_support_api,
-    save_default_fiat_currency_api, save_navigation_position_api, save_theme_api,
+    save_confirm_destructive_actions_api, save_default_fiat_currency_api,
+    save_navigation_position_api, save_show_date_range_support_api, save_theme_api,
 };
 use crate::components::{
     use_fiat_currency, use_interface_settings, use_toast, Checkbox, FiatCurrency,
-    InterfaceSettingsContext, Toast, ToastKind,
+    InterfaceSettingsContext, PageHeader, Toast, ToastKind,
 };
 use crate::domain::interface_settings::NavigationPosition;
 use crate::domain::price::{CurrencyHistorySummary, FIAT_CURRENCIES, USD_SYMBOL};
@@ -26,30 +26,13 @@ pub fn SettingsGeneral() -> Element {
     let interface_settings = use_interface_settings();
     let support_saving = use_signal(|| false);
     let navigation_saving = use_signal(|| false);
-    let mut confirm_destructive = use_signal(|| true);
-    let mut confirm_saving = use_signal(|| false);
-
-    let _load_safety_settings = use_resource(move || async move {
-        match get_exchange_settings_api().await {
-            Ok(settings) => {
-                confirm_destructive.set(settings.confirm_destructive_actions);
-            }
-            Err(error) => {
-                toast.error(format!(
-                    "Could not load the destructive action setting: {error}"
-                ));
-            }
-        }
-    });
+    let confirm_saving = use_signal(|| false);
+    let confirm_destructive = interface_settings.get().confirm_destructive_actions;
 
     let currency_code = currency.code();
 
     rsx! {
-        div { class: "md3-page-header",
-            h2 { class: "text-headline-medium leading-headline-medium text-on-surface",
-                "Settings (General)"
-            }
-        }
+        PageHeader { title: "General".to_string() }
 
         section { class: "md3-settings-section",
             div {
@@ -170,34 +153,31 @@ pub fn SettingsGeneral() -> Element {
                     }
                 }
                 Checkbox {
-                    checked: confirm_destructive(),
+                    checked: confirm_destructive,
                     disabled: *confirm_saving.read(),
                     label: "Confirm destructive actions".to_string(),
                     on_change: move |enabled| {
-                        let previous = confirm_destructive();
-                        confirm_destructive.set(enabled);
-                        confirm_saving.set(true);
+                        let previous = interface_settings.get();
+                        let mut next = previous;
+                        next.confirm_destructive_actions = enabled;
+                        interface_settings.set(next);
+                        let mut saving = confirm_saving;
+                        saving.set(true);
                         spawn(async move {
                             match save_confirm_destructive_actions_api(enabled).await {
-                                Ok(()) => {
-                                    toast
-                                        .success(
-                                            if enabled {
-                                                "Destructive action confirmations enabled."
-                                            } else {
-                                                "Destructive action confirmations disabled."
-                                            },
-                                        );
-                                }
+                                Ok(()) => toast.success(if enabled {
+                                    "Destructive action confirmations enabled."
+                                } else {
+                                    "Destructive action confirmations disabled."
+                                }),
                                 Err(error) => {
-                                    confirm_destructive.set(previous);
-                                    toast
-                                        .error(
-                                            format!("Could not save the confirmation setting: {error}"),
-                                        );
+                                    interface_settings.set(previous);
+                                    toast.error(format!(
+                                        "Could not save the confirmation setting: {error}"
+                                    ));
                                 }
                             }
-                            confirm_saving.set(false);
+                            saving.set(false);
                         });
                     },
                 }
@@ -301,7 +281,7 @@ fn persist_date_range_support(
     saving.set(true);
 
     spawn(async move {
-        match save_date_range_support_api(enabled).await {
+        match save_show_date_range_support_api(enabled).await {
             Ok(()) => toast.success(if enabled {
                 "Date range support text shown."
             } else {

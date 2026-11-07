@@ -42,7 +42,7 @@ pub const INVERSE_ON_SURFACE: &str = "var(--md-sys-color-inverse-on-surface)";
 pub const FONT_FAMILY: &str = "var(--font-sans)";
 /// Heading face for chart titles (serif in Aurum and Sumi).
 pub const FONT_HEADING: &str = "var(--font-heading)";
-/// Numeric face for axis labels (monospace in Sumi and Ledger).
+/// Numeric face for axis labels (monospace in Sumi).
 pub const FONT_NUMERIC: &str = "var(--font-numeric)";
 
 /// Token for one `--md-sys-color-*` role at a fixed opacity, for area fills

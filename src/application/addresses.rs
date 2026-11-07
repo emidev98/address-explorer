@@ -12,9 +12,8 @@ use crate::clients::mempool::{config::MempoolConfig, Mempool};
 use crate::data::repositories::{addresses as address_repository, catalogs as catalog_repository};
 use crate::data::{Database, DatabaseError};
 use crate::domain::address::{
-    address_type_label, normalize_description, validate_bitcoin_address, AddressEntity,
-    AddressImportResult, AddressListItem, AddressOverview, AddressOverviewItem,
-    AddressOverviewQuery, AddressScope,
+    address_type_label, normalize_description, validate_bitcoin_address, AddressImportResult,
+    AddressOverview, AddressOverviewItem, AddressOverviewQuery, AddressScope, StoredAddress,
 };
 use crate::domain::table::TablePage;
 
@@ -59,16 +58,11 @@ impl AddressService {
         }
     }
 
-    /// Stored addresses with the owner catalog names resolved for display.
-    pub fn list_addresses(&self) -> Result<Vec<AddressListItem>, AddressServiceError> {
-        Ok(address_repository::list_address_items(&self.database)?)
-    }
-
     /// Addresses overview: the table page, all rows for the charts, and the
     /// KPI totals.
     ///
     /// The rows are sorted, scope-filtered, and paged in the backend
-    /// (Section 5.11 of CONTRIBUTING.md); the sort key is validated against
+    ///; the sort key is validated against
     /// the repository's allowlist before any SQL is built. The overview
     /// still returns every listed row because the KPI cards and the holdings
     /// chart derive from the full listing, while `page` is just the requested
@@ -126,12 +120,6 @@ impl AddressService {
         })
     }
 
-    /// One stored address by its base58/bech32 string.
-    pub fn get_address(&self, address: &str) -> Result<AddressEntity, AddressServiceError> {
-        address_repository::get_address(&self.database, address)?
-            .ok_or(AddressServiceError::NotFound)
-    }
-
     /// Delete stored addresses; their transactions cascade away with them.
     /// Empty selections are rejected and duplicate addresses are collapsed
     /// before the atomic batch delete.
@@ -148,14 +136,6 @@ impl AddressService {
             &self.database,
             &addresses,
         )?)
-    }
-
-    /// Delete one stored address. Kept as the single-row wrapper of
-    /// [`Self::delete_addresses`].
-    pub fn delete_address(&self, address: &str) -> Result<(), AddressServiceError> {
-        let addresses = [address.to_string()];
-        self.delete_addresses(&addresses)?;
-        Ok(())
     }
 
     /// Import an address and index its transaction history.
@@ -216,7 +196,7 @@ impl AddressService {
         description: Option<&str>,
         exchange_id: Option<i64>,
         wallet_id: Option<i64>,
-    ) -> Result<AddressEntity, AddressServiceError> {
+    ) -> Result<StoredAddress, AddressServiceError> {
         let address = validate_bitcoin_address(address).map_err(AddressServiceError::Validation)?;
         let description =
             normalize_description(description).map_err(AddressServiceError::Validation)?;
@@ -248,7 +228,7 @@ impl AddressService {
         description: Option<&str>,
         exchange_id: Option<i64>,
         wallet_id: Option<i64>,
-    ) -> Result<AddressEntity, AddressServiceError> {
+    ) -> Result<StoredAddress, AddressServiceError> {
         let address = validate_bitcoin_address(address).map_err(AddressServiceError::Validation)?;
         let description =
             normalize_description(description).map_err(AddressServiceError::Validation)?;
@@ -303,8 +283,8 @@ fn overview_item(row: &address_repository::AddressOverviewRow) -> AddressOvervie
 
 /// Map the mempool wire model into the domain entity. This is the only place
 /// where the external address schema crosses into the application.
-fn entity_from_mempool(value: MempoolAddress) -> AddressEntity {
-    AddressEntity {
+fn entity_from_mempool(value: MempoolAddress) -> StoredAddress {
+    StoredAddress {
         address: value.address,
         description: None,
         exchange_id: None,
@@ -370,10 +350,10 @@ mod tests {
 
     #[test]
     fn overview_item_maps_the_repository_row() {
-        let mut entity = AddressEntity {
+        let mut entity = StoredAddress {
             address: "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq".to_string(),
             description: Some("Savings".to_string()),
-            ..AddressEntity::default()
+            ..StoredAddress::default()
         };
         entity.chain_funded_txo_sum = 150_000;
         entity.chain_spent_txo_sum = 50_000;
@@ -431,10 +411,10 @@ mod tests {
 
     #[test]
     fn overview_item_uses_the_zeroed_repository_balance_for_exchanges() {
-        let mut entity = AddressEntity {
+        let mut entity = StoredAddress {
             address: "bc1qexchange".to_string(),
             exchange_id: Some(1),
-            ..AddressEntity::default()
+            ..StoredAddress::default()
         };
         entity.chain_funded_txo_sum = 150_000;
         entity.chain_spent_txo_sum = 50_000;
@@ -464,10 +444,10 @@ mod tests {
         for index in 0..15 {
             address_repository::insert_address(
                 &database,
-                &AddressEntity {
+                &StoredAddress {
                     address: format!("bc1qpage{index:02}"),
                     chain_funded_txo_sum: index,
-                    ..AddressEntity::default()
+                    ..StoredAddress::default()
                 },
             )
             .unwrap();

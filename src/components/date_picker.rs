@@ -9,13 +9,15 @@
 
 use dioxus::prelude::*;
 
+use super::icon::{Icon, IconName};
+
 use super::interface_settings::use_interface_settings;
 use crate::domain::calendar::{
     clamp_day, first_selectable_in_month, full_date_label, month_grid, month_has_selectable,
     month_label, month_length, shift_month, shift_year, year_options, CalendarDay, MONTH_NAMES,
     WEEKDAYS,
 };
-use crate::domain::civil_time::days_from_civil;
+use crate::domain::civil_time::{days_from_civil, now_epoch_seconds};
 use crate::domain::date_presets::{RangePreset, SingleDatePreset};
 use crate::domain::date_selection::{
     DateBounds, DateSelection, DateSelectionDraft, DateSelectionError, DateSelectionMode, IsoDate,
@@ -638,14 +640,7 @@ fn initial_view_focus(
 
 /// Today's UTC civil date from the runtime clock.
 pub(crate) fn current_utc_date() -> IsoDate {
-    #[cfg(target_arch = "wasm32")]
-    let epoch = (js_sys::Date::now() / 1_000.0) as i64;
-    #[cfg(not(target_arch = "wasm32"))]
-    let epoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0);
-    IsoDate::from_epoch(epoch)
+    IsoDate::from_epoch(now_epoch_seconds())
 }
 
 /// Reusable Material 3 date field.
@@ -995,7 +990,7 @@ pub fn DatePicker(
                         onclick: move |_| {
                             clear_state.clear_all(mode, bounds, on_change, &id_for_clear);
                         },
-                        {icon(ICON_CLOSE)}
+                        Icon { name: IconName::Close, size: 20 }
                     }
                 }
                 button {
@@ -1009,7 +1004,7 @@ pub fn DatePicker(
                     onclick: move |_| {
                         toggle_state.open_popup(&value_for_toggle, mode, bounds, &id_for_toggle);
                     },
-                    {icon(ICON_CALENDAR)}
+                    Icon { name: IconName::Calendar, size: 20 }
                 }
             }
             if let Some(error) = error_text {
@@ -1076,7 +1071,7 @@ pub fn DatePicker(
                             aria_label: "Previous month",
                             disabled: !previous_enabled,
                             onclick: move |_| prev_state.step_month(-1, bounds),
-                            {icon(ICON_CHEVRON_LEFT)}
+                            Icon { name: IconName::ChevronLeft, size: 20 }
                         }
                         div { class: "md3-date-picker-heading",
                             button {
@@ -1089,7 +1084,7 @@ pub fn DatePicker(
                                     month_menu_state.toggle_menu(CalendarMenu::Month);
                                 },
                                 "{month_label_text}"
-                                {icon(ICON_DROPDOWN)}
+                                Icon { name: IconName::Dropdown, size: 20 }
                             }
                             button {
                                 r#type: "button",
@@ -1101,7 +1096,7 @@ pub fn DatePicker(
                                     year_menu_state.toggle_menu(CalendarMenu::Year);
                                 },
                                 "{view_year}"
-                                {icon(ICON_DROPDOWN)}
+                                Icon { name: IconName::Dropdown, size: 20 }
                             }
                         }
                         button {
@@ -1110,7 +1105,7 @@ pub fn DatePicker(
                             aria_label: "Next month",
                             disabled: !next_enabled,
                             onclick: move |_| next_state.step_month(1, bounds),
-                            {icon(ICON_CHEVRON_RIGHT)}
+                            Icon { name: IconName::ChevronRight, size: 20 }
                         }
                     }
 
@@ -1135,7 +1130,7 @@ pub fn DatePicker(
                                         class: "md3-icon-button md3-date-picker-range-clear",
                                         aria_label: "Clear start date",
                                         onclick: move |_| state.clear_from(value, mode),
-                                        {icon(ICON_CLOSE)}
+                                        Icon { name: IconName::Close, size: 20 }
                                     }
                                 }
                             }
@@ -1148,7 +1143,7 @@ pub fn DatePicker(
                                         class: "md3-icon-button md3-date-picker-range-clear",
                                         aria_label: "Clear end date",
                                         onclick: move |_| state.clear_to(value, mode),
-                                        {icon(ICON_CLOSE)}
+                                        Icon { name: IconName::Close, size: 20 }
                                     }
                                 }
                             }
@@ -1785,24 +1780,6 @@ fn selection_announcement(draft: &DateSelectionDraft, mode: DateSelectionMode) -
 
 // Material icon paths (24px viewBox): calendar_month, chevron_left,
 // chevron_right, close, arrow_drop_down.
-const ICON_CALENDAR: &str = "M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z";
-const ICON_CHEVRON_LEFT: &str = "M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z";
-const ICON_CHEVRON_RIGHT: &str = "M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z";
-const ICON_CLOSE: &str = "M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.3 19.71 2.89 18.3 9.17 12 2.89 5.71 4.3 4.29l6.29 6.3 6.3-6.3z";
-const ICON_DROPDOWN: &str = "M7 10l5 5 5-5z";
-
-/// Render one Material icon path as an inline SVG.
-fn icon(path: &str) -> Element {
-    rsx! {
-        svg {
-            view_box: "0 0 24 24",
-            width: "20",
-            height: "20",
-            fill: "currentColor",
-            path { d: "{path}" }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

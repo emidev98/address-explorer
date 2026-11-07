@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use super::date_picker::current_utc_date;
-use super::{use_fiat_currency, DatePicker};
+use super::{use_fiat_currency, DatePicker, Modal};
 use crate::api::prices::{conversion_currencies_api, sync_prices_api};
 use crate::domain::civil_time::format_date;
 use crate::domain::date_selection::{DateBounds, DateSelection, DateSelectionMode, IsoDate};
@@ -66,7 +66,6 @@ pub fn SyncPricesDialog(
     };
     let description = sync_description(selected(), effective_granularity);
 
-    let close = move |_| on_close.call(());
     let sync = move |_| {
         if *loading.read() {
             return;
@@ -114,28 +113,11 @@ pub fn SyncPricesDialog(
     let displayed_selection = selection_or_default(selection(), bounds);
 
     rsx! {
-        div {
-            class: "md3-dialog-scrim",
-            role: "presentation",
-            onclick: close,
-            onkeydown: move |event| {
-                if event.key() == Key::Escape {
-                    on_close.call(());
-                }
-            },
-            div {
-                class: "md3-dialog",
-                role: "dialog",
-                aria_modal: "true",
-                aria_labelledby: "sync-prices-title",
-                onclick: move |event| event.stop_propagation(),
-                h2 {
-                    id: "sync-prices-title",
-                    class: "text-headline-medium leading-headline-medium text-on-surface",
-                    "Sync Prices"
-                }
-
-                p { class: "text-body-medium text-on-surface-variant", "{description}" }
+        Modal {
+            title: "Sync Prices".to_string(),
+            title_id: "sync-prices-title".to_string(),
+            on_close: move |_| on_close.call(()),
+            p { class: "text-body-medium text-on-surface-variant", "{description}" }
 
                 label {
                     class: "text-body-medium text-on-surface-variant",
@@ -248,7 +230,7 @@ pub fn SyncPricesDialog(
                     button {
                         r#type: "button",
                         class: "md3-button-text",
-                        onclick: close,
+                        onclick: move |_| on_close.call(()),
                         disabled: *loading.read(),
                         "Close"
                     }
@@ -263,7 +245,6 @@ pub fn SyncPricesDialog(
                             "Sync prices"
                         }
                     }
-                }
             }
         }
     }
@@ -355,8 +336,13 @@ fn sync_status(summary: &PriceSyncSummary) -> String {
     }
     if summary.unavailable_days > 0 {
         message.push_str(&format!(
-            " {} day(s) have no available daily price.",
-            summary.unavailable_days
+            " {} {} have no available daily price.",
+            summary.unavailable_days,
+            if summary.unavailable_days == 1 {
+                "day"
+            } else {
+                "days"
+            }
         ));
     }
     if let Some(conversion) = &summary.conversion {

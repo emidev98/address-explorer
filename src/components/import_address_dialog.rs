@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::components::{use_toast, CatalogSelect, Toast};
+use crate::components::{use_toast, CatalogSelect, Modal, Toast};
 use crate::domain::address::{
-    AddressEntity, AddressImportResult, AddressSaveOutcome, AddressScope,
+    AddressImportResult, AddressSaveOutcome, AddressScope, StoredAddress,
 };
 use crate::domain::catalog::CatalogKind;
 
@@ -72,7 +72,7 @@ pub fn ImportAddressDialog(
     clipboard_text: Signal<Option<String>>,
     on_close: EventHandler<()>,
     on_imported: EventHandler<AddressImportResult>,
-    #[props(default)] on_updated: EventHandler<AddressEntity>,
+    #[props(default)] on_updated: EventHandler<StoredAddress>,
     #[props(default)] mode: ImportAddressDialogMode,
 ) -> Element {
     let edit = match &mode {
@@ -118,7 +118,6 @@ pub fn ImportAddressDialog(
         address.set(clipboard_address);
     });
 
-    let close = move |_| on_close.call(());
     let submit = move |_| {
         let mut toast = toast;
         let current = address().trim().to_string();
@@ -169,27 +168,11 @@ pub fn ImportAddressDialog(
     };
 
     rsx! {
-        div {
-            class: "md3-dialog-scrim",
-            role: "presentation",
-            onclick: close,
-            onkeydown: move |event| {
-                if event.key() == Key::Escape {
-                    on_close.call(());
-                }
-            },
-            div {
-                class: "md3-dialog",
-                role: "dialog",
-                aria_modal: "true",
-                aria_labelledby: "import-address-title",
-                onclick: move |event| event.stop_propagation(),
-                h2 {
-                    id: "import-address-title",
-                    class: "text-headline-medium leading-headline-medium text-on-surface",
-                    "{title}"
-                }
-                p { class: "text-body-medium text-on-surface-variant", "{guidance}" }
+        Modal {
+            title,
+            title_id: "import-address-title".to_string(),
+            on_close: move |_| on_close.call(()),
+            p { class: "text-body-medium text-on-surface-variant", "{guidance}" }
 
                 label {
                     class: "text-body-medium text-on-surface-variant",
@@ -291,7 +274,7 @@ pub fn ImportAddressDialog(
                     button {
                         r#type: "button",
                         class: "md3-button-text",
-                        onclick: close,
+                        onclick: move |_| on_close.call(()),
                         disabled: *loading.read(),
                         "Cancel"
                     }
@@ -312,7 +295,6 @@ pub fn ImportAddressDialog(
                             "Import and index"
                         }
                     }
-                }
             }
         }
     }
@@ -369,7 +351,7 @@ fn update_address(
     draft: ImportDraft,
     mut loading: Signal<bool>,
     mut toast: Toast,
-    on_updated: EventHandler<AddressEntity>,
+    on_updated: EventHandler<StoredAddress>,
     address_value: String,
 ) {
     if *loading.read() {

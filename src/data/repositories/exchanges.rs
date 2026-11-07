@@ -10,6 +10,7 @@ use rusqlite::{
 
 use super::placeholders;
 use crate::data::{Database, DatabaseError};
+use crate::domain::civil_time;
 use crate::domain::exchange::matching::{OnChainInput, OnChainOutput, OnChainTransaction};
 use crate::domain::exchange::{
     ExchangeAccount, ExchangeAccountRow, ExchangeKpiTransaction, ExchangeTransaction,
@@ -125,13 +126,6 @@ pub struct ExchangeTransactionWrite {
     pub is_intentional_duplicate: bool,
 }
 
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0)
-}
-
 /// Read one page of exchange accounts. Global KPIs are computed from
 /// [`list_kpi_transactions`] by the application service.
 pub fn list_accounts(
@@ -232,7 +226,7 @@ pub fn create_account(
     name: &str,
     provider_id: Option<i64>,
 ) -> Result<ExchangeAccount, DatabaseError> {
-    let now = unix_now();
+    let now = civil_time::now_epoch_seconds();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     transaction.execute(
@@ -255,7 +249,7 @@ pub fn update_account(
     name: &str,
     provider_id: Option<i64>,
 ) -> Result<ExchangeAccount, DatabaseError> {
-    let now = unix_now();
+    let now = civil_time::now_epoch_seconds();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let old_provider: Option<i64> = transaction
@@ -589,7 +583,7 @@ pub fn save_transaction(
     replace_id: Option<i64>,
     write: &ExchangeTransactionWrite,
 ) -> Result<ExchangeTransaction, DatabaseError> {
-    let now = unix_now();
+    let now = civil_time::now_epoch_seconds();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let provider_id: Option<i64> = transaction
@@ -722,7 +716,7 @@ pub fn delete_transactions(
         return Ok(0);
     }
 
-    let now = unix_now();
+    let now = civil_time::now_epoch_seconds();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let provider_id: Option<i64> = transaction
@@ -999,7 +993,7 @@ pub fn set_link(
     matched_tx_id: Option<&str>,
     link: Option<&OnChainLink>,
 ) -> Result<ExchangeTransaction, DatabaseError> {
-    let now = unix_now();
+    let now = civil_time::now_epoch_seconds();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let updated = transaction.execute(
@@ -1044,7 +1038,7 @@ pub fn update_match_states(
     if updates.is_empty() {
         return Ok(());
     }
-    let now = unix_now();
+    let now = civil_time::now_epoch_seconds();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let provider_id: Option<i64> = transaction
@@ -1093,14 +1087,14 @@ pub fn update_match_states(
 mod tests {
     use super::*;
     use crate::data::repositories::addresses as address_repository;
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
     use crate::domain::exchange::ExchangeTxType;
 
-    fn address(value: &str, exchange_id: Option<i64>) -> AddressEntity {
-        AddressEntity {
+    fn address(value: &str, exchange_id: Option<i64>) -> StoredAddress {
+        StoredAddress {
             address: value.to_string(),
             exchange_id,
-            ..AddressEntity::default()
+            ..StoredAddress::default()
         }
     }
 

@@ -5,12 +5,11 @@ use rusqlite::{params, params_from_iter, OptionalExtension, TransactionBehavior}
 use super::exchanges as exchange_repository;
 use super::placeholders;
 use crate::data::{Database, DatabaseError};
-use crate::domain::address::{AddressEntity, AddressListItem, AddressScopeFilter};
+use crate::domain::address::{AddressScopeFilter, StoredAddress};
 use crate::domain::table::SortDirection;
 
 /// Sortable columns of the addresses overview table: the fixed allowlist
-/// the dynamic `ORDER BY` identifier is selected from (Section 6.3 of
-/// CONTRIBUTING.md). Client sort keys never reach SQL directly. The address
+/// the dynamic `ORDER BY` identifier is selected from. Client sort keys never reach SQL directly. The address
 /// type is not sortable: it derives from the address string at the domain
 /// boundary, not from a stored column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,8 +55,7 @@ impl AddressSortColumn {
 
     /// `ORDER BY` expression of the column. Balances and counts are stored
     /// integers and transaction times epoch seconds, so ordering follows the
-    /// typed storage class, never formatted display strings (Section 5.11 of
-    /// CONTRIBUTING.md).
+    /// typed storage class, never formatted display strings.
     fn order_expression(self) -> &'static str {
         match self {
             Self::Address => "a.address",
@@ -101,7 +99,7 @@ const SPENDABLE_BALANCE_SATS: &str =
 /// exchange ledger balance for exchange-scoped addresses).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressOverviewRow {
-    pub entity: AddressEntity,
+    pub entity: StoredAddress,
     pub exchange_name: Option<String>,
     pub wallet_name: Option<String>,
     pub exchange_color: Option<String>,
@@ -135,7 +133,7 @@ pub fn list_overview_rows(
         .map(|(column, direction)| (column.order_expression(), direction.as_sql()))
         .unwrap_or(("spendable_balance_sats", "DESC"));
     // The secondary key keeps rows with equal sort values in a deterministic
-    // order (Section 5.11 of CONTRIBUTING.md).
+    // order.
     let sql = format!(
         "SELECT a.address,
                 a.chain_funded_txo_count, a.chain_funded_txo_sum, a.chain_spent_txo_count,
@@ -251,7 +249,7 @@ fn exchange_ledger_operation_count(
 /// Update the description and owner classification of a stored address.
 /// Both owner ids are written as given (either may clear the previous
 /// classification); the either-or invariant stays enforced by the migration
-/// 0006 triggers. Returns whether the address exists.
+/// 0010_addresses.sql triggers. Returns whether the address exists.
 pub fn update_address_details(
     database: &Database,
     address: &str,
@@ -329,13 +327,13 @@ pub fn delete_addresses(database: &Database, addresses: &[String]) -> Result<usi
 /// entirely (so switching from wallet to exchange clears the wallet), and
 /// an incoming row without either id leaves the stored owner untouched.
 /// This also matches the either-or invariant enforced by the migration
-/// 0006 triggers.
+/// 0010_addresses.sql triggers.
 ///
 /// `tx_index_rate_limited` is deliberately not written here: new rows take
 /// the schema default, and a stats refresh must never clear the marker of
 /// an interrupted indexing walk. Only
 /// [`set_tx_index_rate_limited`] changes it.
-pub fn insert_address(database: &Database, value: &AddressEntity) -> Result<(), DatabaseError> {
+pub fn insert_address(database: &Database, value: &StoredAddress) -> Result<(), DatabaseError> {
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let previous: Option<Option<i64>> = transaction
@@ -418,8 +416,8 @@ fn entity_from_row(
     entity_first: usize,
     description_first: usize,
     row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<AddressEntity> {
-    Ok(AddressEntity {
+) -> rusqlite::Result<StoredAddress> {
+    Ok(StoredAddress {
         address: row.get(entity_first)?,
         description: row.get(description_first)?,
         exchange_id: row.get(description_first + 1)?,
@@ -441,7 +439,7 @@ fn entity_from_row(
 pub fn get_address(
     database: &Database,
     address: &str,
-) -> Result<Option<AddressEntity>, DatabaseError> {
+) -> Result<Option<StoredAddress>, DatabaseError> {
     let connection = database.connection()?;
     connection
         .query_row(
@@ -457,39 +455,6 @@ pub fn get_address(
         )
         .optional()
         .map_err(Into::into)
-}
-
-/// Stored addresses with the owner catalog names resolved for display.
-///
-/// The descriptions and catalog ids come through `entity_from_row`, while
-/// the joined catalog names carry the user-facing labels.
-pub fn list_address_items(database: &Database) -> Result<Vec<AddressListItem>, DatabaseError> {
-    let connection = database.connection()?;
-    let mut statement = connection.prepare(
-        "SELECT a.address,
-            a.chain_funded_txo_count, a.chain_funded_txo_sum, a.chain_spent_txo_count,
-            a.chain_spent_txo_sum, a.chain_tx_count,
-            a.mempool_funded_txo_count, a.mempool_funded_txo_sum,
-            a.mempool_spent_txo_count, a.mempool_spent_txo_sum, a.mempool_tx_count,
-            a.description, a.exchange_id, a.wallet_id, a.tx_index_rate_limited,
-            e.name, w.name
-         FROM addresses a
-         LEFT JOIN exchanges_types e ON e.id = a.exchange_id
-         LEFT JOIN wallets_types w ON w.id = a.wallet_id
-         ORDER BY a.address",
-    )?;
-    let rows = statement.query_map([], |row| {
-        Ok(AddressListItem {
-            entity: entity_from_row(0, 11, row)?,
-            exchange_name: row.get(15)?,
-            wallet_name: row.get(16)?,
-        })
-    })?;
-    let mut values = Vec::new();
-    for value in rows {
-        values.push(value.map_err(|err| DatabaseError::new(err.to_string()))?);
-    }
-    Ok(values)
 }
 
 /// Mark whether transaction indexing of the address stopped on a mempool
@@ -511,12 +476,12 @@ pub fn set_tx_index_rate_limited(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::address::AddressEntity;
+    use crate::domain::address::StoredAddress;
 
-    fn address(address: &str) -> AddressEntity {
-        AddressEntity {
+    fn address(address: &str) -> StoredAddress {
+        StoredAddress {
             address: address.to_string(),
-            ..AddressEntity::default()
+            ..StoredAddress::default()
         }
     }
 
@@ -537,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn classification_round_trips_through_insert_get_and_items() {
+    fn classification_round_trips_through_insert_and_get() {
         let database = Database::open_in_memory().unwrap();
 
         let mut exchange = address("bc1qexchange");
@@ -554,23 +519,6 @@ mod tests {
         assert_eq!(stored.description.as_deref(), Some("Binance hot wallet 3"));
         assert_eq!(stored.exchange_id, Some(1));
         assert_eq!(stored.wallet_id, None);
-
-        let items = list_address_items(&database).unwrap();
-        assert_eq!(items.len(), 2);
-
-        let exchange_item = items
-            .iter()
-            .find(|item| item.entity.address == "bc1qexchange")
-            .unwrap();
-        assert_eq!(exchange_item.exchange_name.as_deref(), Some("Binance"));
-        assert_eq!(exchange_item.wallet_name, None);
-
-        let wallet_item = items
-            .iter()
-            .find(|item| item.entity.address == "bc1qwallet")
-            .unwrap();
-        assert_eq!(wallet_item.wallet_name.as_deref(), Some("Trezor"));
-        assert_eq!(wallet_item.exchange_name, None);
     }
 
     #[test]
@@ -584,9 +532,6 @@ mod tests {
         set_tx_index_rate_limited(&database, "bc1qflagged", true).unwrap();
         let stored = get_address(&database, "bc1qflagged").unwrap().unwrap();
         assert!(stored.tx_index_rate_limited);
-
-        let items = list_address_items(&database).unwrap();
-        assert!(items[0].entity.tx_index_rate_limited);
 
         // A stats refresh must not clear the interrupted-walk marker.
         let mut stats_only = address("bc1qflagged");
