@@ -5,28 +5,23 @@
 //! `wallet`); the controller parses it before any service call. The legacy
 //! `/api/exchanges/types` and `/api/wallets/types` picker endpoints remain as
 //! thin wrappers over the same service.
-
-use dioxus::prelude::*;
-
-use crate::domain::catalog::{
-    CatalogCategory, CatalogDeleteOutcome, CatalogDeletePreview, CatalogEntry,
-    CatalogImportPreview, CatalogImportSummary, CatalogType, CatalogTypeDraft, CatalogTypePage,
-};
-use crate::domain::table::TableQuery;
-
 #[cfg(feature = "server")]
 use super::open_database;
 #[cfg(feature = "server")]
 use crate::application::catalogs::CatalogService;
 #[cfg(feature = "server")]
 use crate::domain::catalog::CatalogKind;
-
+use crate::domain::catalog::{
+    CatalogCategory, CatalogDeleteOutcome, CatalogDeletePreview, CatalogEntry,
+    CatalogImportPreview, CatalogImportSummary, CatalogType, CatalogTypeDraft, CatalogTypePage,
+};
+use crate::domain::table::TableQuery;
+use dioxus::prelude::*;
 #[cfg(feature = "server")]
 fn parse_kind(value: &str) -> Result<CatalogKind, ServerFnError> {
     CatalogKind::parse(value)
         .ok_or_else(|| ServerFnError::new(format!("Unknown catalog kind: {value}")))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/types/list")]
 pub async fn list_catalog_types_api(
@@ -37,7 +32,6 @@ pub async fn list_catalog_types_api(
         .list_types(parse_kind(&kind)?, &query)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/types")]
 pub async fn create_catalog_type_api(
@@ -48,7 +42,6 @@ pub async fn create_catalog_type_api(
         .create_type(parse_kind(&kind)?, draft)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[put("/api/settings/catalogs/:kind/types/:id")]
 pub async fn update_catalog_type_api(
@@ -60,7 +53,6 @@ pub async fn update_catalog_type_api(
         .update_type(parse_kind(&kind)?, id, draft)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/types/delete-preview")]
 pub async fn catalog_types_delete_preview_api(
@@ -71,7 +63,6 @@ pub async fn catalog_types_delete_preview_api(
         .delete_preview(parse_kind(&kind)?, &ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/types/delete")]
 pub async fn delete_catalog_types_api(
@@ -83,7 +74,6 @@ pub async fn delete_catalog_types_api(
         .delete_types(parse_kind(&kind)?, &ids, cascade)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[get("/api/settings/catalogs/:kind/categories")]
 pub async fn list_catalog_categories_api(
@@ -93,7 +83,6 @@ pub async fn list_catalog_categories_api(
         .list_categories(parse_kind(&kind)?)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/categories")]
 pub async fn create_catalog_category_api(
@@ -104,7 +93,6 @@ pub async fn create_catalog_category_api(
         .create_category(parse_kind(&kind)?, &name)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[put("/api/settings/catalogs/:kind/categories/:id")]
 pub async fn rename_catalog_category_api(
@@ -116,7 +104,6 @@ pub async fn rename_catalog_category_api(
         .rename_category(parse_kind(&kind)?, id, &name)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/categories/delete-preview")]
 pub async fn catalog_category_delete_preview_api(
@@ -127,7 +114,6 @@ pub async fn catalog_category_delete_preview_api(
         .delete_category_preview(parse_kind(&kind)?, id)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/categories/delete")]
 pub async fn delete_catalog_category_api(
@@ -139,7 +125,6 @@ pub async fn delete_catalog_category_api(
         .delete_category(parse_kind(&kind)?, id, cascade)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/import/preview")]
 pub async fn catalog_import_preview_api(
@@ -150,7 +135,6 @@ pub async fn catalog_import_preview_api(
         .preview_import(parse_kind(&kind)?, &csv_text)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/settings/catalogs/:kind/import")]
 pub async fn catalog_import_api(
@@ -161,7 +145,6 @@ pub async fn catalog_import_api(
         .import_csv(parse_kind(&kind)?, &csv_text)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Every provider option of one kind for the pickers across the app.
 #[server]
 #[get("/api/settings/catalogs/:kind/options")]

@@ -1,5 +1,3 @@
-use dioxus::prelude::*;
-
 use super::date_picker::current_utc_date;
 use super::{use_fiat_currency, DatePicker, Modal};
 use crate::api::prices::{conversion_currencies_api, sync_prices_api};
@@ -9,7 +7,7 @@ use crate::domain::price::{
     FiatCurrency, PriceSyncSummary, SyncGranularity, FIAT_CURRENCIES, PRICE_HISTORY_START,
     USD_SYMBOL,
 };
-
+use dioxus::prelude::*;
 /// Granularity choices of the dialog, finest last.
 const GRANULARITIES: [SyncGranularity; 4] = [
     SyncGranularity::Auto,
@@ -17,7 +15,6 @@ const GRANULARITIES: [SyncGranularity; 4] = [
     SyncGranularity::Hourly,
     SyncGranularity::FifteenMinutes,
 ];
-
 /// Modal dialog of the "Sync Prices" action.
 ///
 /// One form drives one unified workflow:
@@ -44,20 +41,17 @@ pub fn SyncPricesDialog(
     let first_day = IsoDate::from_epoch(PRICE_HISTORY_START);
     let today = current_utc_date();
     let bounds = DateBounds::new(Some(first_day), Some(today));
-
     let mut selected = use_signal(|| fiat.code());
     let mut granularity = use_signal(SyncGranularity::default);
     let mut selection =
         use_signal(|| DateSelection::default_in_bounds(DateSelectionMode::Range, &bounds));
     let mut loading = use_signal(|| false);
     let mut status = use_signal(|| Option::<String>::None);
-
     let currencies = use_resource(move || async move {
         conversion_currencies_api()
             .await
             .map_err(|error| error.to_string())
     });
-
     let is_usd = selected() == USD_SYMBOL;
     let effective_granularity = if is_usd {
         granularity()
@@ -65,7 +59,6 @@ pub fn SyncPricesDialog(
         SyncGranularity::Auto
     };
     let description = sync_description(selected(), effective_granularity);
-
     let sync = move |_| {
         if *loading.read() {
             return;
@@ -79,7 +72,6 @@ pub fn SyncPricesDialog(
             return;
         };
         let from_time = from_day.epoch_start();
-        // The To date includes its whole day.
         let to_time = to_day.epoch_end();
         if from_time > to_time {
             status.set(Some(
@@ -92,7 +84,6 @@ pub fn SyncPricesDialog(
         } else {
             SyncGranularity::Auto
         };
-
         loading.set(true);
         status.set(None);
         spawn(async move {
@@ -109,147 +100,130 @@ pub fn SyncPricesDialog(
             }
         });
     };
-
     let displayed_selection = selection_or_default(selection(), bounds);
-
     rsx! {
         Modal {
             title: "Sync Prices".to_string(),
-            title_id: "sync-prices-title".to_string(),
+            title_id: "sync-prices-title"
+                                                        .to_string(),
             on_close: move |_| on_close.call(()),
             p { class: "text-body-medium text-on-surface-variant", "{description}" }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "sync-prices-currency",
-                    "Currency"
-                }
-                div { class: "md3-text-field",
-                    select {
-                        id: "sync-prices-currency",
-                        class: "md3-input",
-                        disabled: *loading.read(),
-                        onchange: move |event| {
-                            let code = event.value();
-                            if code != USD_SYMBOL {
-                                granularity.set(SyncGranularity::Auto);
-                            }
-                            selected.set(code);
-                            status.set(None);
-                        },
-                        match currencies() {
-                            Some(Ok(list)) => rsx! {
-                                for currency in currency_choices(&list, &selected()) {
-                                    option {
-                                    value: "{currency.code}",
-                                    selected: selected() == currency.code,
-                                        "{currency.code} — {currency.name}"
-                                    }
-                                }
-                            },
-                            Some(Err(_)) => rsx! {
-                                // The live catalogue is unreachable (e.g. a
-                                // transient Frankfurter outage): fall back to
-                                // the built-in list so syncing stays available.
-                                for code in FIAT_CURRENCIES.iter().copied() {
-                                    option {
-                                        value: "{code}",
-                                        selected: selected() == code,
-                                        "{code}"
-                                    }
-                                }
-                            },
-                            None => rsx! {
-                                option {
-                                    value: "{selected()}",
-                                    selected: true,
-                                    "{selected()}"
-                                }
-                                option { value: "", disabled: true, "Loading currencies..." }
-                            },
-                        }
-                    }
-                }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "sync-prices-granularity",
-                    "Granularity"
-                }
-                div { class: "md3-text-field",
-                    select {
-                        id: "sync-prices-granularity",
-                        class: "md3-input",
-                        disabled: *loading.read() || !is_usd,
-                        onchange: move |event| {
-                            if let Some(value) = SyncGranularity::from_key(&event.value()) {
-                                granularity.set(value);
-                                status.set(None);
-                            }
-                        },
-                        for option in GRANULARITIES {
-                            option {
-                                value: "{option.key()}",
-                                selected: effective_granularity == option,
-                                "{option.label()}"
-                            }
-                        }
-                    }
-                }
-                if !is_usd {
-                    p { class: "text-body-small text-on-surface-variant",
-                        "Auto follows the timestamps of the stored USD prices: Frankfurter publishes daily rates, so every close of a day is converted with that day's rate."
-                    }
-                }
-
-                DatePicker {
-                    id: "sync-prices-range".to_string(),
-                    label: "Date range".to_string(),
-                    value: displayed_selection,
-                    min_date: Some(first_day),
-                    max_date: Some(today),
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "sync-prices-currency",
+                "Currency"
+            }
+            div { class: "md3-text-field",
+                select {
+                    id: "sync-prices-currency",
+                    class: "md3-input",
                     disabled: *loading.read(),
-                    popup_above: true,
-                    compact: true,
-                    on_change: move |value: DateSelection| {
-                        selection.set(value);
+                    onchange: move |event| {
+                        let code = event.value();
+                        if code != USD_SYMBOL {
+                            granularity.set(SyncGranularity::Auto);
+                        }
+                        selected.set(code);
                         status.set(None);
                     },
-                }
-
-                if let Some(message) = status() {
-                    p {
-                        class: "text-body-small text-on-surface-variant",
-                        role: "status",
-                        aria_live: "polite",
-                        "{message}"
+                    match currencies() {
+                        Some(Ok(list)) => rsx! {
+                            for currency in currency_choices(&list, &selected()) {
+                                option { value: "{currency.code}", selected: selected() == currency.code,
+                                    "{currency.code} — {currency.name}"
+                                }
+                            }
+                        },
+                        Some(Err(_)) => rsx! {
+                            for code in FIAT_CURRENCIES.iter().copied() {
+                                option { value: "{code}", selected: selected() == code, "{code}" }
+                            }
+                        },
+                        None => rsx! {
+                            option { value: "{selected()}", selected: true, "{selected()}" }
+                            option { value: "", disabled: true, "Loading currencies..." }
+                        },
                     }
                 }
-
-                div { class: "md3-dialog-actions",
-                    button {
-                        r#type: "button",
-                        class: "md3-button-text",
-                        onclick: move |_| on_close.call(()),
-                        disabled: *loading.read(),
-                        "Close"
-                    }
-                    button {
-                        r#type: "button",
-                        class: "md3-button-filled",
-                        onclick: sync,
-                        disabled: *loading.read(),
-                        if *loading.read() {
-                            "Syncing..."
-                        } else {
-                            "Sync prices"
+            }
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "sync-prices-granularity",
+                "Granularity"
+            }
+            div { class: "md3-text-field",
+                select {
+                    id: "sync-prices-granularity",
+                    class: "md3-input",
+                    disabled: * loading.read() || !
+                                                                                        is_usd,
+                    onchange: move |event| {
+                        if let Some(value) = SyncGranularity::from_key(&event.value()) {
+                            granularity.set(value);
+                            status.set(None);
+                        }
+                    },
+                    for option in GRANULARITIES {
+                        option {
+                            value: "{option.key()}",
+                            selected: effective_granularity == option,
+                            "{option.label()}"
                         }
                     }
+                }
+            }
+            if !is_usd {
+                p { class: "text-body-small text-on-surface-variant",
+                    "Auto follows the timestamps of the stored USD prices: Frankfurter publishes daily rates, so every close of a day is converted with that day's rate."
+                }
+            }
+            DatePicker {
+                id: "sync-prices-range".to_string(),
+                label: "Date range"
+                                                                        .to_string(),
+                value: displayed_selection,
+                min_date: Some(first_day),
+                max_date: Some(today),
+                disabled: *loading.read(),
+                popup_above: true,
+                compact: true,
+                on_change: move |value: DateSelection| {
+                    selection.set(value);
+                    status.set(None);
+                },
+            }
+            if let Some(message) = status() {
+                p {
+                    class: "text-body-small text-on-surface-variant",
+                    role: "status",
+                    aria_live: "polite",
+                    "{message}"
+                }
+            }
+            div { class: "md3-dialog-actions",
+                button {
+                    r#type: "button",
+                    class: "md3-button-text",
+                    onclick: move |_| on_close.call(()),
+                    disabled: *
+                                                                                        loading.read(),
+                    "Close"
+                }
+                button {
+                    r#type: "button",
+                    class: "md3-button-filled",
+                    onclick: sync,
+                    disabled: *loading.read(),
+                    if *loading.read() {
+                        "Syncing..."
+                    } else {
+                        "Sync prices"
+                    }
+                }
             }
         }
     }
 }
-
 /// Use the configured selectable span when the dialog has no explicit range.
 fn selection_or_default(selection: DateSelection, bounds: DateBounds) -> DateSelection {
     if selection.is_empty() {
@@ -258,7 +232,6 @@ fn selection_or_default(selection: DateSelection, bounds: DateBounds) -> DateSel
         selection
     }
 }
-
 /// USD first, then every other catalogue currency sorted by code.
 fn currency_choices(list: &[FiatCurrency], selected: &str) -> Vec<FiatCurrency> {
     let mut choices = Vec::with_capacity(list.len() + 1);
@@ -274,7 +247,6 @@ fn currency_choices(list: &[FiatCurrency], selected: &str) -> Vec<FiatCurrency> 
             .filter(|currency| currency.code != USD_SYMBOL)
             .cloned(),
     );
-    // A stored preference outside the catalogue must still be selectable.
     if !choices.iter().any(|currency| currency.code == selected) {
         choices.push(FiatCurrency {
             code: selected.to_string(),
@@ -283,7 +255,6 @@ fn currency_choices(list: &[FiatCurrency], selected: &str) -> Vec<FiatCurrency> 
     }
     choices
 }
-
 /// Text under the title: what the current selection will do.
 fn sync_description(symbol: String, granularity: SyncGranularity) -> String {
     let resolution = match granularity {
@@ -295,15 +266,14 @@ fn sync_description(symbol: String, granularity: SyncGranularity) -> String {
     if symbol == USD_SYMBOL {
         format!(
             "Fetch the BTC/USD history of the selected range with {resolution}. Daily closes come from Coin Metrics and start in {}; finer closes exist only for the most recent days of the free tier.",
-            format_date(PRICE_HISTORY_START)
+            format_date(PRICE_HISTORY_START),
         )
     } else {
         format!(
-            "Refresh the BTC/USD history of the selected range, then convert every stored USD close time into {symbol}. Frankfurter publishes daily rates, so every close of a day uses that day's rate."
+            "Refresh the BTC/USD history of the selected range, then convert every stored USD close time into {symbol}. Frankfurter publishes daily rates, so every close of a day uses that day's rate.",
         )
     }
 }
-
 /// Status line of a successful run.
 fn sync_status(summary: &PriceSyncSummary) -> String {
     let converted = summary
@@ -320,7 +290,7 @@ fn sync_status(summary: &PriceSyncSummary) -> String {
             summary.daily_fetched,
             format_date(summary.from_time),
             format_date(summary.to_time),
-            summary.daily_stored
+            summary.daily_stored,
         )
     };
     if let (Some(from_time), Some(to_time)) = (summary.granular_from_time, summary.granular_to_time)
@@ -331,7 +301,7 @@ fn sync_status(summary: &PriceSyncSummary) -> String {
             summary.granularity.resolution_label(),
             format_date(from_time),
             format_date(to_time),
-            summary.granular_stored
+            summary.granular_stored,
         ));
     }
     if summary.unavailable_days > 0 {
@@ -342,13 +312,13 @@ fn sync_status(summary: &PriceSyncSummary) -> String {
                 "day"
             } else {
                 "days"
-            }
+            },
         ));
     }
     if let Some(conversion) = &summary.conversion {
         message.push_str(&format!(
             " {}: {} rows converted, {} skipped (no FX rate for their day).",
-            conversion.symbol, conversion.stored, conversion.skipped
+            conversion.symbol, conversion.stored, conversion.skipped,
         ));
     }
     for warning in &summary.warnings {

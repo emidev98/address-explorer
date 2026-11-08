@@ -1,9 +1,4 @@
 //! Exchanges list screen: provider KPIs, ledger accounts, and CSV import.
-
-use std::collections::BTreeMap;
-
-use dioxus::prelude::*;
-
 use crate::api::exchanges::{
     delete_exchange_accounts_api, list_exchange_accounts_api, reconcile_exchange_accounts_api,
 };
@@ -20,7 +15,8 @@ use crate::domain::exchange::{
     ExchangeReconcileBatchSummary, ExchangeReconcileFailure, ImportDataSummary,
 };
 use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
-
+use dioxus::prelude::*;
+use std::collections::BTreeMap;
 #[component]
 pub fn Exchanges() -> Element {
     let mut toast = use_toast();
@@ -34,10 +30,7 @@ pub fn Exchanges() -> Element {
     let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
     let mut reconciling = use_signal(|| false);
     let reconciling_ids = use_signal(BTreeMap::<i64, bool>::new);
-
     let mut list = use_resource(move || {
-        // The server values the KPIs in the saved default currency; reading
-        // the shared signal refetches the cards when the setting changes.
         let _currency = fiat.code();
         async move {
             list_exchange_accounts_api(ExchangeAccountTableQuery {
@@ -47,9 +40,6 @@ pub fn Exchanges() -> Element {
             .map_err(|error| error.to_string())
         }
     });
-
-    // A deletion can empty the current page while earlier pages still have
-    // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = list() {
             if data.page.items.is_empty() && table.page() > 0 {
@@ -58,7 +48,6 @@ pub fn Exchanges() -> Element {
             }
         }
     });
-
     let state = list();
     let loading = state.is_none();
     let kpis = match &state {
@@ -74,19 +63,26 @@ pub fn Exchanges() -> Element {
         .as_ref()
         .and_then(|result| result.as_ref().ok())
         .and_then(|data| data.conversion_warning.clone());
-
     let content = match &state {
-        None => rsx! {
-            p { class: "text-body-medium text-on-surface-variant", "Loading exchanges..." }
-        },
-        Some(Err(error)) => rsx! {
-            p { class: "text-body-medium text-on-surface-variant", "Error loading exchanges: {error}" }
-        },
-        Some(Ok(data)) if data.page.items.is_empty() => rsx! {
-            p { class: "text-body-medium text-on-surface-variant",
-                "No exchange accounts stored yet. Use Import Data to import a CSV export."
+        None => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant", "Loading exchanges..." }
             }
-        },
+        }
+        Some(Err(error)) => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "Error loading exchanges: {error}"
+                }
+            }
+        }
+        Some(Ok(data)) if data.page.items.is_empty() => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "No exchange accounts stored yet. Use Import Data to import a CSV export."
+                }
+            }
+        }
         Some(Ok(data)) => {
             let total = data.page.total;
             let items = data.page.items.clone();
@@ -107,7 +103,7 @@ pub fn Exchanges() -> Element {
                         "exchange"
                     } else {
                         "exchanges"
-                    }
+                    },
                 )
             };
             let reconcile_action_label = if selected_count == 0 {
@@ -119,7 +115,7 @@ pub fn Exchanges() -> Element {
                         "exchange"
                     } else {
                         "exchanges"
-                    }
+                    },
                 )
             };
             rsx! {
@@ -129,9 +125,10 @@ pub fn Exchanges() -> Element {
                             tr {
                                 TableSelectionHeader {
                                     all_selected,
-                                    indeterminate: selection.some_selected(&page_ids)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    && !all_selected,
-                                    select_all_label: "Select all exchanges on this page".to_string(),
+                                    indeterminate: selection.some_selected(& page_ids) && !
+                                                                                                                                                                all_selected,
+                                    select_all_label: "Select all exchanges on this page"
+                                                                                                                                                                .to_string(),
                                     disabled: page_ids.is_empty(),
                                     on_toggle_all: move |checked| {
                                         selection.set_many(&selectable_ids, checked);
@@ -140,9 +137,8 @@ pub fn Exchanges() -> Element {
                                         button {
                                             r#type: "button",
                                             class: "md3-icon-button",
-                                            disabled: selection.is_empty()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            || *reconciling.read()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            || any_row_reconciling,
+                                            disabled: selection.is_empty() || * reconciling
+                                                                                                                                                                                                .read() || any_row_reconciling,
                                             title: "{reconcile_action_label}",
                                             aria_label: "{reconcile_action_label}",
                                             onclick: move |_| {
@@ -154,8 +150,7 @@ pub fn Exchanges() -> Element {
                                                 spawn(async move {
                                                     match reconcile_exchange_accounts_api(ids).await {
                                                         Ok(summary) => {
-                                                            let (kind, message) =
-                                                                reconcile_batch_summary_toast(&summary);
+                                                            let (kind, message) = reconcile_batch_summary_toast(&summary);
                                                             toast.show(kind, message);
                                                             if summary.failed.is_empty() {
                                                                 selection.clear();
@@ -172,15 +167,17 @@ pub fn Exchanges() -> Element {
                                             if *reconciling.read() {
                                                 "…"
                                             } else {
-                                                Icon { name: IconName::Sync, size: 20 }
+                                                Icon {
+                                                    name: IconName::Sync,
+                                                    size: 20,
+                                                }
                                             }
                                         }
                                         button {
                                             r#type: "button",
                                             class: "md3-icon-button md3-icon-button-danger",
-                                            disabled: selection.is_empty()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            || *reconciling.read()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            || any_row_reconciling,
+                                            disabled: selection.is_empty() || * reconciling.read() ||
+                                                                                                                                                                                                any_row_reconciling,
                                             title: "{delete_action_label}",
                                             aria_label: "{delete_action_label}",
                                             onclick: move |_| {
@@ -199,13 +196,17 @@ pub fn Exchanges() -> Element {
                                                     remove_exchanges(toast, list, selection, accounts);
                                                 }
                                             },
-                                            Icon { name: IconName::Delete, size: 20 }
+                                            Icon {
+                                                name: IconName::Delete,
+                                                size: 20,
+                                            }
                                         }
                                     }
                                 }
                                 SortableHeader {
                                     label: "Account".to_string(),
-                                    active_direction: table.direction_for("name"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("name"),
                                     on_sort: move |_| {
                                         table.sort("name", SortDirection::Asc);
                                         selection.clear();
@@ -214,7 +215,8 @@ pub fn Exchanges() -> Element {
                                 th { "Provider" }
                                 SortableHeader {
                                     label: "Txs".to_string(),
-                                    active_direction: table.direction_for("txs"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("txs"),
                                     on_sort: move |_| {
                                         table.sort("txs", SortDirection::Desc);
                                         selection.clear();
@@ -222,7 +224,8 @@ pub fn Exchanges() -> Element {
                                 }
                                 SortableHeader {
                                     label: "On-chain Txs".to_string(),
-                                    active_direction: table.direction_for("onchain"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("onchain"),
                                     on_sort: move |_| {
                                         table.sort("onchain", SortDirection::Desc);
                                         selection.clear();
@@ -230,7 +233,8 @@ pub fn Exchanges() -> Element {
                                 }
                                 SortableHeader {
                                     label: "First Transaction".to_string(),
-                                    active_direction: table.direction_for("first_tx"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("first_tx"),
                                     on_sort: move |_| {
                                         table.sort("first_tx", SortDirection::Desc);
                                         selection.clear();
@@ -238,7 +242,8 @@ pub fn Exchanges() -> Element {
                                 }
                                 SortableHeader {
                                     label: "Last Transaction".to_string(),
-                                    active_direction: table.direction_for("last_tx"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("last_tx"),
                                     on_sort: move |_| {
                                         table.sort("last_tx", SortDirection::Desc);
                                         selection.clear();
@@ -246,7 +251,8 @@ pub fn Exchanges() -> Element {
                                 }
                                 SortableHeader {
                                     label: "Last Modification".to_string(),
-                                    active_direction: table.direction_for("last_modified"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("last_modified"),
                                     on_sort: move |_| {
                                         table.sort("last_modified", SortDirection::Desc);
                                         selection.clear();
@@ -300,7 +306,8 @@ pub fn Exchanges() -> Element {
                                                         class: "md3-icon-button",
                                                         title: if row_reconciling { "Reconciling..." } else { "Run reconciliation" },
                                                         aria_label: if row_reconciling { "Reconciling exchange" } else { "Run reconciliation for this exchange" },
-                                                        disabled: row_reconciling || *reconciling.read(),
+                                                        disabled: row_reconciling || *
+                                                                                                                                                                                                                                                reconciling.read(),
                                                         onclick: move |event| {
                                                             event.stop_propagation();
                                                             start_row_reconcile(reconciling_ids, toast, list, reconcile_id);
@@ -408,11 +415,9 @@ pub fn Exchanges() -> Element {
             }
         }
     };
-
     rsx! {
         section { id: "exchanges", class: "md3-screen",
-            PageHeader {
-                title: "Exchanges".to_string(),
+            PageHeader { title: "Exchanges".to_string(),
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
@@ -420,19 +425,16 @@ pub fn Exchanges() -> Element {
                     "Import Data"
                 }
             }
-
             if let Some(warning) = conversion_warning {
                 div { class: "md3-exchange-warning-banner", "{warning}" }
             }
-
             ExchangeKpiGrid { kpis, exchange_count, loading }
-
             {content}
         }
-
         if show_import_data() {
             ImportDataDialog {
-                on_close: move |_| show_import_data.set(false),
+                on_close: move | _ | show_import_data
+                                                                        .set(false),
                 on_imported: move |summary: ImportDataSummary| {
                     toast.success(import_data_summary_message(&summary));
                     show_import_data.set(false);
@@ -440,7 +442,6 @@ pub fn Exchanges() -> Element {
                 },
             }
         }
-
         if let Some(account) = edit_target() {
             ExchangeAccountDialog {
                 account,
@@ -452,7 +453,6 @@ pub fn Exchanges() -> Element {
                 },
             }
         }
-
         if let Some(accounts) = delete_target() {
             {
                 let count = accounts.len();
@@ -480,7 +480,8 @@ pub fn Exchanges() -> Element {
                         message,
                         confirm_text: "Remove".to_string(),
                         cancel_text: "Cancel".to_string(),
-                        on_cancel: move |_| delete_target.set(None),
+                        on_cancel: move | _ | delete_target
+                                                                                                        .set(None),
                         on_confirm: move |_| {
                             let accounts = accounts.clone();
                             delete_target.set(None);
@@ -492,7 +493,6 @@ pub fn Exchanges() -> Element {
         }
     }
 }
-
 /// Reconcile one exchange row. The row stays disabled until its own request
 /// finishes; other rows and the bulk action remain independent.
 fn start_row_reconcile(
@@ -522,7 +522,6 @@ fn start_row_reconcile(
         list.restart();
     });
 }
-
 fn remove_exchanges(
     mut toast: Toast,
     mut list: Resource<Result<ExchangeAccountList, String>>,
@@ -546,7 +545,7 @@ fn remove_exchanges(
             Ok(0) => toast.error("No exchanges were found to remove."),
             Ok(_) if names.len() == 1 => toast.success(format!(
                 "Exchange \"{}\" and its {tx_count} transactions removed.",
-                names[0]
+                names[0],
             )),
             Ok(deleted) => {
                 let (noun, pronoun) = if deleted == 1 {
@@ -555,7 +554,7 @@ fn remove_exchanges(
                     ("exchanges", "their")
                 };
                 toast.success(format!(
-                    "Removed {deleted} {noun} and {pronoun} {tx_count} transactions."
+                    "Removed {deleted} {noun} and {pronoun} {tx_count} transactions.",
                 ));
             }
             Err(error) => toast.error(format!("Could not remove the exchanges: {error}")),
@@ -564,7 +563,6 @@ fn remove_exchanges(
         list.restart();
     });
 }
-
 /// Toast for a finished bulk reconciliation: the successful count followed by
 /// the first failure when one or more accounts could not be reconciled.
 fn reconcile_batch_summary_toast(summary: &ExchangeReconcileBatchSummary) -> (ToastKind, String) {
@@ -576,7 +574,6 @@ fn reconcile_batch_summary_toast(summary: &ExchangeReconcileBatchSummary) -> (To
             format!("Reconciled {reconciled} {}.", exchange_noun(reconciled)),
         );
     }
-
     let first = &summary.failed[0];
     let first_name = failure_name(first);
     if reconciled == 0 {
@@ -585,30 +582,27 @@ fn reconcile_batch_summary_toast(summary: &ExchangeReconcileBatchSummary) -> (To
         } else {
             format!(
                 "Could not reconcile {failed} selected exchanges. First error for \"{first_name}\": {}.",
-                first.error
+                first.error,
             )
         };
         return (ToastKind::Error, message);
     }
-
     (
         ToastKind::Error,
         format!(
             "Reconciled {reconciled} {}. {failed} {} failed (\"{first_name}\": {}).",
             exchange_noun(reconciled),
             exchange_noun(failed),
-            first.error
+            first.error,
         ),
     )
 }
-
 fn failure_name(failure: &ExchangeReconcileFailure) -> String {
     failure
         .name
         .clone()
         .unwrap_or_else(|| format!("#{}", failure.exchange_id))
 }
-
 fn exchange_noun(count: usize) -> &'static str {
     if count == 1 {
         "exchange"
@@ -616,56 +610,57 @@ fn exchange_noun(count: usize) -> &'static str {
         "exchanges"
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::reconcile_batch_summary_toast;
     use crate::components::ToastKind;
     use crate::domain::exchange::{ExchangeReconcileBatchSummary, ExchangeReconcileFailure};
-
     #[test]
     fn reconcile_toast_reports_success_and_partial_failures() {
         assert_eq!(
             reconcile_batch_summary_toast(&ExchangeReconcileBatchSummary {
                 reconciled: 2,
                 failed: Vec::new(),
-            }),
-            (ToastKind::Success, "Reconciled 2 exchanges.".to_string())
+            },),
+            (ToastKind::Success, "Reconciled 2 exchanges.".to_string()),
         );
-
         let failure = ExchangeReconcileFailure {
             exchange_id: 7,
             name: Some("Kraken".to_string()),
             error: "on-chain cache unavailable".to_string(),
         };
         assert_eq!(
-            reconcile_batch_summary_toast(&ExchangeReconcileBatchSummary {
-                reconciled: 1,
-                failed: vec![failure.clone()],
-            }),
+            reconcile_batch_summary_toast(
+                &ExchangeReconcileBatchSummary {
+                    reconciled: 1,
+                    failed: vec![failure.clone()],
+                },
+            ),
             (
                 ToastKind::Error,
                 "Reconciled 1 exchange. 1 exchange failed (\"Kraken\": on-chain cache unavailable)."
-                    .to_string()
-            )
+                    .to_string(),
+            ),
         );
         assert_eq!(
-            reconcile_batch_summary_toast(&ExchangeReconcileBatchSummary {
-                reconciled: 0,
-                failed: vec![
-                    failure,
-                    ExchangeReconcileFailure {
-                        exchange_id: 8,
-                        name: None,
-                        error: "database unavailable".to_string(),
-                    },
-                ],
-            }),
+            reconcile_batch_summary_toast(
+                &ExchangeReconcileBatchSummary {
+                    reconciled: 0,
+                    failed: vec![
+                        failure,
+                        ExchangeReconcileFailure {
+                            exchange_id: 8,
+                            name: None,
+                            error: "database unavailable".to_string(),
+                        },
+                    ],
+                },
+            ),
             (
                 ToastKind::Error,
                 "Could not reconcile 2 selected exchanges. First error for \"Kraken\": on-chain cache unavailable."
-                    .to_string()
-            )
+                    .to_string(),
+            ),
         );
     }
 }

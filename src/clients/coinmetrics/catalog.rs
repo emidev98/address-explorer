@@ -9,7 +9,6 @@ use crate::clients::coinmetrics::types::{
     PairCandlesCatalogInfo, PairMetricsCatalogInfo, ProtocolMetricsCatalogInfo,
 };
 use serde::Serialize;
-
 /// Catalog variant to query. `V2` lists items available with the current
 /// credentials; `AllV2` also lists historical and otherwise restricted items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,7 +16,6 @@ pub enum CatalogScope {
     V2,
     AllV2,
 }
-
 impl CatalogScope {
     fn prefix(&self) -> &'static str {
         match self {
@@ -26,7 +24,6 @@ impl CatalogScope {
         }
     }
 }
-
 /// Filters for `/catalog-*/asset-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogAssetMetricsQuery {
@@ -46,7 +43,6 @@ pub struct CatalogAssetMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/exchange-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogExchangeMetricsQuery {
@@ -63,7 +59,6 @@ pub struct CatalogExchangeMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/exchange-asset-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogExchangeAssetMetricsQuery {
@@ -80,7 +75,6 @@ pub struct CatalogExchangeAssetMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/exchange-pair-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogExchangePairMetricsQuery {
@@ -97,7 +91,6 @@ pub struct CatalogExchangePairMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/pair-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogPairMetricsQuery {
@@ -114,7 +107,6 @@ pub struct CatalogPairMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/institution-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogInstitutionMetricsQuery {
@@ -131,7 +123,6 @@ pub struct CatalogInstitutionMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Market selectors accepted by the `/catalog-*/market-*` endpoints. This is
 /// narrower than [`MarketFilter`], which also serves the reference-data
 /// endpoints.
@@ -155,7 +146,6 @@ pub struct CatalogMarketFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
 }
-
 /// Filters for the `/catalog-*/market-*` coverage endpoints.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogMarketDataQuery {
@@ -166,7 +156,6 @@ pub struct CatalogMarketDataQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/market-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogMarketMetricsQuery {
@@ -180,7 +169,6 @@ pub struct CatalogMarketMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for asset-scoped catalogs such as `/catalog-*/asset-chains`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogAssetsQuery {
@@ -192,7 +180,6 @@ pub struct CatalogAssetsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/pair-candles`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogPairsQuery {
@@ -204,7 +191,6 @@ pub struct CatalogPairsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/index-levels` and `/catalog-*/index-candles`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogIndexesQuery {
@@ -216,7 +202,6 @@ pub struct CatalogIndexesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/catalog-*/protocol-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct CatalogProtocolMetricsQuery {
@@ -243,23 +228,19 @@ pub struct CatalogProtocolMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Coverage endpoints describing which metrics, markets and time ranges are
 /// available for each entity.
 #[derive(Clone)]
 pub struct Catalog {
     http: HttpClient,
 }
-
 impl Catalog {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     fn path(&self, scope: CatalogScope, resource: &str) -> String {
         format!("/{}/{}", scope.prefix(), resource)
     }
-
     pub async fn get_asset_metrics(
         &self,
         scope: CatalogScope,
@@ -269,7 +250,6 @@ impl Catalog {
             .get_query(&self.path(scope, "asset-metrics"), &query)
             .await
     }
-
     pub async fn get_exchange_metrics(
         &self,
         scope: CatalogScope,
@@ -279,7 +259,6 @@ impl Catalog {
             .get_query(&self.path(scope, "exchange-metrics"), &query)
             .await
     }
-
     pub async fn get_exchange_asset_metrics(
         &self,
         scope: CatalogScope,
@@ -289,7 +268,6 @@ impl Catalog {
             .get_query(&self.path(scope, "exchange-asset-metrics"), &query)
             .await
     }
-
     pub async fn get_exchange_pair_metrics(
         &self,
         scope: CatalogScope,
@@ -299,7 +277,6 @@ impl Catalog {
             .get_query(&self.path(scope, "exchange-pair-metrics"), &query)
             .await
     }
-
     pub async fn get_pair_metrics(
         &self,
         scope: CatalogScope,
@@ -309,7 +286,6 @@ impl Catalog {
             .get_query(&self.path(scope, "pair-metrics"), &query)
             .await
     }
-
     pub async fn get_institution_metrics(
         &self,
         scope: CatalogScope,
@@ -319,7 +295,6 @@ impl Catalog {
             .get_query(&self.path(scope, "institution-metrics"), &query)
             .await
     }
-
     pub async fn get_market_trades(
         &self,
         scope: CatalogScope,
@@ -329,7 +304,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-trades"), &query)
             .await
     }
-
     pub async fn get_market_candles(
         &self,
         scope: CatalogScope,
@@ -339,7 +313,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-candles"), &query)
             .await
     }
-
     pub async fn get_market_orderbooks(
         &self,
         scope: CatalogScope,
@@ -349,7 +322,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-orderbooks"), &query)
             .await
     }
-
     pub async fn get_market_quotes(
         &self,
         scope: CatalogScope,
@@ -359,7 +331,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-quotes"), &query)
             .await
     }
-
     pub async fn get_market_funding_rates(
         &self,
         scope: CatalogScope,
@@ -369,7 +340,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-funding-rates"), &query)
             .await
     }
-
     pub async fn get_market_funding_rates_predicted(
         &self,
         scope: CatalogScope,
@@ -379,7 +349,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-funding-rates-predicted"), &query)
             .await
     }
-
     pub async fn get_market_contract_prices(
         &self,
         scope: CatalogScope,
@@ -389,7 +358,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-contract-prices"), &query)
             .await
     }
-
     pub async fn get_market_implied_volatility(
         &self,
         scope: CatalogScope,
@@ -399,7 +367,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-implied-volatility"), &query)
             .await
     }
-
     pub async fn get_market_greeks(
         &self,
         scope: CatalogScope,
@@ -409,7 +376,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-greeks"), &query)
             .await
     }
-
     pub async fn get_market_openinterest(
         &self,
         scope: CatalogScope,
@@ -419,7 +385,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-openinterest"), &query)
             .await
     }
-
     pub async fn get_market_liquidations(
         &self,
         scope: CatalogScope,
@@ -429,7 +394,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-liquidations"), &query)
             .await
     }
-
     pub async fn get_market_metrics(
         &self,
         scope: CatalogScope,
@@ -439,7 +403,6 @@ impl Catalog {
             .get_query(&self.path(scope, "market-metrics"), &query)
             .await
     }
-
     pub async fn get_pair_candles(
         &self,
         scope: CatalogScope,
@@ -449,7 +412,6 @@ impl Catalog {
             .get_query(&self.path(scope, "pair-candles"), &query)
             .await
     }
-
     pub async fn get_index_levels(
         &self,
         scope: CatalogScope,
@@ -459,7 +421,6 @@ impl Catalog {
             .get_query(&self.path(scope, "index-levels"), &query)
             .await
     }
-
     pub async fn get_index_candles(
         &self,
         scope: CatalogScope,
@@ -469,7 +430,6 @@ impl Catalog {
             .get_query(&self.path(scope, "index-candles"), &query)
             .await
     }
-
     pub async fn get_asset_chains(
         &self,
         scope: CatalogScope,
@@ -479,7 +439,6 @@ impl Catalog {
             .get_query(&self.path(scope, "asset-chains"), &query)
             .await
     }
-
     pub async fn get_mempool_feerates(
         &self,
         scope: CatalogScope,
@@ -489,7 +448,6 @@ impl Catalog {
             .get_query(&self.path(scope, "mempool-feerates"), &query)
             .await
     }
-
     pub async fn get_mining_pool_tips_summary(
         &self,
         scope: CatalogScope,
@@ -499,7 +457,6 @@ impl Catalog {
             .get_query(&self.path(scope, "mining-pool-tips-summary"), &query)
             .await
     }
-
     pub async fn get_transaction_tracker(
         &self,
         scope: CatalogScope,
@@ -509,7 +466,6 @@ impl Catalog {
             .get_query(&self.path(scope, "transaction-tracker"), &query)
             .await
     }
-
     pub async fn get_blockchain_accounts(
         &self,
         scope: CatalogScope,
@@ -519,7 +475,6 @@ impl Catalog {
             .get_query(&self.path(scope, "blockchain-v2/accounts"), &query)
             .await
     }
-
     pub async fn get_blockchain_balance_updates(
         &self,
         scope: CatalogScope,
@@ -529,7 +484,6 @@ impl Catalog {
             .get_query(&self.path(scope, "blockchain-v2/balance-updates"), &query)
             .await
     }
-
     pub async fn get_blockchain_rebasing_changes(
         &self,
         scope: CatalogScope,
@@ -539,7 +493,6 @@ impl Catalog {
             .get_query(&self.path(scope, "blockchain-v2/rebasing-changes"), &query)
             .await
     }
-
     pub async fn get_blockchain_blocks(
         &self,
         scope: CatalogScope,
@@ -549,7 +502,6 @@ impl Catalog {
             .get_query(&self.path(scope, "blockchain-v2/blocks"), &query)
             .await
     }
-
     pub async fn get_blockchain_transactions(
         &self,
         scope: CatalogScope,
@@ -559,7 +511,6 @@ impl Catalog {
             .get_query(&self.path(scope, "blockchain-v2/transactions"), &query)
             .await
     }
-
     pub async fn get_protocol_metrics(
         &self,
         scope: CatalogScope,
@@ -570,18 +521,15 @@ impl Catalog {
             .await
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
     #[test]
     fn scope_selects_the_catalog_prefix() {
         assert_eq!(CatalogScope::V2.prefix(), "catalog-v2");
         assert_eq!(CatalogScope::AllV2.prefix(), "catalog-all-v2");
     }
-
     #[test]
     fn serializes_market_coverage_filters() {
         let query = CatalogMarketDataQuery {
@@ -601,12 +549,10 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({
-                "markets": "binance-btc-usd-spot",
-                "type": "spot",
-                "start_time": "2024-01-01",
-                "page_size": 5
-            })
+            json!(
+                { "markets" : "binance-btc-usd-spot", "type" : "spot", "start_time" :
+                "2024-01-01", "page_size" : 5 }
+            ),
         );
     }
 }

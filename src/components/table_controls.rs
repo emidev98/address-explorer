@@ -6,15 +6,11 @@
 //! so all tables paginate and sort the same way. The controls only report
 //! intent through their event handlers; the screen owns the query state and
 //! the backend decides ordering.
-
-use std::collections::HashSet;
-use std::hash::Hash;
-
-use dioxus::prelude::*;
-
 use crate::components::Checkbox;
 use crate::domain::table::{SortDirection, TableQuery};
-
+use dioxus::prelude::*;
+use std::collections::HashSet;
+use std::hash::Hash;
 /// Reactive page and sort state shared by every data table.
 #[derive(Clone, Copy, PartialEq)]
 pub struct TableState {
@@ -22,13 +18,11 @@ pub struct TableState {
     pub sort_by: Signal<Option<String>>,
     pub sort_dir: Signal<SortDirection>,
 }
-
 impl TableState {
     /// Current 0-based page index.
     pub fn page(self) -> u32 {
         (self.page)()
     }
-
     /// The query for the current page and sort.
     pub fn query(self, page_size: u32) -> TableQuery {
         TableQuery {
@@ -38,12 +32,10 @@ impl TableState {
             sort_dir: (self.sort_dir)(),
         }
     }
-
     /// Direction this column currently sorts in, or `None` when inactive.
     pub fn direction_for(self, key: &str) -> Option<SortDirection> {
         ((self.sort_by)().as_deref() == Some(key)).then_some((self.sort_dir)())
     }
-
     /// Sort by `key`, toggling the direction of the active column, and restart
     /// the table at the first page.
     pub fn sort(mut self, key: &str, default_direction: SortDirection) {
@@ -57,13 +49,11 @@ impl TableState {
         self.sort_dir.set(sort_dir);
         self.page.set(0);
     }
-
     /// Return to the first page after a filter change.
     pub fn reset_page(mut self) {
         self.page.set(0);
     }
 }
-
 /// Create the page and sort state of one table.
 pub fn use_table_state(default_direction: SortDirection) -> TableState {
     TableState {
@@ -72,7 +62,6 @@ pub fn use_table_state(default_direction: SortDirection) -> TableState {
         sort_dir: use_signal(|| default_direction),
     }
 }
-
 /// Next sort key and direction for a header click.
 pub fn toggled_sort(
     current: Option<&str>,
@@ -86,7 +75,6 @@ pub fn toggled_sort(
         (Some(key.to_string()), default_direction)
     }
 }
-
 /// Pagination bar of a data table, rendered directly below it: Previous and
 /// Next around an editable 1-based page index and the totals. `page` is the
 /// 0-based current page; `on_page` receives the 0-based page to show.
@@ -100,10 +88,7 @@ pub fn TablePagination(
 ) -> Element {
     let total_pages = total.div_ceil(u64::from(page_size.max(1))).max(1);
     let current_page = u64::from(page) + 1;
-    // Text of the index input while it is being edited; `None` shows the
-    // current page, so Previous/Next clicks update the display.
     let mut editing = use_signal(|| Option::<String>::None);
-
     let mut commit = move |_: ()| {
         let Some(raw) = editing() else { return };
         editing.set(None);
@@ -115,14 +100,14 @@ pub fn TablePagination(
             on_page.call((clamped - 1) as u32);
         }
     };
-
     rsx! {
         div { class: "md3-pagination",
             button {
                 r#type: "button",
                 class: "md3-button-tonal",
                 disabled: page == 0,
-                onclick: move |_| on_page.call(page.saturating_sub(1)),
+                onclick: move | _ | on_page.call(page
+                                                                        .saturating_sub(1)),
                 "Previous"
             }
             form {
@@ -137,7 +122,8 @@ pub fn TablePagination(
                     inputmode: "numeric",
                     aria_label: "Page number",
                     value: editing().unwrap_or_else(|| current_page.to_string()),
-                    oninput: move |event| editing.set(Some(event.value())),
+                    oninput: move |
+                                                                                        event | editing.set(Some(event.value())),
                     onblur: move |_| commit(()),
                 }
             }
@@ -148,13 +134,13 @@ pub fn TablePagination(
                 r#type: "button",
                 class: "md3-button-tonal",
                 disabled: current_page >= total_pages,
-                onclick: move |_| on_page.call(page + 1),
+                onclick: move | _ |
+                                                                        on_page.call(page + 1),
                 "Next"
             }
         }
     }
 }
-
 /// Sortable column header of a data table: a button toggling the backend
 /// sort of its column. `active_direction` is the direction this column
 /// currently sorts in, or `None` when another column or the table's default
@@ -170,7 +156,6 @@ pub fn SortableHeader(
         Some(SortDirection::Desc) => ("↓", "descending"),
         None => ("↕", "not sorted"),
     };
-
     rsx! {
         th {
             button {
@@ -184,7 +169,6 @@ pub fn SortableHeader(
         }
     }
 }
-
 /// Multi-selection state of one table.
 ///
 /// The selection is keyed by the table's row identifier (`i64` ids or the
@@ -194,15 +178,12 @@ pub fn SortableHeader(
 pub struct TableSelection<T: 'static> {
     selected: Signal<HashSet<T>>,
 }
-
 impl<T: 'static> Clone for TableSelection<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
-
 impl<T: 'static> Copy for TableSelection<T> {}
-
 /// Create the multi-selection state of one table. Call it once with the
 /// other hooks of the table component; the selected ids survive re-renders
 /// until the screen clears them explicitly.
@@ -214,7 +195,6 @@ where
         selected: use_signal(HashSet::<T>::new),
     }
 }
-
 impl<T> TableSelection<T>
 where
     T: Clone + Eq + Hash + 'static,
@@ -223,23 +203,19 @@ where
     pub fn snapshot(&self) -> HashSet<T> {
         self.selected.read().clone()
     }
-
     /// Number of checked rows.
     pub fn len(&self) -> usize {
         self.selected.read().len()
     }
-
     /// Whether no row is checked.
     pub fn is_empty(&self) -> bool {
         self.selected.read().is_empty()
     }
-
     /// The checked ids. HashSet iteration order is unspecified; services
     /// normalize and deduplicate the list before using it.
     pub fn selected_ids(&self) -> Vec<T> {
         self.selected.read().iter().cloned().collect()
     }
-
     /// Check or uncheck one row.
     pub fn set(&mut self, id: T, selected: bool) {
         let mut guard = self.selected.write();
@@ -249,7 +225,6 @@ where
             guard.remove(&id);
         }
     }
-
     /// Check or uncheck every id in the list, leaving other selections
     /// untouched.
     pub fn set_many(&mut self, ids: &[T], selected: bool) {
@@ -262,7 +237,6 @@ where
             }
         }
     }
-
     /// Whether every id in a non-empty list is checked.
     pub fn all_selected(&self, ids: &[T]) -> bool {
         if ids.is_empty() {
@@ -271,19 +245,16 @@ where
         let guard = self.selected.read();
         ids.iter().all(|id| guard.contains(id))
     }
-
     /// Whether any id in the list is checked.
     pub fn some_selected(&self, ids: &[T]) -> bool {
         let guard = self.selected.read();
         ids.iter().any(|id| guard.contains(id))
     }
-
     /// Drop the whole selection.
     pub fn clear(&mut self) {
         self.selected.write().clear();
     }
 }
-
 /// Select-all checkbox plus the bulk-action header cell of a table.
 ///
 /// The action is rendered in the `th` directly next to the selector, so it
@@ -306,13 +277,13 @@ pub fn TableSelectionHeader(
                 indeterminate,
                 aria_label: select_all_label,
                 disabled,
-                on_change: move |checked| on_toggle_all.call(checked),
+                on_change: move |
+                                                                        checked | on_toggle_all.call(checked),
             }
         }
         th { class: "md3-table-select-actions", {children} }
     }
 }
-
 /// Checkbox cell of one selectable table row.
 ///
 /// Clicks are stopped at the cell so a selectable row that also opens a
@@ -323,29 +294,28 @@ pub fn TableSelectionCell(checked: bool, label: String, on_change: EventHandler<
     rsx! {
         td {
             class: "md3-table-select-cell",
-            onclick: move |event| event.stop_propagation(),
+            onclick: move | event | event
+                                                        .stop_propagation(),
             Checkbox {
                 checked,
                 aria_label: label,
-                on_change: move |checked| on_change.call(checked),
+                on_change: move |
+                                                                        checked | on_change.call(checked),
             }
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::toggled_sort;
     use crate::domain::table::SortDirection;
-
     #[test]
     fn clicking_a_new_column_uses_its_default_direction() {
         assert_eq!(
             toggled_sort(None, SortDirection::Desc, "date", SortDirection::Asc),
-            (Some("date".to_string()), SortDirection::Asc)
+            (Some("date".to_string()), SortDirection::Asc),
         );
     }
-
     #[test]
     fn clicking_the_active_column_toggles_the_direction() {
         assert_eq!(
@@ -355,7 +325,7 @@ mod tests {
                 "date",
                 SortDirection::Desc
             ),
-            (Some("date".to_string()), SortDirection::Desc)
+            (Some("date".to_string()), SortDirection::Desc),
         );
         assert_eq!(
             toggled_sort(
@@ -364,7 +334,7 @@ mod tests {
                 "date",
                 SortDirection::Asc
             ),
-            (Some("date".to_string()), SortDirection::Asc)
+            (Some("date".to_string()), SortDirection::Asc),
         );
     }
 }

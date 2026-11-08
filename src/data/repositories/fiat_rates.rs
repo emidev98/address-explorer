@@ -1,16 +1,12 @@
 //! SQL access to the historical fiat-rate cache used by exchange imports.
-
-use rusqlite::{params, OptionalExtension};
-
 use crate::data::{Database, DatabaseError};
-
+use rusqlite::{params, OptionalExtension};
 /// Cached rate for a currency pair on a calendar date.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CachedFiatRate {
     pub date: String,
     pub rate: f64,
 }
-
 /// Find the latest cached rate at or before `date` for a pair.
 pub fn latest_rate(
     database: &Database,
@@ -35,7 +31,6 @@ pub fn latest_rate(
         .optional()
         .map_err(Into::into)
 }
-
 /// Insert or refresh one cached rate.
 pub fn upsert_rate(
     database: &Database,
@@ -55,7 +50,6 @@ pub fn upsert_rate(
     )?;
     Ok(())
 }
-
 /// Insert several rates atomically.
 pub fn upsert_rates(
     database: &Database,

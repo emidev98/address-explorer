@@ -1,12 +1,10 @@
 use crate::clients::mempool::error::MempoolError;
 use crate::clients::mempool::http::HttpClient;
 use crate::clients::mempool::liquid::types::{Block, BlockStatus, Tx};
-
 #[derive(Clone)]
 pub struct Blocks {
     http: HttpClient,
 }
-
 impl Blocks {
     pub fn new(http: HttpClient) -> Self {
         Self { http }

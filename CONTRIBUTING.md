@@ -95,22 +95,29 @@ A small application **MAY** use fewer modules. Modules **SHOULD** be introduced 
 
 Contributors **SHOULD** install the stable Rust toolchain, platform prerequisites for the selected Dioxus renderer, and the Dioxus CLI version recommended for the pinned dependency. Linux desktop builds generally require the GTK/WebKitGTK development libraries for the selected renderer. Android development requires the applicable Android SDK/NDK and Java toolchain. Contributors **MUST** follow the official, version-matched platform guide for exact package names and setup steps.
 
+The Dioxus CLI is the default interface for formatting and compile checks. `dx check` applies the target, feature, and asset arguments the application actually builds with. Tests and Clippy have no `dx` subcommand and remain Cargo commands.
+
 Typical checks from the repository root are:
 
 ```sh
-# Apply Rust formatting
+# Format Rust code and RSX after every change (Section 4.1)
 cargo fmt --all
-
-# Format RSX when supported by the pinned Dioxus CLI
 dx fmt
 
-# Compile and test the client and server code
-cargo check --workspace --all-targets --features server
+# Check the web client, desktop target, and fullstack server build
+dx check --platform web
+dx check --platform desktop
+dx check --fullstack
+
+# Tests: dx has no test subcommand
 cargo test --workspace
 cargo test --workspace --features server
 
-# Treat Clippy warnings as errors
+# Clippy: dx has no Clippy subcommand
 cargo clippy --workspace --all-targets --features server -- -D warnings
+
+# Compile fallback when dx check reports a known static-analysis false positive
+cargo check --workspace --all-targets --features server
 
 # Inspect commands supported by the pinned Dioxus CLI
 dx --help
@@ -118,9 +125,75 @@ dx --help
 
 The default `web` feature compiles only the client-side code. The `server`
 feature is required for the application, data, and server-function tests, so a
-complete test run includes both commands above.
+complete test run includes both test commands above.
 
-Before opening a pull request, contributors **MUST** run Rust formatting, compilation, tests, and Clippy for the affected workspace. If a command is unavailable for the pinned toolchain, contributors **SHOULD** use the documented equivalent and **MUST** record the limitation in the pull request. `dx fmt` is best-effort: the pinned Dioxus formatter has known failures on some existing `rsx!` blocks. A `cargo fmt` + successful build is authoritative; record any `dx fmt` limitation in the pull request. Platform-specific build or bundle commands **SHOULD** be run for every affected target.
+Before opening a pull request, contributors **MUST** run `cargo fmt --all` and
+`dx fmt`, the `dx check` commands for the affected targets, the Cargo test
+commands, and Clippy for the affected workspace. If a command is unavailable for
+the pinned toolchain, contributors **SHOULD** use the documented equivalent and
+**MUST** record the limitation in the pull request. Platform-specific build or
+bundle commands **SHOULD** be run for every affected target.
+
+### 4.1 Formatting after every change
+
+Formatting is part of every code update, not a pre-PR cleanup step.
+Contributors — and coding agents updating the repository — **MUST** run
+`cargo fmt --all` and then `dx fmt` after the last code edit and before running
+checks or reporting the work as complete. `cargo fmt --all` formats the ordinary
+Rust and `dx fmt` formats the `rsx!` blocks. A change **MUST NOT** be handed off
+or opened for review while its files are unformatted.
+
+**`dx fmt --all-code` MUST NOT be used on this repository.** The pinned Dioxus
+0.7.10 CLI cannot format this codebase reliably in that mode: it re-emits the
+ordinary Rust from a token stream and, while doing so, *corrupts* `rsx!` event
+handlers. It breaks the closure signature across lines, writes a truncated copy
+of the body after the parameter list, and leaves the real body in place:
+
+```rust
+// What `dx fmt --all-code` produced for a correct `onclick: move |_| { ... }`
+onclick: move |_
+        | { cancel_state.cancel(& value_for_scrim, mode, & id_for_scrim); }
+    cancel_state.cancel(&value_for_scrim, mode, &id_for_scrim);
+```
+
+The result does not compile, and re-running the formatter does not repair it —
+once a file is corrupted the CLI often refuses to parse it again. A full run of
+`dx fmt --all-code` on a clean tree reproduced this in 12 files and 26 handler
+closures. `cargo fmt --all` followed by `dx fmt` produces the same readable
+result without corrupting anything, so that is the required pipeline.
+
+If `dx fmt` reports that it cannot parse a file, the contributor **MUST** find
+and repair the duplicated closure described above, then re-run `cargo fmt --all`
+and `dx fmt`. Do not rewrite correct code to silence the formatter, and do not
+leave a large unrelated formatting diff in the change — revert churn outside the
+logical change and call out anything that had to stay in the pull request
+description.
+
+### 4.2 `dx check` and Cargo fallbacks
+
+`dx check --platform web` checks the web client, `dx check --platform desktop`
+checks the native desktop target, and `dx check --fullstack` checks the
+fullstack client and server builds. Use `dx check --platform android` for
+Android work once the SDK/NDK environment is configured.
+
+`dx check` also performs Dioxus-specific static analysis. That analysis is
+syntactic and can report hooks called from a helper function as "hook called
+outside component or hook"; when a known false positive appears, the Cargo
+compile check (`cargo check --workspace --all-targets --features server`) is
+the authoritative compile gate. Record the false positive rather than changing
+correct code to satisfy it.
+
+That analysis classifies a free function that returns `Element` as a component
+and a free function whose name starts with `use_` as a hook; a hook call in any
+other function is reported. A helper that calls hooks therefore **MUST** be
+named with the `use_` prefix (Section 5.4), for example `use_toast_provider` in
+`src/components/toast.rs`. Following that rule keeps the check honest, so a
+remaining "hook called outside component or hook" error is worth investigating
+instead of being recorded.
+
+Tests and Clippy remain Cargo commands because the pinned Dioxus CLI does not
+expose equivalents. They are not optional: a complete check run includes both
+test commands and Clippy.
 
 Dioxus bundling is platform-sensitive. A successful build on one operating system does not prove that a native bundle for another operating system can be produced from that host. Release automation **SHOULD** use a build matrix with native runners wherever cross-compilation is unsupported or unreliable. Signing, notarization, store submission, and release credentials **MUST** be handled outside ordinary development checks and **MUST NOT** be committed to the repository.
 
@@ -280,6 +353,7 @@ finish loading or the theme changes.
 
 - Local reactive state **SHOULD** use `use_signal`. Values derivable from other reactive values **SHOULD** use direct expressions or `use_memo` rather than a second independently mutable source of truth.
 - Hooks **MUST** be called in a consistent order during component evaluation; they **MUST NOT** be called conditionally inside branches or loops.
+- A helper function that calls hooks **MUST** be named with the `use_` prefix, such as `use_toast_provider` or `use_table_state`. The prefix is the Dioxus convention for custom hooks and it is also how `dx check` recognises hook functions (Section 4.2); a hook call in a function without the prefix is reported as an error.
 - Shared state **MAY** be passed through props or provided with `use_context_provider` and retrieved with `use_context`. The choice **SHOULD** make ownership and dependencies clear.
 
 ### 5.5 Rendering, event handlers, and persistence lifecycle
@@ -317,7 +391,7 @@ For a server-rendered web application, the initial client render **MUST** match 
 
 ### 5.9 Dioxus development workflow
 
-Contributors **SHOULD** use the Dioxus CLI version recommended for the dependency baseline and commands documented for the intended target. `dx serve` **MAY** be used for local development when configured for that target. Formatting commands are defined in Section 4; platform bundling, system dependencies, and release packaging are covered in Sections 4 and 10. Version-matched official Dioxus documentation takes precedence over outdated snippets.
+Contributors **SHOULD** use the Dioxus CLI version recommended for the dependency baseline and commands documented for the intended target. `dx serve` **MAY** be used for local development when configured for that target. The default `cargo fmt --all` + `dx fmt` and `dx check` commands are defined in Section 4; platform bundling, system dependencies, and release packaging are covered in Sections 4 and 10. Version-matched official Dioxus documentation takes precedence over outdated snippets, except that `dx fmt --all-code` **MUST NOT** be used (Section 4.1).
 
 ### 5.10 Charts (Apache ECharts)
 
@@ -767,12 +841,12 @@ Every pull request **SHOULD** be small enough to review as one logical change. A
 
 Before requesting review, contributors **MUST**:
 
-- [ ] Format Rust and RSX code.
-- [ ] Run compilation, tests, and Clippy for the affected workspace.
+- [ ] Format Rust and RSX code with `cargo fmt --all` and `dx fmt` after the last change.
+- [ ] Run `dx check` for the affected targets, the Cargo test commands, and Clippy for the affected workspace.
 - [ ] Add or update tests and documentation where needed.
 - [ ] Include a migration for database schema changes, named with the next `00NN_` version (Section 6.5), and update the schema reference in Section 12.
 - [ ] Verify every new or changed fiat display and conversion uses the `FiatCurrency` context and the default currency, without hardcoded USD assumptions (Section 3.1).
-- [ ] Check that no secrets, local database files, build artifacts, or unrelated formatting changes are included.
+- [ ] Check that no secrets, local database files, build artifacts, or unintended changes are included; describe formatting churn in the pull request.
 - [ ] Describe any validation that could not be performed.
 
 Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, respect for the layer boundaries in Section 7, currency handling (Section 3.1), and platform compatibility—not only whether the code compiles.

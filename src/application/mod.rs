@@ -5,7 +5,6 @@
 //! repositories (SQLite) and the external API clients to fulfill one use case
 //! per public function. They MUST NOT contain SQL text, HTTP details, RSX, or
 //! Dioxus signal code.
-
 pub mod addresses;
 pub mod catalogs;
 pub mod exchange_fiat;

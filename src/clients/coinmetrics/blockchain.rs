@@ -7,7 +7,6 @@ use crate::clients::coinmetrics::types::{
     BlockchainSubAccount, BlockchainTransaction, ListResponse, TxTrackerTransaction,
 };
 use serde::Serialize;
-
 /// Time and height interval shared by the blockchain-v2 endpoints.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ChainTimeRange {
@@ -26,7 +25,6 @@ pub struct ChainTimeRange {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
 }
-
 /// `chain_sequence_number` interval shared by account, balance-update and
 /// rebasing endpoints.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -36,7 +34,6 @@ pub struct ChainSequenceRange {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_chain_sequence_number: Option<i64>,
 }
-
 /// Query for `/blockchain-v2/{asset}/blocks`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BlocksQuery {
@@ -60,7 +57,6 @@ pub struct BlocksQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_unsupported_errors: Option<bool>,
 }
-
 /// Query for `/blockchain-v2/{asset}/accounts` and
 /// `/blockchain-v2/{asset}/sub-accounts`.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -79,7 +75,6 @@ pub struct AccountsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_unsupported_errors: Option<bool>,
 }
-
 /// Query for `/blockchain-v2/{asset}/transactions`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TransactionsQuery {
@@ -102,7 +97,6 @@ pub struct TransactionsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_unsupported_errors: Option<bool>,
 }
-
 /// Query for `/blockchain-v2/{asset}/balance-updates`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BalanceUpdatesQuery {
@@ -146,7 +140,6 @@ pub struct BalanceUpdatesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_unsupported_errors: Option<bool>,
 }
-
 /// Query for
 /// `/blockchain-v2/{asset}/accounts/{account}/balance-updates`.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -181,7 +174,6 @@ pub struct AccountBalanceUpdatesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_unsupported_errors: Option<bool>,
 }
-
 /// Query for `/blockchain-v2/{asset}/rebasing-changes`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct RebasingChangesQuery {
@@ -206,7 +198,6 @@ pub struct RebasingChangesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_unsupported_errors: Option<bool>,
 }
-
 /// Options shared by the full block and full transaction endpoints.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct FullEntityQuery {
@@ -215,7 +206,6 @@ pub struct FullEntityQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_unsupported_errors: Option<bool>,
 }
-
 /// Query for `/blockchain/{asset}/transaction-tracker`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TxTrackerQuery {
@@ -245,18 +235,15 @@ pub struct TxTrackerQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Blockchain v2 list/full-entity endpoints and the transaction tracker.
 #[derive(Clone)]
 pub struct Blockchain {
     http: HttpClient,
 }
-
 impl Blockchain {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     pub async fn get_blocks(
         &self,
         asset: &str,
@@ -266,7 +253,6 @@ impl Blockchain {
             .get_query(&format!("/blockchain-v2/{}/blocks", asset), &query)
             .await
     }
-
     pub async fn get_accounts(
         &self,
         asset: &str,
@@ -276,7 +262,6 @@ impl Blockchain {
             .get_query(&format!("/blockchain-v2/{}/accounts", asset), &query)
             .await
     }
-
     pub async fn get_sub_accounts(
         &self,
         asset: &str,
@@ -286,7 +271,6 @@ impl Blockchain {
             .get_query(&format!("/blockchain-v2/{}/sub-accounts", asset), &query)
             .await
     }
-
     pub async fn get_transactions(
         &self,
         asset: &str,
@@ -296,7 +280,6 @@ impl Blockchain {
             .get_query(&format!("/blockchain-v2/{}/transactions", asset), &query)
             .await
     }
-
     pub async fn get_balance_updates(
         &self,
         asset: &str,
@@ -306,7 +289,6 @@ impl Blockchain {
             .get_query(&format!("/blockchain-v2/{}/balance-updates", asset), &query)
             .await
     }
-
     pub async fn get_rebasing_changes(
         &self,
         asset: &str,
@@ -319,7 +301,6 @@ impl Blockchain {
             )
             .await
     }
-
     pub async fn get_account_balance_updates(
         &self,
         asset: &str,
@@ -330,13 +311,12 @@ impl Blockchain {
             .get_query(
                 &format!(
                     "/blockchain-v2/{}/accounts/{}/balance-updates",
-                    asset, account
+                    asset, account,
                 ),
                 &query,
             )
             .await
     }
-
     pub async fn get_block(
         &self,
         asset: &str,
@@ -350,7 +330,6 @@ impl Blockchain {
             )
             .await
     }
-
     pub async fn get_transaction(
         &self,
         asset: &str,
@@ -364,7 +343,6 @@ impl Blockchain {
             )
             .await
     }
-
     pub async fn get_block_transaction(
         &self,
         asset: &str,
@@ -376,13 +354,12 @@ impl Blockchain {
             .get_query(
                 &format!(
                     "/blockchain-v2/{}/blocks/{}/transactions/{}",
-                    asset, block_hash, txid
+                    asset, block_hash, txid,
                 ),
                 &query,
             )
             .await
     }
-
     pub async fn get_tx_tracker(
         &self,
         asset: &str,
@@ -396,12 +373,10 @@ impl Blockchain {
             .await
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
     #[test]
     fn serializes_blockchain_filters() {
         let query = BlocksQuery {
@@ -415,10 +390,9 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({"heights": "100,101", "start_inclusive": false, "chain": "main"})
+            json!({ "heights" : "100,101", "start_inclusive" : false, "chain" : "main" }),
         );
     }
-
     #[test]
     fn serializes_balance_update_filters() {
         let query = BalanceUpdatesQuery {
@@ -432,11 +406,10 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({
-                "accounts": "bc1qexample",
-                "denominations": "native",
-                "start_chain_sequence_number": 10
-            })
+            json!(
+                { "accounts" : "bc1qexample", "denominations" : "native",
+                "start_chain_sequence_number" : 10 }
+            ),
         );
     }
 }

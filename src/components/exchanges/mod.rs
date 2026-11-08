@@ -1,21 +1,12 @@
 //! Exchange-specific dialogs: Import Data, account edit, transaction
 //! inspector, duplicate resolution, and manual on-chain linking.
-
 mod account_dialog;
 mod duplicate;
 mod import_data;
 mod inspector;
 mod link_dialog;
-
-pub use account_dialog::ExchangeAccountDialog;
-pub(super) use duplicate::{duplicate_summary, ExchangeDuplicateDialog};
-pub use import_data::ImportDataDialog;
-pub use inspector::ExchangeInspector;
-pub use link_dialog::ExchangeLinkDialog;
-
 use super::icon::{Icon, IconName};
 use super::Modal;
-
 use crate::api::catalogs::catalog_options_api;
 use crate::api::exchanges::{
     clear_exchange_transaction_link_api, exchange_link_candidates_api, import_data_api,
@@ -35,11 +26,14 @@ use crate::domain::exchange::{
 };
 use crate::domain::price::FIAT_CURRENCIES;
 use crate::domain::table::DEFAULT_PAGE_SIZE;
-
+pub use account_dialog::ExchangeAccountDialog;
+pub(super) use duplicate::{duplicate_summary, ExchangeDuplicateDialog};
+pub use import_data::ImportDataDialog;
+pub use inspector::ExchangeInspector;
+pub use link_dialog::ExchangeLinkDialog;
 /// Row cap of the link-candidate table: the picker ranks the best matches and
 /// the search field narrows the rest.
 const MAX_LINK_CANDIDATES: usize = DEFAULT_PAGE_SIZE as usize;
-
 const TRANSACTION_TYPES: [ExchangeTxType; 6] = [
     ExchangeTxType::Buy,
     ExchangeTxType::Sell,
@@ -48,7 +42,6 @@ const TRANSACTION_TYPES: [ExchangeTxType; 6] = [
     ExchangeTxType::Deposit,
     ExchangeTxType::Unknown,
 ];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImportDataMappingField {
     Timestamp,
@@ -62,7 +55,6 @@ enum ImportDataMappingField {
     FeeCurrency,
     Description,
 }
-
 const IMPORT_DATA_MAPPING_FIELDS: [(ImportDataMappingField, &str, bool); 10] = [
     (ImportDataMappingField::Timestamp, "Timestamp", true),
     (ImportDataMappingField::Amount, "Amount", true),
@@ -83,7 +75,6 @@ const IMPORT_DATA_MAPPING_FIELDS: [(ImportDataMappingField, &str, bool); 10] = [
     (ImportDataMappingField::FeeCurrency, "Fee currency", false),
     (ImportDataMappingField::Description, "Description", false),
 ];
-
 fn import_data_mapping_value(mapping: &ImportDataMapping, field: ImportDataMappingField) -> String {
     match field {
         ImportDataMappingField::Timestamp => mapping.timestamp.clone(),
@@ -98,7 +89,6 @@ fn import_data_mapping_value(mapping: &ImportDataMapping, field: ImportDataMappi
         ImportDataMappingField::Description => mapping.description.clone(),
     }
 }
-
 fn set_import_data_mapping_value(
     mapping: &mut ImportDataMapping,
     field: ImportDataMappingField,
@@ -117,11 +107,9 @@ fn set_import_data_mapping_value(
         ImportDataMappingField::Description => mapping.description = value,
     }
 }
-
 fn type_label(tx_type: ExchangeTxType) -> &'static str {
     tx_type.as_str()
 }
-
 fn match_label(state: MatchState) -> &'static str {
     match state {
         MatchState::HashMatch => "Hash match",
@@ -130,7 +118,6 @@ fn match_label(state: MatchState) -> &'static str {
         MatchState::Unmatched => "Unmatched",
     }
 }
-
 /// Human-readable summary of one ledger CSV import.
 pub fn import_data_summary_message(summary: &ImportDataSummary) -> String {
     if summary.inserted == 0 && summary.created {
@@ -140,7 +127,7 @@ pub fn import_data_summary_message(summary: &ImportDataSummary) -> String {
                 format!(" Skipped {} non-BTC rows.", summary.skipped_non_btc)
             } else {
                 String::new()
-            }
+            },
         );
     }
     let mut message = format!(
@@ -165,11 +152,11 @@ pub fn import_data_summary_message(summary: &ImportDataSummary) -> String {
                     "duplicate"
                 } else {
                     "duplicates"
-                }
+                },
             )
         } else {
             String::new()
-        }
+        },
     );
     if summary.skipped_non_btc > 0 {
         message.push_str(&format!(
@@ -179,18 +166,16 @@ pub fn import_data_summary_message(summary: &ImportDataSummary) -> String {
                 "row"
             } else {
                 "rows"
-            }
+            },
         ));
     }
     message
 }
-
 #[cfg(test)]
 mod tests {
     use super::import_data::parser_provider_name;
     use super::import_data_summary_message;
     use crate::domain::exchange::ImportDataSummary;
-
     #[test]
     fn import_summary_handles_created_and_partial_imports() {
         let summary = ImportDataSummary {
@@ -204,7 +189,7 @@ mod tests {
         };
         assert_eq!(
             import_data_summary_message(&summary),
-            "Exchange account created. Skipped 2 non-BTC rows."
+            "Exchange account created. Skipped 2 non-BTC rows.",
         );
         let summary = ImportDataSummary {
             inserted: 1,
@@ -217,7 +202,6 @@ mod tests {
             "Imported 1 transaction."
         );
     }
-
     #[test]
     fn detected_parsers_map_to_catalog_providers() {
         for (parser, provider) in [

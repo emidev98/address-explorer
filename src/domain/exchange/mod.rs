@@ -1,20 +1,14 @@
 #![cfg_attr(not(feature = "server"), allow(dead_code))]
-
 //! Exchange ledger domain: accounts, imported transaction rows, CSV column
 //! mappings, table queries, and on-chain reconciliation value types.
 //!
 //! The exchange ledger is independent from the on-chain transaction store.
 //! Amounts are normalised to satoshis because only BTC/XBT rows are imported.
-
 pub mod csv;
 pub mod matching;
-
-use std::collections::BTreeMap;
-
-use serde::{Deserialize, Serialize};
-
 use crate::domain::table::{TablePage, TableQuery};
-
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 /// Kind of one exchange ledger row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -26,7 +20,6 @@ pub enum ExchangeTxType {
     Deposit,
     Unknown,
 }
-
 impl ExchangeTxType {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -38,7 +31,6 @@ impl ExchangeTxType {
             Self::Unknown => "unknown",
         }
     }
-
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "buy" => Some(Self::Buy),
@@ -51,7 +43,6 @@ impl ExchangeTxType {
         }
     }
 }
-
 /// Reconciliation state of one exchange ledger row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -61,7 +52,6 @@ pub enum MatchState {
     ManualMatch,
     Unmatched,
 }
-
 impl MatchState {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -71,7 +61,6 @@ impl MatchState {
             Self::Unmatched => "unmatched",
         }
     }
-
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "hash_match" => Some(Self::HashMatch),
@@ -82,7 +71,6 @@ impl MatchState {
         }
     }
 }
-
 /// Evidence source of a durable on-chain link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -91,7 +79,6 @@ pub enum OnChainLinkSource {
     AmountDate,
     Manual,
 }
-
 impl OnChainLinkSource {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -100,7 +87,6 @@ impl OnChainLinkSource {
             Self::Manual => "manual",
         }
     }
-
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "hash" => Some(Self::Hash),
@@ -110,7 +96,6 @@ impl OnChainLinkSource {
         }
     }
 }
-
 /// Durable link between an exchange ledger row and cached on-chain data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OnChainLink {
@@ -119,7 +104,6 @@ pub struct OnChainLink {
     pub source: OnChainLinkSource,
     pub linked_at: i64,
 }
-
 /// One exchange account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExchangeAccount {
@@ -134,7 +118,6 @@ pub struct ExchangeAccount {
     pub last_imported_at: Option<i64>,
     pub last_modified_at: i64,
 }
-
 /// Duplicate ledger row shown by the resolution dialog.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExchangeDuplicateInfo {
@@ -146,7 +129,6 @@ pub struct ExchangeDuplicateInfo {
     pub tx_hash: Option<String>,
     pub description: Option<String>,
 }
-
 /// One exchange transaction together with its derived fiat conversion.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExchangeTransaction {
@@ -180,7 +162,6 @@ pub struct ExchangeTransaction {
     pub is_manually_edited: bool,
     pub is_intentional_duplicate: bool,
 }
-
 /// One row of the exchanges list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExchangeAccountRow {
@@ -201,7 +182,6 @@ pub struct ExchangeAccountRow {
     pub last_tx_time: Option<i64>,
     pub last_modified_at: i64,
 }
-
 /// One exchange KPI: the BTC amount, its default-currency value, and the
 /// number of ledger entries that contributed to it.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
@@ -210,7 +190,6 @@ pub struct ExchangeKpiMetric {
     pub fiat: f64,
     pub count: i64,
 }
-
 /// Ledger fields needed to value exchange KPIs. The full transaction rows are
 /// only loaded for the tables; keeping this projection small avoids carrying
 /// raw CSV data through the KPI calculation.
@@ -230,7 +209,6 @@ pub struct ExchangeKpiTransaction {
     /// BTC/XBT fees keep their satoshi amount.
     pub converted_fee_amount: Option<f64>,
 }
-
 /// The seven exchange KPIs shared by the list and detail screens.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExchangeKpis {
@@ -248,7 +226,6 @@ pub struct ExchangeKpis {
     pub onchain_total_count: i64,
     pub fiat_currency: String,
 }
-
 /// One page of exchange accounts plus the global KPIs.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExchangeAccountList {
@@ -256,7 +233,6 @@ pub struct ExchangeAccountList {
     pub kpis: ExchangeKpis,
     pub conversion_warning: Option<String>,
 }
-
 /// Account detail header plus the KPIs that are independent of the current
 /// table page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -265,7 +241,6 @@ pub struct ExchangeAccountDetail {
     pub kpis: ExchangeKpis,
     pub conversion_warning: Option<String>,
 }
-
 /// Outcome of reconciling several exchange accounts in one request.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExchangeReconcileBatchSummary {
@@ -274,7 +249,6 @@ pub struct ExchangeReconcileBatchSummary {
     /// Accounts that could not be reconciled, with their error.
     pub failed: Vec<ExchangeReconcileFailure>,
 }
-
 /// One exchange account that could not be reconciled.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExchangeReconcileFailure {
@@ -284,7 +258,6 @@ pub struct ExchangeReconcileFailure {
     /// User-facing description of the failure.
     pub error: String,
 }
-
 /// Query of the exchanges list table.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -292,7 +265,6 @@ pub struct ExchangeAccountTableQuery {
     #[serde(flatten)]
     pub table: TableQuery,
 }
-
 /// Query of one exchange's transaction table.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -301,7 +273,6 @@ pub struct ExchangeTransactionTableQuery {
     #[serde(flatten)]
     pub table: TableQuery,
 }
-
 /// Manual mapping between CSV headers and canonical exchange fields.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -320,7 +291,6 @@ pub struct ImportDataMapping {
     pub fee_currency: String,
     pub description: String,
 }
-
 impl ImportDataMapping {
     pub fn is_complete(&self) -> bool {
         !self.timestamp.trim().is_empty()
@@ -329,7 +299,6 @@ impl ImportDataMapping {
             && !self.tx_type.trim().is_empty()
     }
 }
-
 /// One preview row returned while importing a CSV.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImportDataPreviewRow {
@@ -341,7 +310,6 @@ pub struct ImportDataPreviewRow {
     pub converted_fiat_currency: Option<String>,
     pub tx_hash: Option<String>,
 }
-
 /// Result of reading and parsing a CSV for preview.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImportDataPreview {
@@ -355,7 +323,6 @@ pub struct ImportDataPreview {
     pub converted_fiat_currency: String,
     pub conversion_warning: Option<String>,
 }
-
 /// Result of importing a CSV into an account.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImportDataSummary {
@@ -367,7 +334,6 @@ pub struct ImportDataSummary {
     pub skipped_non_btc: usize,
     pub conversion_warning: Option<String>,
 }
-
 /// Editable fields of a manually entered or edited ledger row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExchangeTransactionDraft {
@@ -384,7 +350,6 @@ pub struct ExchangeTransactionDraft {
     pub tx_hash: Option<String>,
     pub description: Option<String>,
 }
-
 /// How an explicit duplicate fingerprint is resolved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -392,7 +357,6 @@ pub enum ExchangeDuplicateChoice {
     KeepBoth,
     Replace,
 }
-
 /// Save request of the transaction inspector.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExchangeTransactionSaveRequest {
@@ -401,14 +365,12 @@ pub struct ExchangeTransactionSaveRequest {
     pub draft: ExchangeTransactionDraft,
     pub duplicate_choice: Option<ExchangeDuplicateChoice>,
 }
-
 /// Save result: either the stored row, or the duplicate that needs a choice.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ExchangeTransactionSaveOutcome {
     Saved(Box<ExchangeTransaction>),
     Duplicate(ExchangeDuplicateInfo),
 }
-
 /// One on-chain link candidate shown in the manual linking modal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OnChainLinkCandidateView {
@@ -423,21 +385,18 @@ pub struct OnChainLinkCandidateView {
     pub block_time: i64,
     pub is_already_linked: bool,
 }
-
 /// Address displayed inside one candidate row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExchangeCandidateAddress {
     pub address: String,
     pub label: Option<String>,
 }
-
 /// Result of a manual link request.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ExchangeLinkOutcome {
     Linked(Box<ExchangeTransaction>),
     Duplicate(ExchangeDuplicateInfo),
 }
-
 /// Relative weights and tolerances of the on-chain matching score.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OnChainLinkScoringSettings {
@@ -455,7 +414,6 @@ pub struct OnChainLinkScoringSettings {
     pub amount_tolerance_sats: f64,
     pub timestamp_tolerance_hours: f64,
 }
-
 impl Default for OnChainLinkScoringSettings {
     fn default() -> Self {
         Self {
@@ -473,7 +431,6 @@ impl Default for OnChainLinkScoringSettings {
         }
     }
 }
-
 impl OnChainLinkScoringSettings {
     /// Whether every value is already in the range [`Self::normalized`]
     /// keeps: finite, non-negative weights and finite, positive tolerances.
@@ -498,7 +455,6 @@ impl OnChainLinkScoringSettings {
             && self.timestamp_tolerance_hours.is_finite()
             && self.timestamp_tolerance_hours > 0.0
     }
-
     /// Normalize user input: weights cannot be negative and tolerances must
     /// remain positive.
     pub fn normalized(&self) -> Self {
@@ -516,7 +472,6 @@ impl OnChainLinkScoringSettings {
                 fallback
             }
         }
-
         let defaults = Self::default();
         Self {
             hash_weight: non_negative(self.hash_weight),
@@ -539,11 +494,9 @@ impl OnChainLinkScoringSettings {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn default_scoring_matches_the_utxo_utils_weights() {
         let settings = OnChainLinkScoringSettings::default();
@@ -551,7 +504,6 @@ mod tests {
         assert_eq!(settings.amount_tolerance_sats, 5_000.0);
         assert_eq!(settings.timestamp_tolerance_hours, 168.0);
     }
-
     #[test]
     fn scoring_normalization_rejects_negative_weights_and_zero_tolerances() {
         let settings = OnChainLinkScoringSettings {
@@ -565,7 +517,6 @@ mod tests {
         assert_eq!(settings.amount_tolerance_sats, 5_000.0);
         assert_eq!(settings.timestamp_tolerance_hours, 168.0);
     }
-
     #[test]
     fn scoring_validity_matches_the_normalized_ranges() {
         let defaults = OnChainLinkScoringSettings::default();
@@ -574,19 +525,18 @@ mod tests {
             hash_weight: -0.1,
             ..defaults.clone()
         }
-        .is_valid());
+        .is_valid(),);
         assert!(!OnChainLinkScoringSettings {
             amount_tolerance_sats: 0.0,
             ..defaults.clone()
         }
-        .is_valid());
+        .is_valid(),);
         assert!(!OnChainLinkScoringSettings {
             timestamp_tolerance_hours: f64::NAN,
             ..defaults.clone()
         }
-        .is_valid());
+        .is_valid(),);
     }
-
     #[test]
     fn csv_mapping_is_complete_only_with_required_fields() {
         assert!(!ImportDataMapping::default().is_complete());

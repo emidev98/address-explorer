@@ -1,6 +1,5 @@
 use super::*;
 use dioxus::prelude::*;
-
 /// Edit an exchange account's name and provider.
 #[component]
 pub fn ExchangeAccountDialog(
@@ -18,7 +17,6 @@ pub fn ExchangeAccountDialog(
             .map_err(|error| error.to_string())
     });
     let account_id = account.id;
-
     let save = move |_| {
         if name().trim().is_empty() {
             toast.error("Enter an exchange name.");
@@ -41,21 +39,21 @@ pub fn ExchangeAccountDialog(
             loading.set(false);
         });
     };
-
     let provider_entries = providers().and_then(|state| state.ok()).unwrap_or_default();
     let providers_loading = providers().is_none();
-
     rsx! {
-    Modal {
-        title: "Edit exchange".to_string(),
-        title_id: "exchange-edit-title".to_string(),
-        on_close: move |_| on_close.call(()),
-        label { class: "text-body-medium text-on-surface-variant", "Exchange name *" }
+        Modal {
+            title: "Edit exchange".to_string(),
+            title_id: "exchange-edit-title"
+                                                        .to_string(),
+            on_close: move |_| on_close.call(()),
+            label { class: "text-body-medium text-on-surface-variant", "Exchange name *" }
             div { class: "md3-text-field",
                 input {
                     class: "md3-input",
                     value: "{name}",
-                    disabled: *loading.read(),
+                    disabled: *
+                                                                                        loading.read(),
                     oninput: move |event| name.set(event.value()),
                 }
             }
@@ -64,9 +62,11 @@ pub fn ExchangeAccountDialog(
                 kind: CatalogKind::Exchange,
                 value: provider_id(),
                 on_change: move |selected| provider_id.set(selected),
-                disabled: *loading.read(),
+                disabled: * loading
+                                                                        .read(),
                 id: "exchange-edit-provider".to_string(),
-                placeholder: "Manual Import".to_string(),
+                placeholder: "Manual Import"
+                                                                        .to_string(),
                 entries: provider_entries,
                 loading: providers_loading,
             }
@@ -75,7 +75,8 @@ pub fn ExchangeAccountDialog(
                     r#type: "button",
                     class: "md3-button-text",
                     disabled: *loading.read(),
-                    onclick: move |_| on_close.call(()),
+                    onclick: move | _ | on_close
+                                                                                        .call(()),
                     "Cancel"
                 }
                 button {

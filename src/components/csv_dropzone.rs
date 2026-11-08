@@ -1,9 +1,7 @@
 //! CSV file drop zone shared by the exchange ledger importer and the
 //! provider catalog importer.
-
 use dioxus::html::HasFileData;
 use dioxus::prelude::*;
-
 #[component]
 pub fn CsvDropzone(
     file_name: String,
@@ -12,11 +10,11 @@ pub fn CsvDropzone(
 ) -> Element {
     let local_error = use_signal(|| Option::<String>::None);
     let accept = ".csv,.txt";
-
     rsx! {
         div {
             class: "md3-import-data-dropzone",
-            ondragover: move |event| event.prevent_default(),
+            ondragover: move | event | event
+                                                        .prevent_default(),
             ondrop: move |event| {
                 event.prevent_default();
                 if let Some(file) = event.files().into_iter().next() {
@@ -57,7 +55,6 @@ pub fn CsvDropzone(
         }
     }
 }
-
 fn read_selected_file(
     file: dioxus::html::FileData,
     on_file: EventHandler<(String, String)>,

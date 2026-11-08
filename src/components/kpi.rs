@@ -8,12 +8,9 @@
 //! pins the overlay open until it is clicked again. Only the help button
 //! reveals the overlay, so moving the pointer over the rest of the card does
 //! not change what is shown.
-
-use dioxus::prelude::*;
-
 use crate::components::format::{format_btc, format_fiat};
 use crate::domain::price::sats_to_fiat;
-
+use dioxus::prelude::*;
 /// One KPI card of a page header row.
 #[component]
 pub fn Kpi(
@@ -33,7 +30,6 @@ pub fn Kpi(
     let mut help_hovered = use_signal(|| false);
     let help_label = format!("KPI details for {title}");
     let details_visible = has_details && (details_open() || help_hovered());
-
     rsx! {
         section { class: if details_visible { "md3-card md3-card-elevated md3-kpi md3-kpi-details-open" } else { "md3-card md3-card-elevated md3-kpi" },
             span { class: "md3-kpi-value text-headline-small leading-headline-small text-on-surface",
@@ -49,11 +45,9 @@ pub fn Kpi(
                     aria_label: "{help_label}",
                     aria_expanded: details_open().to_string(),
                     onmouseenter: move |_| help_hovered.set(true),
-                    onmouseleave: move |_| help_hovered.set(false),
+                    onmouseleave: move | _ |
+                                                                                        help_hovered.set(false),
                     onclick: move |_| {
-                        // A click pins the overlay open or closed. Hiding also
-                        // clears the hover preview so a second click closes it
-                        // even while the pointer still rests on the button.
                         if details_open() {
                             details_open.set(false);
                             help_hovered.set(false);
@@ -81,7 +75,6 @@ pub fn Kpi(
         }
     }
 }
-
 /// Balance card of the addresses and flow screens.
 ///
 /// The BTC balance is the primary value and the default-currency equivalent
@@ -96,7 +89,6 @@ pub fn BalanceKpi(
     #[props(default)] loading: bool,
 ) -> Element {
     let (value, secondary_value) = balance_values(balance_sats, latest_price, &currency);
-
     rsx! {
         Kpi {
             title: "Balance".to_string(),
@@ -106,7 +98,6 @@ pub fn BalanceKpi(
         }
     }
 }
-
 /// Primary and detail values of the balance card. A missing latest price keeps
 /// the details available and renders `-`, matching the unavailable state the
 /// separate fiat card used to show; a missing balance hides the details.
@@ -127,31 +118,27 @@ fn balance_values(
         None => (None, None),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::balance_values;
-
     #[test]
     fn balance_values_show_btc_and_the_default_currency_value() {
         assert_eq!(
             balance_values(Some(100_000_000), Some(60_000.0), "USD"),
-            (Some("1 ₿".to_string()), Some("$60,000.00".to_string()))
+            (Some("1 ₿".to_string()), Some("$60,000.00".to_string())),
         );
         assert_eq!(
             balance_values(Some(100_000_000), Some(60_000.0), "EUR"),
-            (Some("1 ₿".to_string()), Some("60,000.00 EUR".to_string()))
+            (Some("1 ₿".to_string()), Some("60,000.00 EUR".to_string())),
         );
     }
-
     #[test]
     fn balance_values_report_an_unavailable_fiat_value_as_a_dash() {
         assert_eq!(
             balance_values(Some(100_000_000), None, "USD"),
-            (Some("1 ₿".to_string()), Some("-".to_string()))
+            (Some("1 ₿".to_string()), Some("-".to_string())),
         );
     }
-
     #[test]
     fn balance_values_hide_details_without_a_balance() {
         assert_eq!(balance_values(None, Some(60_000.0), "USD"), (None, None));

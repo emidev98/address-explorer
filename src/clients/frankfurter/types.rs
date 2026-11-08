@@ -1,5 +1,4 @@
 use serde::Deserialize;
-
 /// A blended exchange-rate record as returned by `/rates` and
 /// `/rate/{base}/{quote}`.
 #[derive(Debug, Clone, Deserialize)]
@@ -17,7 +16,6 @@ pub struct Rate {
     /// the peg, not from provider data.
     pub providers: Option<Vec<ProviderRate>>,
 }
-
 /// One provider's contribution to a blended [`Rate`].
 #[derive(Debug, Clone, Deserialize)]
 pub struct ProviderRate {
@@ -31,7 +29,6 @@ pub struct ProviderRate {
     /// rate, either flagged as an outlier or overridden by a currency peg.
     pub excluded: Option<bool>,
 }
-
 /// Queryable history coverage as returned by `/coverage`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Coverage {
@@ -46,7 +43,6 @@ pub struct Coverage {
     /// Last eligible observation date, or `None` when no pair is queryable.
     pub end_date: Option<String>,
 }
-
 /// A currency from the catalogue returned by `/currencies`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Currency {
@@ -62,7 +58,6 @@ pub struct Currency {
     /// Latest publication coverage date; use `/coverage` for queryable pairs.
     pub end_date: Option<String>,
 }
-
 /// Peg metadata, present only for pegged currencies in `/currency/{code}`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CurrencyPeg {
@@ -71,7 +66,6 @@ pub struct CurrencyPeg {
     pub authority: Option<String>,
     pub source: Option<String>,
 }
-
 /// Details for a single currency as returned by `/currency/{code}`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CurrencyDetail {
@@ -86,7 +80,6 @@ pub struct CurrencyDetail {
     pub providers: Option<Vec<String>>,
     pub peg: Option<CurrencyPeg>,
 }
-
 /// A data provider as returned by `/providers` and `/providers/{provider}`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Provider {
@@ -126,11 +119,9 @@ pub struct Provider {
     /// catalogue.
     pub unknown_currencies: Option<Vec<String>>,
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn deserializes_a_single_rate_record() {
         let json = r#"{"date":"2026-03-25","base":"EUR","quote":"USD","rate":1.1568}"#;
@@ -141,7 +132,6 @@ mod tests {
         assert_eq!(rate.rate, 1.1568);
         assert!(rate.providers.is_none());
     }
-
     #[test]
     fn deserializes_the_expand_providers_breakdown() {
         let record = serde_json::from_str::<Rate>(
@@ -159,14 +149,12 @@ mod tests {
         assert_eq!(breakdown[0].key, "ECB");
         assert_eq!(breakdown[1].excluded, Some(true));
     }
-
     #[test]
     fn deserializes_provider_rate_without_excluded_flag() {
         let record: ProviderRate =
             serde_json::from_str(r#"{"key":"ECB","date":"2026-03-24","rate":0.916}"#).unwrap();
         assert_eq!(record.excluded, None);
     }
-
     #[test]
     fn deserializes_null_optional_fields_of_coverage() {
         let json = r#"{
@@ -177,7 +165,6 @@ mod tests {
         assert_eq!(coverage.quotes, None);
         assert_eq!(coverage.start_date, None);
     }
-
     #[test]
     fn deserializes_a_captured_provider_detail() {
         let json = r#"{
@@ -202,7 +189,6 @@ mod tests {
         assert_eq!(provider.publishes_missed, Some(0));
         assert_eq!(provider.currencies.len(), 2);
     }
-
     #[test]
     fn deserializes_a_captured_currency_detail() {
         let json = r#"{
@@ -220,7 +206,6 @@ mod tests {
         assert_eq!(detail.providers.map(|p| p.len()), Some(3));
         assert!(detail.peg.is_none());
     }
-
     #[test]
     fn deserializes_currency_peg_metadata() {
         let json = r#"{
@@ -238,7 +223,6 @@ mod tests {
         assert_eq!(peg.base, "USD");
         assert_eq!(peg.rate, 7.75);
     }
-
     #[test]
     fn deserializes_a_catalogue_entry() {
         let json = r#"{"iso_code":"EUR","iso_numeric":"978","name":"Euro","symbol":"€"}"#;

@@ -1,5 +1,4 @@
 use thiserror::Error;
-
 #[derive(Debug, Error)]
 pub enum FrankfurterError {
     #[error("http error: {0}")]

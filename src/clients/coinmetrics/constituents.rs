@@ -5,7 +5,6 @@ use crate::clients::coinmetrics::types::{
     ConstituentSnapshotRow, ConstituentTimeframeRow, ListResponse,
 };
 use serde::Serialize;
-
 /// Query for `/constituent-snapshots/asset-metrics`. `metric` is required and
 /// `at_time` is mutually exclusive with `start_time`/`end_time`.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -21,7 +20,6 @@ pub struct ConstituentSnapshotsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/constituent-timeframes/asset-metrics`. `metric` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ConstituentTimeframesQuery {
@@ -38,18 +36,15 @@ pub struct ConstituentTimeframesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Constituent snapshots and timeframes for asset metrics.
 #[derive(Clone)]
 pub struct Constituents {
     http: HttpClient,
 }
-
 impl Constituents {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     /// Returns the constituents active at each observation of `metric`.
     pub async fn get_snapshots(
         &self,
@@ -59,7 +54,6 @@ impl Constituents {
             .get_query("/constituent-snapshots/asset-metrics", &query)
             .await
     }
-
     /// Returns the timeframes during which each constituent contributed to
     /// `metric`.
     pub async fn get_timeframes(

@@ -1,18 +1,15 @@
-use dioxus::prelude::*;
-
 use crate::components::{use_toast, CatalogSelect, Modal, Toast};
 use crate::domain::address::{
     AddressImportResult, AddressSaveOutcome, AddressScope, StoredAddress,
 };
 use crate::domain::catalog::CatalogKind;
-
+use dioxus::prelude::*;
 /// Owner kind chosen in the import dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OwnerKind {
     Exchange,
     Wallet,
 }
-
 /// Mode of the dialog: import a new address or modify a stored one.
 ///
 /// Import is create-only: an already stored address is rejected as a
@@ -27,7 +24,6 @@ pub enum ImportAddressDialogMode {
     /// Modify the stored address the dialog is prefilled with.
     Modify(AddressEditData),
 }
-
 /// Stored-address data prefilling the dialog in modify mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressEditData {
@@ -37,7 +33,6 @@ pub struct AddressEditData {
     /// preselect.
     pub scope: AddressScope,
 }
-
 /// Description and owner reference gathered by the dialog for one import.
 ///
 /// At most one of `exchange_id`/`wallet_id` is provided: the dialog renders a
@@ -50,7 +45,6 @@ struct ImportDraft {
     exchange_id: Option<i64>,
     wallet_id: Option<i64>,
 }
-
 /// Modal dialog that imports a Bitcoin address or modifies a stored one.
 ///
 /// The dialog is mounted only while it is open, in the given `mode`.
@@ -65,8 +59,9 @@ struct ImportDraft {
 /// In **modify** mode the form is prefilled from the stored row, the
 /// address input is read-only (it is the identity of the row), and
 /// confirming updates the description and owner classification through
-/// `update_address_api` without touching statistics or indexed
-/// transactions.
+/// `update_address_api` without touching statistics. Changing the owner to
+/// an exchange clears the address's previously indexed on-chain transactions
+/// so only related ones are rebuilt afterwards.
 #[component]
 pub fn ImportAddressDialog(
     clipboard_text: Signal<Option<String>>,
@@ -87,7 +82,6 @@ pub fn ImportAddressDialog(
         },
         None => (None, None, None),
     };
-
     let toast = use_toast();
     let modifying = edit.is_some();
     let mut address = use_signal(|| edit.clone().map(|edit| edit.address).unwrap_or_default());
@@ -97,11 +91,6 @@ pub fn ImportAddressDialog(
     let mut selected_owner = use_signal(|| edit_owner);
     let mut exchange_id = use_signal(|| edit_exchange_id);
     let mut wallet_id = use_signal(|| edit_wallet_id);
-
-    // A validated clipboard address only fills the input: importing always
-    // waits for the user to review the options and confirm. In modify mode
-    // the address is the identity of the row, so the clipboard never
-    // overwrites it.
     use_effect(move || {
         if modifying {
             return;
@@ -114,10 +103,8 @@ pub fn ImportAddressDialog(
             return;
         }
         handled_clipboard.set(Some(clipboard_address.clone()));
-
         address.set(clipboard_address);
     });
-
     let submit = move |_| {
         let mut toast = toast;
         let current = address().trim().to_string();
@@ -125,17 +112,12 @@ pub fn ImportAddressDialog(
             toast.error("Enter a Bitcoin address.");
             return;
         }
-
         address.set(current.clone());
-
         let draft = ImportDraft {
             description: description().trim().to_string(),
             exchange_id: exchange_id(),
             wallet_id: wallet_id(),
         };
-
-        // The owner kind drives which catalog select is shown; a chosen kind
-        // without an entry means the selection is not finished yet.
         match selected_owner() {
             Some(OwnerKind::Exchange) if draft.exchange_id.is_none() => {
                 toast.error("Choose an exchange to tag the address with.");
@@ -147,18 +129,16 @@ pub fn ImportAddressDialog(
             }
             _ => {}
         }
-
         if modifying {
             update_address(draft, loading, toast, on_updated, current);
         } else {
             import_address(address, draft, loading, toast, on_imported, current);
         }
     };
-
     let (title, guidance) = if modifying {
         (
             "Modify address",
-            "Update the description or the owner of this address. Its statistics and indexed transactions are untouched; use the sync action to refresh them.",
+            "Update the description or the owner of this address. Statistics are untouched. Changing the owner to an exchange clears the previously indexed on-chain transactions; use Find related transactions afterwards to rebuild only the related set.",
         )
     } else {
         (
@@ -166,140 +146,142 @@ pub fn ImportAddressDialog(
             "Enter a Bitcoin address or paste one from your clipboard. Confirming imports the address and indexes its transactions, which can take a moment for long histories.",
         )
     };
-
     rsx! {
         Modal {
             title,
             title_id: "import-address-title".to_string(),
-            on_close: move |_| on_close.call(()),
+            on_close: move | _
+                                                        | on_close.call(()),
             p { class: "text-body-medium text-on-surface-variant", "{guidance}" }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "import-address-input",
-                    "Bitcoin address"
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "import-address-input",
+                "Bitcoin address"
+            }
+            div { class: "md3-text-field",
+                input {
+                    id: "import-address-input",
+                    class: "md3-input",
+                    value: "{address}",
+                    placeholder: "Bitcoin address",
+                    autofocus: true,
+                    oninput: move | event |
+                                                                                        address.set(event.value()),
+                    disabled: modifying || *loading.read(),
                 }
-                div { class: "md3-text-field",
-                    input {
-                        id: "import-address-input",
-                        class: "md3-input",
-                        value: "{address}",
-                        placeholder: "Bitcoin address",
-                        autofocus: true,
-                        oninput: move |event| address.set(event.value()),
-                        disabled: modifying || *loading.read(),
-                    }
+            }
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "import-address-description",
+                "Description (optional)"
+            }
+            div { class: "md3-text-field",
+                input {
+                    id: "import-address-description",
+                    class: "md3-input",
+                    value: "{description}",
+                    placeholder: "e.g. Savings, cold storage",
+                    oninput: move |event| description.set(event.value()),
+                    disabled: *loading.read(),
                 }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "import-address-description",
-                    "Description (optional)"
+            }
+            label { class: "text-body-medium text-on-surface-variant", "Owner (optional)" }
+            div { class: "md3-chip-group", role: "group", aria_label: "Owner",
+                button {
+                    r#type: "button",
+                    class: if selected_owner().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                    aria_pressed: selected_owner().is_none().to_string(),
+                    disabled: *loading.read(),
+                    onclick: move |_| {
+                        selected_owner.set(None);
+                        exchange_id.set(None);
+                        wallet_id.set(None);
+                    },
+                    "No owner"
                 }
-                div { class: "md3-text-field",
-                    input {
-                        id: "import-address-description",
-                        class: "md3-input",
-                        value: "{description}",
-                        placeholder: "e.g. Savings, cold storage",
-                        oninput: move |event| description.set(event.value()),
-                        disabled: *loading.read(),
-                    }
+                button {
+                    r#type: "button",
+                    class: if selected_owner() == Some(OwnerKind::Wallet) { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                    aria_pressed: (selected_owner() == Some(OwnerKind::Wallet))
+                                                                                        .to_string(),
+                    disabled: *loading.read(),
+                    onclick: move |_| {
+                        selected_owner.set(Some(OwnerKind::Wallet));
+                        exchange_id.set(None);
+                    },
+                    "Wallet"
                 }
-
-                label { class: "text-body-medium text-on-surface-variant", "Owner (optional)" }
-                div {
-                    class: "md3-chip-group",
-                    role: "group",
-                    aria_label: "Owner",
-                    button {
-                        r#type: "button",
-                        class: if selected_owner().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                        aria_pressed: selected_owner().is_none().to_string(),
-                        disabled: *loading.read(),
-                        onclick: move |_| {
-                            selected_owner.set(None);
-                            exchange_id.set(None);
-                            wallet_id.set(None);
-                        },
-                        "No owner"
-                    }
-                    button {
-                        r#type: "button",
-                        class: if selected_owner() == Some(OwnerKind::Wallet) { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                        aria_pressed: (selected_owner() == Some(OwnerKind::Wallet)).to_string(),
-                        disabled: *loading.read(),
-                        onclick: move |_| {
-                            selected_owner.set(Some(OwnerKind::Wallet));
-                            exchange_id.set(None);
-                        },
-                        "Wallet"
-                    }
-                    button {
-                        r#type: "button",
-                        class: if selected_owner() == Some(OwnerKind::Exchange) { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                        aria_pressed: (selected_owner() == Some(OwnerKind::Exchange)).to_string(),
-                        disabled: *loading.read(),
-                        onclick: move |_| {
-                            selected_owner.set(Some(OwnerKind::Exchange));
-                            wallet_id.set(None);
-                        },
-                        "Exchange"
-                    }
+                button {
+                    r#type: "button",
+                    class: if selected_owner() == Some(OwnerKind::Exchange) { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                    aria_pressed: (selected_owner() == Some(OwnerKind::Exchange)).to_string(),
+                    disabled: * loading
+                                                                                        .read(),
+                    onclick: move |_| {
+                        selected_owner.set(Some(OwnerKind::Exchange));
+                        wallet_id.set(None);
+                    },
+                    "Exchange"
                 }
-
-                if let Some(OwnerKind::Wallet) = selected_owner() {
-                    CatalogSelect {
-                        kind: CatalogKind::Wallet,
-                        value: wallet_id(),
-                        on_change: move |selected| wallet_id.set(selected),
-                        disabled: *loading.read(),
-                        id: "import-address-wallet".to_string(),
-                        placeholder: "Select a wallet type".to_string(),
-                    }
+            }
+            if let Some(OwnerKind::Wallet) = selected_owner() {
+                CatalogSelect {
+                    kind: CatalogKind::Wallet,
+                    value: wallet_id(),
+                    on_change: move |selected| wallet_id.set(selected),
+                    disabled: *
+                                                                                        loading.read(),
+                    id: "import-address-wallet".to_string(),
+                    placeholder: "Select a wallet type".to_string(),
                 }
-
-                if let Some(OwnerKind::Exchange) = selected_owner() {
-                    CatalogSelect {
-                        kind: CatalogKind::Exchange,
-                        value: exchange_id(),
-                        on_change: move |selected| exchange_id.set(selected),
-                        disabled: *loading.read(),
-                        id: "import-address-exchange".to_string(),
-                        placeholder: "Select an exchange".to_string(),
-                    }
+            }
+            if let Some(OwnerKind::Exchange) = selected_owner() {
+                CatalogSelect {
+                    kind: CatalogKind::Exchange,
+                    value: exchange_id(),
+                    on_change: move |selected| exchange_id.set(selected),
+                    disabled: *loading.read(),
+                    id: "import-address-exchange".to_string(),
+                    placeholder: "Select an exchange".to_string(),
                 }
-
-                div { class: "md3-dialog-actions",
-                    button {
-                        r#type: "button",
-                        class: "md3-button-text",
-                        onclick: move |_| on_close.call(()),
-                        disabled: *loading.read(),
-                        "Cancel"
-                    }
-                    button {
-                        r#type: "button",
-                        class: "md3-button-filled",
-                        onclick: submit,
-                        disabled: *loading.read(),
-                        if *loading.read() {
-                            if modifying {
-                                "Saving..."
-                            } else {
-                                "Importing and indexing..."
-                            }
-                        } else if modifying {
-                            "Save changes"
+            }
+            if modifying && selected_owner() == Some(OwnerKind::Exchange)
+                && exchange_id() != edit_exchange_id
+            {
+                p { class: "text-body-small md3-settings-error",
+                    "Saving will clear this address's previously indexed transactions. Save, then use Find related transactions to rebuild only the transactions related to the other stored addresses."
+                }
+            }
+            div { class: "md3-dialog-actions",
+                button {
+                    r#type: "button",
+                    class: "md3-button-text",
+                    onclick: move |_| on_close.call(()),
+                    disabled: * loading
+                                                                                        .read(),
+                    "Cancel"
+                }
+                button {
+                    r#type: "button",
+                    class: "md3-button-filled",
+                    onclick: submit,
+                    disabled: *loading.read(),
+                    if *loading.read() {
+                        if modifying {
+                            "Saving..."
                         } else {
-                            "Import and index"
+                            "Importing and indexing..."
                         }
+                    } else if modifying {
+                        "Save changes"
+                    } else {
+                        "Import and index"
                     }
+                }
             }
         }
     }
 }
-
 fn import_address(
     mut address: Signal<String>,
     draft: ImportDraft,
@@ -311,15 +293,9 @@ fn import_address(
     if *loading.read() {
         return;
     }
-
     loading.set(true);
     address.set(address_value.clone());
-
     spawn(async move {
-        // Validation with rust-bitcoin (plus the description and owner
-        // reference) happens inside the server function before it contacts
-        // the mempool or writes to SQLite. The same call indexes the
-        // transaction history; its outcome rides along in the result.
         match crate::api::addresses::save_address_api(
             address_value,
             Some(draft.description),
@@ -332,9 +308,6 @@ fn import_address(
                 loading.set(false);
                 on_imported.call(*result);
             }
-            // Create-only import: the address is already stored, nothing was
-            // saved; the dialog stays open so the user can switch to the
-            // modify flow instead.
             Ok(AddressSaveOutcome::Duplicate) => {
                 loading.set(false);
                 toast.error("This address is already stored. Use its edit action to modify it.");
@@ -346,7 +319,6 @@ fn import_address(
         }
     });
 }
-
 fn update_address(
     draft: ImportDraft,
     mut loading: Signal<bool>,
@@ -357,9 +329,7 @@ fn update_address(
     if *loading.read() {
         return;
     }
-
     loading.set(true);
-
     spawn(async move {
         match crate::api::addresses::update_address_api(
             address_value,

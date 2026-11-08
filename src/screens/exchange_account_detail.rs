@@ -1,8 +1,5 @@
 //! Exchange detail screen: ledger transaction table, inspector, reconciliation,
 //! CSV append, and manual on-chain linking.
-
-use dioxus::prelude::*;
-
 use crate::api::exchanges::{
     delete_exchange_transactions_api, get_exchange_account_api, get_exchange_transaction_api,
     list_exchange_transactions_api, reconcile_exchange_account_api,
@@ -22,7 +19,7 @@ use crate::domain::exchange::{
     ExchangeTransactionTableQuery, ImportDataSummary,
 };
 use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
-
+use dioxus::prelude::*;
 #[component]
 pub fn ExchangeAccountDetail(
     account_id: i64,
@@ -42,11 +39,7 @@ pub fn ExchangeAccountDetail(
     let mut selection = use_table_selection::<i64>();
     let mut reconciling = use_signal(|| false);
     let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
-
     let mut detail = use_resource(move || {
-        // The server derives the default-currency values from the saved
-        // setting; reading the shared signal keeps the screen reactive to a
-        // currency change.
         let _currency = fiat.code();
         async move {
             get_exchange_account_api(exchange_id)
@@ -65,9 +58,6 @@ pub fn ExchangeAccountDetail(
             .map_err(|error| error.to_string())
         }
     });
-
-    // A deletion can empty the current page while earlier pages still have
-    // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = transactions() {
             if data.items.is_empty() && table.page() > 0 {
@@ -76,10 +66,6 @@ pub fn ExchangeAccountDetail(
             }
         }
     });
-
-    // Open a deep-linked transaction once per query value. The prop is
-    // bridged through use_reactive so a route change reruns this effect,
-    // while editor state changes do not close the panel.
     use_effect(use_reactive((&transaction_id,), move |(query,)| {
         let Some(raw_id) = query else {
             if editor_transaction.peek().is_some() {
@@ -113,7 +99,6 @@ pub fn ExchangeAccountDetail(
             }
         });
     }));
-
     let state = detail();
     let account = match &state {
         Some(Ok(detail)) => Some(detail.account.clone()),
@@ -132,28 +117,32 @@ pub fn ExchangeAccountDetail(
         .and_then(|result| result.as_ref().ok())
         .and_then(|detail| detail.conversion_warning.clone());
     let loading = state.is_none();
-
     let close_editor = use_callback(move |_: ()| {
         editor_open.set(false);
         editor_transaction.set(None);
         loaded_query.set(None);
         navigate_to_detail(navigator, exchange_id, None);
     });
-
     let table_content = match &transactions() {
-        None => rsx! {
-            p { class: "text-body-medium text-on-surface-variant", "Loading transactions..." }
-        },
-        Some(Err(error)) => rsx! {
-            p { class: "text-body-medium text-on-surface-variant",
-                "Error loading transactions: {error}"
+        None => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant", "Loading transactions..." }
             }
-        },
-        Some(Ok(page_data)) if page_data.items.is_empty() => rsx! {
-            p { class: "text-body-medium text-on-surface-variant",
-                "No transactions imported yet. Import a CSV or add a transaction manually."
+        }
+        Some(Err(error)) => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "Error loading transactions: {error}"
+                }
             }
-        },
+        }
+        Some(Ok(page_data)) if page_data.items.is_empty() => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "No transactions imported yet. Import a CSV or add a transaction manually."
+                }
+            }
+        }
         Some(Ok(page_data)) => {
             let total = page_data.total;
             let items = page_data.items.clone();
@@ -172,7 +161,7 @@ pub fn ExchangeAccountDetail(
                         "transaction"
                     } else {
                         "transactions"
-                    }
+                    },
                 )
             };
             rsx! {
@@ -182,17 +171,19 @@ pub fn ExchangeAccountDetail(
                             tr {
                                 TableSelectionHeader {
                                     all_selected,
-                                    indeterminate: selection.some_selected(&page_ids)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        && !all_selected,
+                                    indeterminate: selection
+                                                                                                                                                                .some_selected(& page_ids) && ! all_selected,
                                     select_all_label: "Select all transactions on this page".to_string(),
-                                    disabled: page_ids.is_empty(),
+                                    disabled: page_ids
+                                                                                                                                                                .is_empty(),
                                     on_toggle_all: move |checked| {
                                         selection.set_many(&selectable_ids, checked);
                                     },
                                     button {
                                         r#type: "button",
                                         class: "md3-icon-button md3-icon-button-danger",
-                                        disabled: selection.is_empty(),
+                                        disabled: selection
+                                                                                                                                                                                .is_empty(),
                                         title: "{delete_action_label}",
                                         aria_label: "{delete_action_label}",
                                         onclick: move |_| {
@@ -205,10 +196,7 @@ pub fn ExchangeAccountDetail(
                                             if rows.is_empty() {
                                                 return;
                                             }
-                                            if editor_transaction()
-                                                .as_ref()
-                                                .is_some_and(|row| snapshot.contains(&row.id))
-                                            {
+                                            if editor_transaction().as_ref().is_some_and(|row| snapshot.contains(&row.id)) {
                                                 close_editor.call(());
                                             }
                                             if confirm_destructive {
@@ -229,7 +217,8 @@ pub fn ExchangeAccountDetail(
                                 }
                                 SortableHeader {
                                     label: "Date".to_string(),
-                                    active_direction: table.direction_for("date"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("date"),
                                     on_sort: move |_| {
                                         table.sort("date", SortDirection::Desc);
                                         selection.clear();
@@ -262,7 +251,8 @@ pub fn ExchangeAccountDetail(
                                 }
                                 SortableHeader {
                                     label: "On-chain".to_string(),
-                                    active_direction: table.direction_for("on_chain"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("on_chain"),
                                     on_sort: move |_| {
                                         table.sort("on_chain", SortDirection::Asc);
                                         selection.clear();
@@ -270,7 +260,8 @@ pub fn ExchangeAccountDetail(
                                 }
                                 SortableHeader {
                                     label: "Exchange Tx Hash".to_string(),
-                                    active_direction: table.direction_for("tx_hash"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("tx_hash"),
                                     on_sort: move |_| {
                                         table.sort("tx_hash", SortDirection::Asc);
                                         selection.clear();
@@ -278,7 +269,8 @@ pub fn ExchangeAccountDetail(
                                 }
                                 SortableHeader {
                                     label: "Description".to_string(),
-                                    active_direction: table.direction_for("description"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("description"),
                                     on_sort: move |_| {
                                         table.sort("description", SortDirection::Asc);
                                         selection.clear();
@@ -339,10 +331,7 @@ pub fn ExchangeAccountDetail(
                                                         aria_label: "Remove transaction",
                                                         onclick: move |event| {
                                                             event.stop_propagation();
-                                                            if editor_transaction()
-                                                                .as_ref()
-                                                                .is_some_and(|row| row.id == delete_row.id)
-                                                            {
+                                                            if editor_transaction().as_ref().is_some_and(|row| row.id == delete_row.id) {
                                                                 close_editor.call(());
                                                             }
                                                             if confirm_destructive {
@@ -432,7 +421,6 @@ pub fn ExchangeAccountDetail(
             }
         }
     };
-
     if loading {
         return rsx! {
             section { class: "md3-screen",
@@ -455,12 +443,10 @@ pub fn ExchangeAccountDetail(
             }
         };
     };
-
     let inspector_key = editor_transaction()
         .as_ref()
         .map(|row| row.id.to_string())
         .unwrap_or_else(|| "new".to_string());
-
     rsx! {
         section { id: "exchange-detail", class: "md3-screen md3-exchange-detail",
             div { class: "md3-page-header",
@@ -494,7 +480,8 @@ pub fn ExchangeAccountDetail(
                     button {
                         r#type: "button",
                         class: "md3-button-tonal",
-                        onclick: move |_| show_import_data.set(true),
+                        onclick: move | _ |
+                                                                                                        show_import_data.set(true),
                         "Import Data"
                     }
                     button {
@@ -523,13 +510,10 @@ pub fn ExchangeAccountDetail(
                     }
                 }
             }
-
             if let Some(warning) = conversion_warning {
                 div { class: "md3-exchange-warning-banner", "{warning}" }
             }
-
             ExchangeKpiGrid { kpis, loading: false }
-
             div { class: if editor_open() { "md3-exchange-workbench md3-exchange-workbench-inspector" } else { "md3-exchange-workbench" },
                 div { class: "md3-exchange-table-pane", {table_content} }
                 if editor_open() {
@@ -537,7 +521,8 @@ pub fn ExchangeAccountDetail(
                         key: "{inspector_key}",
                         exchange_id,
                         transaction: editor_transaction(),
-                        on_close: move |_| close_editor.call(()),
+                        on_close: move | _ |
+                                                                                                        close_editor.call(()),
                         on_saved: move |saved: ExchangeTransaction| {
                             toast.success("Exchange transaction saved.");
                             close_editor.call(());
@@ -549,11 +534,11 @@ pub fn ExchangeAccountDetail(
                 }
             }
         }
-
         if show_import_data() {
             ImportDataDialog {
                 exchange_id: Some(exchange_id),
-                exchange_name: Some(account.name.clone()),
+                exchange_name: Some(account
+                                                                        .name.clone()),
                 on_close: move |_| show_import_data.set(false),
                 on_imported: move |summary: ImportDataSummary| {
                     toast.success(import_data_summary_message(&summary));
@@ -563,7 +548,6 @@ pub fn ExchangeAccountDetail(
                 },
             }
         }
-
         if let Some(transaction) = link_target() {
             {
                 let linked_id = transaction.id;
@@ -573,10 +557,7 @@ pub fn ExchangeAccountDetail(
                         transaction,
                         on_close: move |_| link_target.set(None),
                         on_changed: move |_| {
-                            if editor_transaction()
-                                .as_ref()
-                                .is_some_and(|row| row.id == linked_id)
-                            {
+                            if editor_transaction().as_ref().is_some_and(|row| row.id == linked_id) {
                                 close_editor.call(());
                             }
                             link_target.set(None);
@@ -588,7 +569,6 @@ pub fn ExchangeAccountDetail(
                 }
             }
         }
-
         if let Some(selected_transactions) = delete_target() {
             {
                 let count = selected_transactions.len();
@@ -616,7 +596,8 @@ pub fn ExchangeAccountDetail(
                         message,
                         confirm_text: "Remove".to_string(),
                         cancel_text: "Cancel".to_string(),
-                        on_cancel: move |_| delete_target.set(None),
+                        on_cancel: move | _ |
+                                                                                                        delete_target.set(None),
                         on_confirm: move |_| {
                             let selected_transactions = selected_transactions.clone();
                             if editor_transaction()
@@ -643,7 +624,6 @@ pub fn ExchangeAccountDetail(
         }
     }
 }
-
 fn navigate_to_detail(
     navigator: dioxus::router::Navigator,
     exchange_id: i64,
@@ -654,7 +634,6 @@ fn navigate_to_detail(
         transaction_id: transaction_id.map(|id| id.to_string()),
     });
 }
-
 fn remove_transactions(
     mut toast: Toast,
     mut detail: Resource<Result<ExchangeAccountDetailData, String>>,
@@ -681,7 +660,6 @@ fn remove_transactions(
         transactions.restart();
     });
 }
-
 fn format_fee(fee: Option<f64>, currency: Option<&str>, converted: Option<(f64, &str)>) -> String {
     let Some(fee) = fee else {
         return "-".to_string();
@@ -697,11 +675,9 @@ fn format_fee(fee: Option<f64>, currency: Option<&str>, converted: Option<(f64, 
         None => "-".to_string(),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::format_fee;
-
     #[test]
     fn fiat_fees_prefer_the_converted_value_and_btc_fees_stay_btc() {
         assert_eq!(
@@ -711,7 +687,7 @@ mod tests {
         assert_eq!(format_fee(Some(10.0), Some("EUR"), None), "-");
         assert_eq!(
             format_fee(Some(10_000.0), Some("BTC"), Some((1.0, "USD"))),
-            "0.0001 ₿"
+            "0.0001 ₿",
         );
         assert_eq!(format_fee(None, Some("EUR"), None), "-");
     }

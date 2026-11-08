@@ -1,7 +1,8 @@
 //! Exchange ledger endpoints.
-
-use dioxus::prelude::*;
-
+#[cfg(feature = "server")]
+use super::open_database;
+#[cfg(feature = "server")]
+use crate::application::exchanges::ExchangeService;
 use crate::domain::exchange::{
     ExchangeAccount, ExchangeAccountDetail, ExchangeAccountList, ExchangeAccountTableQuery,
     ExchangeLinkOutcome, ExchangeReconcileBatchSummary, ExchangeTransaction,
@@ -9,12 +10,7 @@ use crate::domain::exchange::{
     ImportDataMapping, ImportDataPreview, ImportDataSummary, OnChainLinkCandidateView,
 };
 use crate::domain::table::TablePage;
-
-#[cfg(feature = "server")]
-use super::open_database;
-#[cfg(feature = "server")]
-use crate::application::exchanges::ExchangeService;
-
+use dioxus::prelude::*;
 #[server]
 #[post("/api/exchanges/list")]
 pub async fn list_exchange_accounts_api(
@@ -25,7 +21,6 @@ pub async fn list_exchange_accounts_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[get("/api/exchanges/:id")]
 pub async fn get_exchange_account_api(id: i64) -> Result<ExchangeAccountDetail, ServerFnError> {
@@ -34,7 +29,6 @@ pub async fn get_exchange_account_api(id: i64) -> Result<ExchangeAccountDetail, 
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Create an account without importing rows. `provider_id = None` is the
 /// explicit Manual Import mode.
 #[server]
@@ -47,7 +41,6 @@ pub async fn create_exchange_account_api(
         .create_account(&name, provider_id)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[put("/api/exchanges/:id")]
 pub async fn update_exchange_account_api(
@@ -59,7 +52,6 @@ pub async fn update_exchange_account_api(
         .update_account(id, &name, provider_id)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Delete several exchange accounts and their cascaded ledger rows in one
 /// transaction. Returns the number of deleted accounts.
 #[server]
@@ -69,7 +61,6 @@ pub async fn delete_exchange_accounts_api(ids: Vec<i64>) -> Result<usize, Server
         .delete_accounts(&ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/exchanges/csv/preview")]
 pub async fn preview_import_data_api(
@@ -81,7 +72,6 @@ pub async fn preview_import_data_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Import a CSV into a new account (`exchange_id = None`) or append to an
 /// existing one. `provider_id = None` is the explicit Manual Import mode.
 #[server]
@@ -104,7 +94,6 @@ pub async fn import_data_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/exchanges/transactions/list")]
 pub async fn list_exchange_transactions_api(
@@ -115,7 +104,6 @@ pub async fn list_exchange_transactions_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[get("/api/exchanges/:account_id/transactions/:transaction_id")]
 pub async fn get_exchange_transaction_api(
@@ -127,7 +115,6 @@ pub async fn get_exchange_transaction_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/exchanges/transactions/save")]
 pub async fn save_exchange_transaction_api(
@@ -138,7 +125,6 @@ pub async fn save_exchange_transaction_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Delete several ledger transactions of one account in one transaction.
 /// Returns the number of deleted rows.
 #[server]
@@ -151,7 +137,6 @@ pub async fn delete_exchange_transactions_api(
         .delete_transactions(account_id, &ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/exchanges/:account_id/reconcile")]
 pub async fn reconcile_exchange_account_api(account_id: i64) -> Result<(), ServerFnError> {
@@ -160,7 +145,6 @@ pub async fn reconcile_exchange_account_api(account_id: i64) -> Result<(), Serve
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Reconcile several exchange accounts in one request. Each account is
 /// reconciled independently; the summary reports partial failures.
 #[server]
@@ -172,7 +156,6 @@ pub async fn reconcile_exchange_accounts_api(
         .reconcile_many(&ids)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[get("/api/exchanges/transactions/:transaction_id/candidates?search")]
 pub async fn exchange_link_candidates_api(
@@ -183,7 +166,6 @@ pub async fn exchange_link_candidates_api(
         .candidates(transaction_id, &search)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/exchanges/transactions/:transaction_id/link")]
 pub async fn link_exchange_transaction_api(
@@ -195,7 +177,6 @@ pub async fn link_exchange_transaction_api(
         .link(transaction_id, &txid, allow_duplicate)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[delete("/api/exchanges/transactions/:transaction_id/link")]
 pub async fn clear_exchange_transaction_link_api(

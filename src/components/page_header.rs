@@ -1,7 +1,5 @@
 //! Shared screen title row.
-
 use dioxus::prelude::*;
-
 /// Screen heading with the page-level actions passed as children.
 #[component]
 pub fn PageHeader(title: String, #[props(default)] children: Element) -> Element {

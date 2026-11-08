@@ -1,11 +1,8 @@
 //! Exchange settings: reconciliation behavior and on-chain linking.
-
-use dioxus::prelude::*;
-
 use crate::api::settings::{get_on_chain_link_scoring_api, save_on_chain_link_scoring_api};
 use crate::components::{use_toast, PageHeader, Toast};
 use crate::domain::exchange::OnChainLinkScoringSettings;
-
+use dioxus::prelude::*;
 /// Exchange settings: weights and tolerances for on-chain linking.
 #[component]
 pub fn SettingsOnChainLinking() -> Element {
@@ -13,7 +10,6 @@ pub fn SettingsOnChainLinking() -> Element {
     let mut scoring = use_signal(OnChainLinkScoringSettings::default);
     let mut scoring_saved = use_signal(OnChainLinkScoringSettings::default);
     let scoring_saving = use_signal(|| false);
-
     let _load_on_chain_link_scoring = use_resource(move || async move {
         match get_on_chain_link_scoring_api().await {
             Ok(settings) => {
@@ -25,10 +21,8 @@ pub fn SettingsOnChainLinking() -> Element {
             }
         }
     });
-
     rsx! {
         PageHeader { title: "On-chain Linking".to_string() }
-
         section { class: "md3-settings-section",
             div {
                 h3 { class: "text-title-medium leading-title-medium text-on-surface",
@@ -48,7 +42,8 @@ pub fn SettingsOnChainLinking() -> Element {
                                 r#type: "number",
                                 step: "0.01",
                                 value: "{scoring_value(&scoring(), field)}",
-                                aria_invalid: (!scoring_field_is_valid(&scoring(), field)).to_string(),
+                                aria_invalid: (!
+                                                                                                                                        scoring_field_is_valid(& scoring(), field)).to_string(),
                                 oninput: move |event| {
                                     let Ok(value) = event.value().parse::<f64>() else {
                                         return;
@@ -99,7 +94,6 @@ pub fn SettingsOnChainLinking() -> Element {
         }
     }
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScoringField {
     HashWeight,
@@ -114,7 +108,6 @@ enum ScoringField {
     AmountToleranceSats,
     TimestampToleranceHours,
 }
-
 const SCORING_FIELDS: [(ScoringField, &str, &str); 11] = [
     (
         ScoringField::HashWeight,
@@ -172,7 +165,6 @@ const SCORING_FIELDS: [(ScoringField, &str, &str); 11] = [
         "Time window where timestamp proximity contributes.",
     ),
 ];
-
 fn scoring_value(settings: &OnChainLinkScoringSettings, field: ScoringField) -> f64 {
     match field {
         ScoringField::HashWeight => settings.hash_weight,
@@ -188,23 +180,25 @@ fn scoring_value(settings: &OnChainLinkScoringSettings, field: ScoringField) -> 
         ScoringField::TimestampToleranceHours => settings.timestamp_tolerance_hours,
     }
 }
-
 fn set_scoring_value(settings: &mut OnChainLinkScoringSettings, field: ScoringField, value: f64) {
     match field {
         ScoringField::HashWeight => settings.hash_weight = value,
         ScoringField::AmountWeight => settings.amount_weight = value,
         ScoringField::PaymentOutputWeight => settings.payment_output_weight = value,
-        ScoringField::FeeAdjustedAmountWeight => settings.fee_adjusted_amount_weight = value,
+        ScoringField::FeeAdjustedAmountWeight => {
+            settings.fee_adjusted_amount_weight = value;
+        }
         ScoringField::TimestampWeight => settings.timestamp_weight = value,
         ScoringField::DirectionWeight => settings.direction_weight = value,
         ScoringField::TxShapeWeight => settings.tx_shape_weight = value,
         ScoringField::UnmatchedWeight => settings.unmatched_weight = value,
         ScoringField::AmbiguityWeight => settings.ambiguity_weight = value,
         ScoringField::AmountToleranceSats => settings.amount_tolerance_sats = value,
-        ScoringField::TimestampToleranceHours => settings.timestamp_tolerance_hours = value,
+        ScoringField::TimestampToleranceHours => {
+            settings.timestamp_tolerance_hours = value;
+        }
     }
 }
-
 /// Whether one scoring field is within the range the domain accepts, so the
 /// input can expose `aria-invalid` while the user is editing.
 fn scoring_field_is_valid(settings: &OnChainLinkScoringSettings, field: ScoringField) -> bool {
@@ -216,7 +210,6 @@ fn scoring_field_is_valid(settings: &OnChainLinkScoringSettings, field: ScoringF
         _ => value.is_finite() && value >= 0.0,
     }
 }
-
 /// Persist valid on-chain scoring changes automatically. The grid has no save
 /// button: each valid edit is written, while invalid values stay in the form
 /// so the user can finish editing. A single saver runs at a time; edits made
@@ -232,17 +225,13 @@ fn queue_scoring_save(
     success_message: &'static str,
 ) {
     scoring.set(next);
-
     if !scoring().is_valid() || scoring() == saved() {
         return;
     }
     if *saving.read() {
-        // The running saver reads the signal again before it finishes.
         return;
     }
-
     saving.set(true);
-
     spawn(async move {
         let mut wrote = false;
         loop {
@@ -250,11 +239,9 @@ fn queue_scoring_save(
             if !next.is_valid() || next == saved() {
                 break;
             }
-
             match save_on_chain_link_scoring_api(next.clone()).await {
                 Ok(stored) => {
                     saved.set(stored.clone());
-                    // Keep an edit typed while the request was in flight.
                     if scoring() == next {
                         scoring.set(stored);
                     }
@@ -262,15 +249,17 @@ fn queue_scoring_save(
                 }
                 Err(error) => {
                     scoring.set(saved());
-                    toast.error(format!(
-                        "Could not save on-chain linking settings: {error}. The previous values were restored."
-                    ));
+                    toast
+                        .error(
+                            format!(
+                                "Could not save on-chain linking settings: {error}. The previous values were restored.",
+                            ),
+                        );
                     saving.set(false);
                     return;
                 }
             }
         }
-
         saving.set(false);
         if wrote {
             toast.success(success_message);

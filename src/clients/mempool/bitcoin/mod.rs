@@ -6,7 +6,7 @@ pub mod lightning;
 pub mod mempool;
 pub mod transactions;
 pub mod types;
-
+use crate::clients::mempool::http::HttpClient;
 pub use addresses::Addresses;
 pub use blocks::Blocks;
 pub use difficulty::Difficulty;
@@ -14,9 +14,6 @@ pub use fees::Fees;
 pub use lightning::Lightning;
 pub use mempool::MempoolEndpoints as Mempool;
 pub use transactions::Transactions;
-
-use crate::clients::mempool::http::HttpClient;
-
 #[derive(Clone)]
 pub struct Bitcoin {
     pub addresses: Addresses,
@@ -27,7 +24,6 @@ pub struct Bitcoin {
     pub mempool: Mempool,
     pub transactions: Transactions,
 }
-
 impl Bitcoin {
     pub fn new(http: HttpClient) -> Self {
         Self {

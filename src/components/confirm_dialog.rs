@@ -4,11 +4,8 @@
 //! `md3-dialog` styling: title, message, one confirm and one cancel action.
 //! The dialog closes on cancel, on a scrim click, and on Escape; the caller
 //! owns what happens on confirm.
-
-use dioxus::prelude::*;
-
 use super::Modal;
-
+use dioxus::prelude::*;
 /// Modal confirmation dialog.
 #[component]
 pub fn ConfirmDialog(
@@ -21,9 +18,10 @@ pub fn ConfirmDialog(
 ) -> Element {
     rsx! {
         Modal {
-            title: title,
+            title,
             title_id: "confirm-dialog-title".to_string(),
-            on_close: move |_| on_cancel.call(()),
+            on_close: move | _
+                                                        | on_cancel.call(()),
             p { class: "text-body-medium text-on-surface-variant", "{message}" }
             div { class: "md3-dialog-actions",
                 button {

@@ -1,6 +1,5 @@
 use super::*;
 use dioxus::prelude::*;
-
 pub(crate) fn duplicate_summary(duplicate: &ExchangeDuplicateInfo) -> String {
     let amount = if crate::domain::exchange::csv::is_bitcoin_currency(&duplicate.currency) {
         format_btc(duplicate.amount_sats)
@@ -21,7 +20,6 @@ pub(crate) fn duplicate_summary(duplicate: &ExchangeDuplicateInfo) -> String {
         hash,
     )
 }
-
 /// Three-way duplicate fingerprint resolution.
 #[component]
 pub fn ExchangeDuplicateDialog(
@@ -32,7 +30,8 @@ pub fn ExchangeDuplicateDialog(
     rsx! {
         Modal {
             title: "Duplicate transaction".to_string(),
-            on_close: move |_| on_cancel.call(()),
+            on_close: move | _ |
+                                                        on_cancel.call(()),
             p { class: "text-body-medium text-on-surface-variant",
                 "Another row already has the same fingerprint: {duplicate_summary(&duplicate)}. Choose whether to replace the existing row, keep both rows as an intentional duplicate, or cancel."
             }
@@ -46,13 +45,15 @@ pub fn ExchangeDuplicateDialog(
                 button {
                     r#type: "button",
                     class: "md3-button-tonal",
-                    onclick: move |_| on_choice.call(ExchangeDuplicateChoice::KeepBoth),
+                    onclick: move | _ | on_choice
+                                                                                        .call(ExchangeDuplicateChoice::KeepBoth),
                     "Add duplicated row"
                 }
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
-                    onclick: move |_| on_choice.call(ExchangeDuplicateChoice::Replace),
+                    onclick: move | _ | on_choice
+                                                                                        .call(ExchangeDuplicateChoice::Replace),
                     "Replace existing row"
                 }
             }

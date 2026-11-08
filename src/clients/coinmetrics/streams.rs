@@ -2,7 +2,6 @@ use crate::clients::coinmetrics::error::CoinMetricsError;
 use crate::clients::coinmetrics::http::HttpClient;
 use crate::clients::coinmetrics::params::{comma_separated, Backfill};
 use serde::Serialize;
-
 /// Query for the `/timeseries-stream/asset-metrics` WebSocket endpoint.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamAssetMetricsQuery {
@@ -26,7 +25,6 @@ pub struct StreamAssetMetricsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_forbidden_errors: Option<bool>,
 }
-
 /// Query for the market WebSocket streams that only select markets.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamMarketsQuery {
@@ -38,7 +36,6 @@ pub struct StreamMarketsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
 }
-
 /// Query for `/timeseries-stream/market-orderbooks`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamOrderBooksQuery {
@@ -53,7 +50,6 @@ pub struct StreamOrderBooksQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
 }
-
 /// Query for `/timeseries-stream/market-quotes`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamQuotesQuery {
@@ -67,7 +63,6 @@ pub struct StreamQuotesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
 }
-
 /// Query for `/timeseries-stream/asset-quotes`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamAssetQuotesQuery {
@@ -82,7 +77,6 @@ pub struct StreamAssetQuotesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
 }
-
 /// Query for `/timeseries-stream/pair-quotes`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamPairQuotesQuery {
@@ -97,7 +91,6 @@ pub struct StreamPairQuotesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
 }
-
 /// Query for `/timeseries-stream/market-candles`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamMarketCandlesQuery {
@@ -112,7 +105,6 @@ pub struct StreamMarketCandlesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
 }
-
 /// Query for `/timeseries-stream/index-levels`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct StreamIndexLevelsQuery {
@@ -126,7 +118,6 @@ pub struct StreamIndexLevelsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backfill: Option<Backfill>,
 }
-
 /// Builders for the Coin Metrics WebSocket stream URLs.
 ///
 /// The client returns authenticated `wss://` URLs rather than opening a
@@ -136,12 +127,10 @@ pub struct StreamIndexLevelsQuery {
 pub struct Streams {
     http: HttpClient,
 }
-
 impl Streams {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     pub fn asset_metrics_url(
         &self,
         query: StreamAssetMetricsQuery,
@@ -149,12 +138,10 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/asset-metrics", &query)
     }
-
     pub fn market_trades_url(&self, query: StreamMarketsQuery) -> Result<String, CoinMetricsError> {
         self.http
             .stream_url("/timeseries-stream/market-trades", &query)
     }
-
     pub fn market_liquidations_url(
         &self,
         query: StreamMarketsQuery,
@@ -162,7 +149,6 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/market-liquidations", &query)
     }
-
     pub fn market_openinterest_url(
         &self,
         query: StreamMarketsQuery,
@@ -170,7 +156,6 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/market-openinterest", &query)
     }
-
     pub fn market_contract_prices_url(
         &self,
         query: StreamMarketsQuery,
@@ -178,7 +163,6 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/market-contract-prices", &query)
     }
-
     pub fn market_orderbooks_url(
         &self,
         query: StreamOrderBooksQuery,
@@ -186,12 +170,10 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/market-orderbooks", &query)
     }
-
     pub fn market_quotes_url(&self, query: StreamQuotesQuery) -> Result<String, CoinMetricsError> {
         self.http
             .stream_url("/timeseries-stream/market-quotes", &query)
     }
-
     pub fn asset_quotes_url(
         &self,
         query: StreamAssetQuotesQuery,
@@ -199,7 +181,6 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/asset-quotes", &query)
     }
-
     pub fn pair_quotes_url(
         &self,
         query: StreamPairQuotesQuery,
@@ -207,7 +188,6 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/pair-quotes", &query)
     }
-
     pub fn market_candles_url(
         &self,
         query: StreamMarketCandlesQuery,
@@ -215,7 +195,6 @@ impl Streams {
         self.http
             .stream_url("/timeseries-stream/market-candles", &query)
     }
-
     pub fn index_levels_url(
         &self,
         query: StreamIndexLevelsQuery,
@@ -224,16 +203,13 @@ impl Streams {
             .stream_url("/timeseries-stream/index-levels", &query)
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::clients::coinmetrics::config::CoinMetricsConfig;
-
     fn streams() -> Streams {
         Streams::new(HttpClient::new(&CoinMetricsConfig::pro("secret key")))
     }
-
     #[test]
     fn builds_an_authenticated_wss_url_with_comma_separated_lists() {
         let url = streams()
@@ -245,13 +221,12 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        assert!(url.starts_with("wss://api.coinmetrics.io/v4/timeseries-stream/asset-metrics?"));
+        assert!(url.starts_with("wss://api.coinmetrics.io/v4/timeseries-stream/asset-metrics?",),);
         assert!(url.contains("assets=btc%2Ceth"));
         assert!(url.contains("metrics=ReferenceRate"));
         assert!(url.contains("frequency=1s"));
         assert!(url.contains("api_key=secret+key"));
     }
-
     #[test]
     fn community_streams_use_the_community_host() {
         let streams = Streams::new(HttpClient::new(&CoinMetricsConfig::default()));
@@ -261,8 +236,11 @@ mod tests {
                 backfill: Some(Backfill::Skip),
             })
             .unwrap();
-        assert!(url
-            .starts_with("wss://community-api.coinmetrics.io/v4/timeseries-stream/market-trades?"));
+        assert!(
+            url.starts_with(
+                "wss://community-api.coinmetrics.io/v4/timeseries-stream/market-trades?",
+            ),
+        );
         assert!(url.contains("backfill=none"));
     }
 }

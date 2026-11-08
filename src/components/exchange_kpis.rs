@@ -1,11 +1,8 @@
 //! Shared KPI row of the exchanges list and exchange detail screens.
-
-use dioxus::prelude::*;
-
 use crate::components::format::{format_btc, format_fiat};
 use crate::components::Kpi;
 use crate::domain::exchange::{ExchangeKpiMetric, ExchangeKpis};
-
+use dioxus::prelude::*;
 /// State of the total-exchange-count card shown by the exchanges list. The
 /// exchange detail screen keeps the default [`Self::Hidden`], since a single
 /// account's screen has no total to report.
@@ -21,7 +18,6 @@ pub enum ExchangeCountKpi {
     /// Number of exchange accounts across all pages.
     Count(u64),
 }
-
 impl ExchangeCountKpi {
     /// Rendered card value; `None` hides the card.
     fn value(self) -> Option<String> {
@@ -33,7 +29,6 @@ impl ExchangeCountKpi {
         }
     }
 }
-
 /// One amount card of the exchange KPI row. The kind owns the card title and
 /// the noun used for the ledger entries counted in its details overlay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +40,6 @@ enum AmountKpiKind {
     Rewarded,
     Fees,
 }
-
 impl AmountKpiKind {
     fn title(self) -> &'static str {
         match self {
@@ -57,7 +51,6 @@ impl AmountKpiKind {
             Self::Fees => "Fees",
         }
     }
-
     /// Singular and plural names of the ledger entries that contribute to the
     /// metric.
     fn count_nouns(self) -> (&'static str, &'static str) {
@@ -71,7 +64,6 @@ impl AmountKpiKind {
         }
     }
 }
-
 /// The six ledger amount cards plus the matched on-chain ratio, optionally
 /// preceded by the total count of exchanges. Hovering an amount card's help
 /// button previews the default-currency value and ledger count over the
@@ -96,7 +88,6 @@ pub fn ExchangeKpiGrid(
         .as_ref()
         .map(|kpis| kpis.fiat_currency.clone())
         .unwrap_or_default();
-
     rsx! {
         div { class: grid_class,
             if let Some(value) = count_value {
@@ -116,19 +107,22 @@ pub fn ExchangeKpiGrid(
             }
             ExchangeAmountKpi {
                 kind: AmountKpiKind::Withdrawn,
-                metric: kpis.as_ref().map(|kpis| kpis.withdrawn),
+                metric: kpis
+                                                                        .as_ref().map(| kpis | kpis.withdrawn),
                 currency: currency.clone(),
                 loading,
             }
             ExchangeAmountKpi {
                 kind: AmountKpiKind::Deposited,
-                metric: kpis.as_ref().map(|kpis| kpis.deposited),
+                metric: kpis.as_ref().map(|
+                                                                        kpis | kpis.deposited),
                 currency: currency.clone(),
                 loading,
             }
             ExchangeAmountKpi {
                 kind: AmountKpiKind::Rewarded,
-                metric: kpis.as_ref().map(|kpis| kpis.rewarded),
+                metric: kpis.as_ref().map(| kpis | kpis
+                                                                        .rewarded),
                 currency: currency.clone(),
                 loading,
             }
@@ -139,14 +133,15 @@ pub fn ExchangeKpiGrid(
                 loading,
             }
             ExchangeOnChainKpi {
-                matched: kpis.as_ref().map(|kpis| kpis.onchain_matched.count),
-                total: kpis.as_ref().map(|kpis| kpis.onchain_total_count),
+                matched: kpis.as_ref().map(| kpis | kpis
+                                                                        .onchain_matched.count),
+                total: kpis.as_ref().map(| kpis | kpis
+                                                                        .onchain_total_count),
                 loading,
             }
         }
     }
 }
-
 /// One BTC amount card. Its metric is the card's own data slot: `None` while
 /// the row loads or when the row failed, which [`Kpi`] renders as `…` or `-`.
 #[component]
@@ -163,7 +158,6 @@ fn ExchangeAmountKpi(
         }
         None => (None, None, None),
     };
-
     rsx! {
         Kpi {
             title: kind.title().to_string(),
@@ -174,7 +168,6 @@ fn ExchangeAmountKpi(
         }
     }
 }
-
 /// The matched on-chain operations card. It shows the matched count over the
 /// total deposits and withdrawals and has no details overlay.
 #[component]
@@ -186,7 +179,6 @@ fn ExchangeOnChainKpi(
     let value = matched
         .zip(total)
         .map(|(matched, total)| onchain_value(matched, total));
-
     rsx! {
         Kpi {
             title: "matched on chain operations".to_string(),
@@ -195,7 +187,6 @@ fn ExchangeOnChainKpi(
         }
     }
 }
-
 fn amount_values(
     metric: ExchangeKpiMetric,
     currency: &str,
@@ -208,11 +199,9 @@ fn amount_values(
         count_label(metric.count, singular, plural),
     )
 }
-
 fn onchain_value(matched: i64, total: i64) -> String {
     format!("{matched} / {total}")
 }
-
 fn count_label(count: i64, singular: &str, plural: &str) -> String {
     if count == 1 {
         format!("1 {singular}")
@@ -220,19 +209,16 @@ fn count_label(count: i64, singular: &str, plural: &str) -> String {
         format!("{count} {plural}")
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::{amount_values, count_label, onchain_value, AmountKpiKind, ExchangeCountKpi};
     use crate::domain::exchange::ExchangeKpiMetric;
-
     #[test]
     fn count_labels_are_pluralized() {
         assert_eq!(count_label(0, "withdrawal", "withdrawals"), "0 withdrawals");
         assert_eq!(count_label(1, "withdrawal", "withdrawals"), "1 withdrawal");
         assert_eq!(count_label(2, "withdrawal", "withdrawals"), "2 withdrawals");
     }
-
     #[test]
     fn amount_card_count_nouns_name_each_metric() {
         assert_eq!(
@@ -242,7 +228,7 @@ mod tests {
         assert_eq!(AmountKpiKind::Sold.count_nouns(), ("sale", "sales"));
         assert_eq!(
             AmountKpiKind::Withdrawn.count_nouns(),
-            ("withdrawal", "withdrawals")
+            ("withdrawal", "withdrawals"),
         );
         assert_eq!(
             AmountKpiKind::Deposited.count_nouns(),
@@ -254,7 +240,6 @@ mod tests {
             ("transaction", "transactions")
         );
     }
-
     #[test]
     fn exchange_count_card_maps_every_state_to_a_value() {
         assert_eq!(ExchangeCountKpi::Hidden.value(), None);
@@ -262,7 +247,6 @@ mod tests {
         assert_eq!(ExchangeCountKpi::Unavailable.value(), Some("-".to_string()));
         assert_eq!(ExchangeCountKpi::Count(12).value(), Some("12".to_string()));
     }
-
     #[test]
     fn amount_cards_format_btc_the_default_currency_and_the_ledger_count() {
         let metric = ExchangeKpiMetric {
@@ -270,25 +254,23 @@ mod tests {
             fiat: 60_000.0,
             count: 1,
         };
-
         assert_eq!(
             amount_values(metric, "USD", AmountKpiKind::Bought.count_nouns()),
             (
                 "1 ₿".to_string(),
                 "$60,000.00".to_string(),
                 "1 purchase".to_string()
-            )
+            ),
         );
         assert_eq!(
             amount_values(metric, "EUR", AmountKpiKind::Fees.count_nouns()),
             (
                 "1 ₿".to_string(),
                 "60,000.00 EUR".to_string(),
-                "1 transaction".to_string()
-            )
+                "1 transaction".to_string(),
+            ),
         );
     }
-
     #[test]
     fn onchain_card_formats_the_matched_ratio() {
         assert_eq!(onchain_value(0, 0), "0 / 0");

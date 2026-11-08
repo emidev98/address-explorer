@@ -6,7 +6,6 @@ use crate::clients::coinmetrics::types::{
     BlockchainMetadataTaggedEntity, ListResponse,
 };
 use serde::Serialize;
-
 /// Filters for `/blockchain-metadata/tags`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TagsQuery {
@@ -16,7 +15,6 @@ pub struct TagsQuery {
     #[serde(flatten)]
     pub page: CursorPage,
 }
-
 /// Filters for `/blockchain-metadata/tagged-entities`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TaggedEntitiesQuery {
@@ -43,18 +41,15 @@ pub struct TaggedEntitiesQuery {
     #[serde(flatten)]
     pub page: CursorPage,
 }
-
 /// Blockchain entity metadata: locations, owners, tags and tagged entities.
 #[derive(Clone)]
 pub struct BlockchainMetadata {
     http: HttpClient,
 }
-
 impl BlockchainMetadata {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     pub async fn get_locations(
         &self,
         page: CursorPage,
@@ -63,7 +58,6 @@ impl BlockchainMetadata {
             .get_query("/blockchain-metadata/locations", &page)
             .await
     }
-
     pub async fn get_owners(
         &self,
         page: CursorPage,
@@ -72,7 +66,6 @@ impl BlockchainMetadata {
             .get_query("/blockchain-metadata/owners", &page)
             .await
     }
-
     pub async fn get_tags(
         &self,
         query: TagsQuery,
@@ -81,7 +74,6 @@ impl BlockchainMetadata {
             .get_query("/blockchain-metadata/tags", &query)
             .await
     }
-
     pub async fn get_tagged_entities(
         &self,
         query: TaggedEntitiesQuery,

@@ -1,6 +1,5 @@
 use super::*;
 use dioxus::prelude::*;
-
 /// Side inspector for adding or editing one ledger transaction.
 #[component]
 pub fn ExchangeInspector(
@@ -96,7 +95,6 @@ pub fn ExchangeInspector(
             .zip(row.converted_fee_currency.clone())
     });
     let match_state = transaction.as_ref().map(|row| row.match_state);
-
     let tx_id = transaction.as_ref().map(|row| row.id);
     let submit = use_callback(move |choice: Option<ExchangeDuplicateChoice>| {
         if *loading.read() {
@@ -121,7 +119,6 @@ pub fn ExchangeInspector(
                 .unwrap_or_else(|| "BTC".to_string()),
             fiat_amount: parse_optional_number(&fiat_amount()),
             fiat_currency: optional_text(&fiat_currency()),
-            // The service converts BTC/XBT fees to satoshis.
             fee: fee_value,
             fee_currency: optional_text(&fee_currency()),
             tx_hash: optional_text(&tx_hash()),
@@ -152,7 +149,6 @@ pub fn ExchangeInspector(
             }
         });
     });
-
     rsx! {
         section { class: "md3-card md3-card-elevated md3-exchange-inspector",
             div { class: "md3-exchange-inspector-header",
@@ -176,7 +172,8 @@ pub fn ExchangeInspector(
                     r#type: "button",
                     class: "md3-icon-button",
                     aria_label: "Close transaction editor",
-                    onclick: move |_| on_close.call(()),
+                    onclick: move | _ |
+                                                                                        on_close.call(()),
                     Icon { name: IconName::Close, size: 20 }
                 }
             }
@@ -236,7 +233,8 @@ pub fn ExchangeInspector(
                         value: "{amount}",
                         inputmode: "decimal",
                         disabled: *loading.read(),
-                        oninput: move |event| amount.set(event.value()),
+                        oninput: move | event |
+                                                                                                        amount.set(event.value()),
                     }
                 }
                 div { class: "md3-exchange-two-cols",
@@ -248,7 +246,8 @@ pub fn ExchangeInspector(
                                 value: "{fiat_amount}",
                                 inputmode: "decimal",
                                 disabled: *loading.read(),
-                                oninput: move |event| fiat_amount.set(event.value()),
+                                oninput: move | event | fiat_amount
+                                                                                                                                        .set(event.value()),
                             }
                         }
                     }
@@ -259,7 +258,8 @@ pub fn ExchangeInspector(
                                 class: "md3-input",
                                 value: "{fiat_currency}",
                                 disabled: *loading.read(),
-                                onchange: move |event| fiat_currency.set(event.value()),
+                                onchange: move | event | fiat_currency.set(event
+                                                                                                                                        .value()),
                                 option { value: "", "—" }
                                 for code in FIAT_CURRENCIES {
                                     option { value: "{code}", "{code}" }
@@ -287,7 +287,8 @@ pub fn ExchangeInspector(
                                 value: "{fee}",
                                 inputmode: "decimal",
                                 disabled: *loading.read(),
-                                oninput: move |event| fee.set(event.value()),
+                                oninput: move | event | fee.set(event
+                                                                                                                                        .value()),
                             }
                         }
                     }
@@ -298,7 +299,8 @@ pub fn ExchangeInspector(
                                 class: "md3-input",
                                 value: "{fee_currency}",
                                 disabled: *loading.read(),
-                                onchange: move |event| fee_currency.set(event.value()),
+                                onchange: move | event |
+                                                                                                                                        fee_currency.set(event.value()),
                                 option { value: "", "—" }
                                 option { value: "BTC", "BTC" }
                                 option { value: "XBT", "XBT" }
@@ -323,7 +325,8 @@ pub fn ExchangeInspector(
                     textarea {
                         class: "md3-input md3-exchange-textarea",
                         value: "{description}",
-                        disabled: *loading.read(),
+                        disabled: * loading
+                                                                                                        .read(),
                         oninput: move |event| description.set(event.value()),
                     }
                 }
@@ -361,12 +364,12 @@ pub fn ExchangeInspector(
             ExchangeDuplicateDialog {
                 duplicate: info,
                 on_cancel: move |_| duplicate.set(None),
-                on_choice: move |choice| submit.call(Some(choice)),
+                on_choice: move | choice | submit
+                                                                        .call(Some(choice)),
             }
         }
     }
 }
-
 fn sats_to_btc(sats: i64) -> String {
     let value = sats as f64 / 100_000_000.0;
     let mut text = format!("{value:.8}");
@@ -378,7 +381,6 @@ fn sats_to_btc(sats: i64) -> String {
     }
     text
 }
-
 fn parse_btc_amount(value: &str) -> Option<i64> {
     let value = value.trim().replace(',', ".");
     let amount = value.parse::<f64>().ok()?;
@@ -387,7 +389,6 @@ fn parse_btc_amount(value: &str) -> Option<i64> {
     }
     Some((amount * 100_000_000.0).round() as i64)
 }
-
 fn parse_optional_number(value: &str) -> Option<f64> {
     let value = value.trim().replace(',', ".");
     if value.is_empty() {
@@ -395,7 +396,6 @@ fn parse_optional_number(value: &str) -> Option<f64> {
     }
     value.parse::<f64>().ok().filter(|value| value.is_finite())
 }
-
 fn optional_text(value: &str) -> Option<String> {
     let value = value.trim();
     if value.is_empty() {
@@ -404,7 +404,6 @@ fn optional_text(value: &str) -> Option<String> {
         Some(value.to_string())
     }
 }
-
 fn parse_editor_datetime(value: &str) -> Option<i64> {
     let value = value.trim();
     if value.len() < 16 {

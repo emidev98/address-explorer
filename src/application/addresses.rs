@@ -4,7 +4,6 @@
 //! classification rules, the mempool stats fetch, and the persistence of the
 //! imported address. SQL stays in `data::repositories::addresses`; the
 //! mempool wire model is mapped to the domain entity at this boundary.
-
 use crate::application::transactions::TransactionService;
 use crate::clients::mempool::bitcoin::types::Address as MempoolAddress;
 use crate::clients::mempool::error::MempoolError;
@@ -16,10 +15,8 @@ use crate::domain::address::{
     AddressOverview, AddressOverviewItem, AddressOverviewQuery, AddressScope, StoredAddress,
 };
 use crate::domain::table::TablePage;
-
 /// Largest table page the addresses overview may return.
 const MAX_PAGE_SIZE: u32 = 100;
-
 /// Failures of the address service.
 #[derive(Debug, thiserror::Error)]
 pub enum AddressServiceError {
@@ -42,13 +39,11 @@ pub enum AddressServiceError {
     #[error("mempool request failed: {0}")]
     Mempool(#[from] MempoolError),
 }
-
 /// Facade over the addresses repository and the mempool client.
 pub struct AddressService {
     database: Database,
     mempool: Mempool,
 }
-
 impl AddressService {
     /// Connect the mempool client with its default configuration.
     pub fn connect(database: Database) -> Self {
@@ -57,7 +52,6 @@ impl AddressService {
             mempool: Mempool::new(MempoolConfig::default()),
         }
     }
-
     /// Addresses overview: the table page, all rows for the charts, and the
     /// KPI totals.
     ///
@@ -80,7 +74,6 @@ impl AddressService {
                 query.table.sort_dir,
             )),
         };
-
         let rows = address_repository::list_overview_rows(
             &self.database,
             &address_repository::AddressOverviewFilter {
@@ -90,7 +83,6 @@ impl AddressService {
         )?;
         let (address_count, tx_count, spendable_balance_sats) =
             address_repository::overview_totals(&self.database, query.scope)?;
-
         let items = rows
             .iter()
             .map(overview_item)
@@ -107,7 +99,6 @@ impl AddressService {
             .take(page_size as usize)
             .cloned()
             .collect();
-
         Ok(AddressOverview {
             items,
             page: TablePage {
@@ -119,7 +110,6 @@ impl AddressService {
             spendable_balance_sats,
         })
     }
-
     /// Delete stored addresses; their transactions cascade away with them.
     /// Empty selections are rejected and duplicate addresses are collapsed
     /// before the atomic batch delete.
@@ -137,7 +127,6 @@ impl AddressService {
             &addresses,
         )?)
     }
-
     /// Import an address and index its transaction history.
     ///
     /// This is the use case behind the import dialog's confirm action. The
@@ -163,33 +152,28 @@ impl AddressService {
         if address_repository::get_address(&self.database, &canonical)?.is_some() {
             return Err(AddressServiceError::AlreadyExists);
         }
-
         let entity = self
             .import_address(&canonical, description, exchange_id, wallet_id)
             .await?;
-
         let sync = TransactionService::connect(self.database.clone())
             .sync_address_transactions(&entity.address)
             .await;
         let sync_error = sync.err().map(|error| error.to_string());
-
-        // Re-read the row so the result carries the rate-limit marker the
-        // sync may have set on the address.
         let address = address_repository::get_address(&self.database, &entity.address)?
             .ok_or(AddressServiceError::NotStored)?;
-
         Ok(AddressImportResult {
             address,
             sync_error,
         })
     }
-
     /// Update the description and owner classification of a stored address.
     ///
-    /// This is the use case behind the dialog's modify mode: only the
-    /// editable details change — the mempool statistics and the indexed
-    /// transactions are untouched (the sync action refreshes those). No
-    /// network access.
+    /// This is the use case behind the dialog's modify mode: the editable
+    /// details change without touching the mempool statistics. Changing the
+    /// owner to an exchange (or between exchange providers) purges the
+    /// address's previously indexed on-chain transactions in the same
+    /// database transaction, so only the related set remains after the
+    /// reverse search. No network access.
     pub fn update_address(
         &self,
         address: &str,
@@ -202,7 +186,6 @@ impl AddressService {
             normalize_description(description).map_err(AddressServiceError::Validation)?;
         validate_owner(&self.database, exchange_id, wallet_id)
             .map_err(AddressServiceError::Validation)?;
-
         if !address_repository::update_address_details(
             &self.database,
             &address,
@@ -212,11 +195,9 @@ impl AddressService {
         )? {
             return Err(AddressServiceError::NotFound);
         }
-
         address_repository::get_address(&self.database, &address)?
             .ok_or(AddressServiceError::NotStored)
     }
-
     /// Validate, fetch, and store an address with its optional classification.
     ///
     /// Returns the stored row so the caller observes the persisted
@@ -234,20 +215,16 @@ impl AddressService {
             normalize_description(description).map_err(AddressServiceError::Validation)?;
         validate_owner(&self.database, exchange_id, wallet_id)
             .map_err(AddressServiceError::Validation)?;
-
         let mempool_address = self.mempool.bitcoin.addresses.get_address(&address).await?;
         let mut entity = entity_from_mempool(mempool_address);
         entity.description = description;
         entity.exchange_id = exchange_id;
         entity.wallet_id = wallet_id;
-
         address_repository::insert_address(&self.database, &entity)?;
-
         address_repository::get_address(&self.database, &address)?
             .ok_or(AddressServiceError::NotStored)
     }
 }
-
 /// Validate and canonicalize an address without storing it.
 ///
 /// The import dialog calls this before pasting a clipboard value so invalid
@@ -255,7 +232,6 @@ impl AddressService {
 pub fn validate_address(value: &str) -> Result<String, AddressServiceError> {
     validate_bitcoin_address(value).map_err(AddressServiceError::Validation)
 }
-
 /// Map one repository overview row to the page's item: the spendable
 /// balance derives from the stored mempool chain statistics and the address
 /// type from the address string; everything else rides along.
@@ -280,7 +256,6 @@ fn overview_item(row: &address_repository::AddressOverviewRow) -> AddressOvervie
         tx_index_rate_limited: entity.tx_index_rate_limited,
     }
 }
-
 /// Map the mempool wire model into the domain entity. This is the only place
 /// where the external address schema crosses into the application.
 fn entity_from_mempool(value: MempoolAddress) -> StoredAddress {
@@ -299,12 +274,9 @@ fn entity_from_mempool(value: MempoolAddress) -> StoredAddress {
         mempool_spent_txo_count: value.mempool_stats.spent_txo_count,
         mempool_spent_txo_sum: value.mempool_stats.spent_txo_sum,
         mempool_tx_count: value.mempool_stats.tx_count,
-        // Fresh mappings start unflagged; the sync walk sets the flag and
-        // stats refreshes never clear it.
         tx_index_rate_limited: false,
     }
 }
-
 /// Validate the optional exchange/wallet owner reference of an address.
 ///
 /// An address belongs to at most one owner (`exchange_id`, `wallet_id`), both
@@ -321,7 +293,6 @@ fn validate_owner(
             "An address can belong to either an exchange or a wallet, not both.".to_string(),
         );
     }
-
     if let Some(id) = exchange_id {
         let exists = catalog_repository::exchange_type_exists(database, id)
             .map_err(|err| err.to_string())?;
@@ -329,7 +300,6 @@ fn validate_owner(
             return Err(format!("Unknown exchange type with id {id}."));
         }
     }
-
     if let Some(id) = wallet_id {
         let exists =
             catalog_repository::wallet_type_exists(database, id).map_err(|err| err.to_string())?;
@@ -337,17 +307,14 @@ fn validate_owner(
             return Err(format!("Unknown wallet type with id {id}."));
         }
     }
-
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::clients::mempool::bitcoin::types::StatsInfo;
     use crate::domain::address::AddressScopeFilter;
     use crate::domain::table::TableQuery;
-
     #[test]
     fn overview_item_maps_the_repository_row() {
         let mut entity = StoredAddress {
@@ -357,7 +324,6 @@ mod tests {
         };
         entity.chain_funded_txo_sum = 150_000;
         entity.chain_spent_txo_sum = 50_000;
-
         let mut row = address_repository::AddressOverviewRow {
             entity,
             exchange_name: None,
@@ -370,9 +336,7 @@ mod tests {
             spendable_balance_sats: 100_000,
         };
         row.entity.wallet_id = Some(1);
-
         let item = overview_item(&row);
-
         assert_eq!(item.address, "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq");
         assert_eq!(item.description.as_deref(), Some("Savings"));
         assert_eq!(item.address_type.as_deref(), Some("p2wpkh"));
@@ -386,17 +350,13 @@ mod tests {
                 id: 1,
                 name: Some("Ledger".to_string()),
                 brand_color: Some("#1D1D1B".to_string()),
-            }
+            },
         );
         assert!(!item.scope.is_exchange());
         assert!(!item.tx_index_rate_limited);
     }
-
     #[test]
     fn scope_prefers_the_exchange_on_a_contradicting_owner_pair() {
-        // The either-or invariant is enforced behind this boundary, but a
-        // contradicting pair must still resolve deterministically — matching
-        // the sync behavior keyed on `exchange_id`.
         let scope = AddressScope::new(
             Some(1),
             Some(2),
@@ -405,10 +365,8 @@ mod tests {
             Some("#F0B90B".to_string()),
             None,
         );
-
         assert!(scope.is_exchange());
     }
-
     #[test]
     fn overview_item_uses_the_zeroed_repository_balance_for_exchanges() {
         let mut entity = StoredAddress {
@@ -418,7 +376,6 @@ mod tests {
         };
         entity.chain_funded_txo_sum = 150_000;
         entity.chain_spent_txo_sum = 50_000;
-
         let row = address_repository::AddressOverviewRow {
             entity,
             exchange_name: Some("Binance".to_string()),
@@ -430,14 +387,11 @@ mod tests {
             last_tx_time: None,
             spendable_balance_sats: 0,
         };
-
         let item = overview_item(&row);
-
         assert!(item.scope.is_exchange());
         assert_eq!(item.spendable_balance_sats, 0);
         assert_eq!(item.confirmed_tx_count, 4);
     }
-
     #[test]
     fn overview_pages_the_listing_and_clamps_the_page_size() {
         let database = Database::open_in_memory().unwrap();
@@ -453,7 +407,6 @@ mod tests {
             .unwrap();
         }
         let service = AddressService::connect(database);
-
         let query = AddressOverviewQuery {
             table: TableQuery {
                 page: 0,
@@ -466,7 +419,6 @@ mod tests {
         assert_eq!(first.items.len(), 15);
         assert_eq!(first.page.total, 15);
         assert_eq!(first.page.items.len(), 10);
-
         let second = service
             .addresses_overview(&AddressOverviewQuery {
                 table: TableQuery {
@@ -484,10 +436,7 @@ mod tests {
                 .items
                 .iter()
                 .any(|second_item| second_item.address == first_item.address)
-        }));
-
-        // A page size of zero clamps to one row; a page past the end is
-        // empty while the total keeps describing the whole listing.
+        }),);
         let clamped = service
             .addresses_overview(&AddressOverviewQuery {
                 table: TableQuery {
@@ -500,7 +449,6 @@ mod tests {
             .unwrap();
         assert_eq!(clamped.page.items.len(), 1);
         assert_eq!(clamped.page.total, 15);
-
         let past_end = service
             .addresses_overview(&AddressOverviewQuery {
                 table: TableQuery {
@@ -514,24 +462,16 @@ mod tests {
         assert!(past_end.page.items.is_empty());
         assert_eq!(past_end.page.total, 15);
     }
-
     #[test]
     fn owner_validation_rejects_conflicting_and_unknown_ids() {
         let database = Database::open_in_memory().unwrap();
-
-        // Both owners at once violate the either-or invariant.
         assert!(validate_owner(&database, Some(1), Some(2)).is_err());
-
-        // Unknown ids must reference existing catalog rows.
         assert!(validate_owner(&database, Some(999), None).is_err());
         assert!(validate_owner(&database, None, Some(999)).is_err());
-
-        // Valid single-owner and unclassified combinations are accepted.
         assert!(validate_owner(&database, Some(1), None).is_ok());
         assert!(validate_owner(&database, None, Some(18)).is_ok());
         assert!(validate_owner(&database, None, None).is_ok());
     }
-
     #[test]
     fn mempool_wire_model_maps_into_the_domain_entity() {
         let wire = MempoolAddress {
@@ -551,9 +491,7 @@ mod tests {
                 tx_count: 10,
             },
         };
-
         let entity = entity_from_mempool(wire);
-
         assert_eq!(entity.address, "bc1qexample");
         assert_eq!(entity.chain_funded_txo_count, 1);
         assert_eq!(entity.chain_funded_txo_sum, 2);
@@ -569,11 +507,9 @@ mod tests {
         assert_eq!(entity.exchange_id, None);
         assert_eq!(entity.wallet_id, None);
     }
-
     #[test]
     fn deleting_no_addresses_is_rejected() {
         let service = AddressService::connect(Database::open_in_memory().unwrap());
-
         assert!(service.delete_addresses(&[]).is_err());
     }
 }

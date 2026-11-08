@@ -3,9 +3,7 @@
 //! Clipboard permissions are controlled by the browser or webview. Failures
 //! surface as empty results or errors instead of blocking the UI, so manual
 //! entry remains possible when clipboard access is denied.
-
 use dioxus::prelude::*;
-
 /// Read text from the system clipboard.
 ///
 /// Returns an empty string when access is denied, letting callers remain
@@ -23,12 +21,10 @@ pub async fn read_clipboard_text() -> Result<String, String> {
         })();
         "#,
     );
-
     eval.recv::<String>()
         .await
         .map_err(|error| error.to_string())
 }
-
 /// Copy text to the system clipboard.
 ///
 /// Fails when the webview denies clipboard-write access; the caller reports
@@ -47,7 +43,6 @@ pub async fn write_clipboard_text(text: &str) -> Result<(), String> {
         }})();
         "#,
     ));
-
     let copied = eval
         .recv::<bool>()
         .await

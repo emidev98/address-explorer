@@ -4,13 +4,10 @@
 //! contract: they open the database, call
 //! exactly one application service operation, and translate errors into
 //! `ServerFnError`. They contain no business rules and no SQL.
-
-#[cfg(feature = "server")]
-use dioxus::prelude::ServerFnError;
-
 #[cfg(feature = "server")]
 use crate::data::Database;
-
+#[cfg(feature = "server")]
+use dioxus::prelude::ServerFnError;
 pub mod addresses;
 pub mod catalogs;
 pub mod exchanges;
@@ -18,7 +15,6 @@ pub mod flow;
 pub mod prices;
 pub mod settings;
 pub mod transactions;
-
 /// Open the application database for one request.
 #[cfg(feature = "server")]
 pub(crate) fn open_database() -> Result<Database, ServerFnError> {

@@ -1,26 +1,17 @@
 use super::*;
 use std::sync::atomic::{AtomicU32, Ordering};
-
 /// Drive a future to completion without an async runtime; test futures
 /// complete immediately and must never yield pending.
 fn block_on<F: Future>(future: F) -> F::Output {
     use std::task::{Context, RawWaker, RawWakerVTable, Waker};
-
     fn raw_waker() -> RawWaker {
         fn clone(_: *const ()) -> RawWaker {
             raw_waker()
         }
         fn noop(_: *const ()) {}
-        // SAFETY: the vtable never dereferences the null data pointer:
-        // cloning manufactures another null waker and the remaining
-        // operations are no-ops, so no requirement of `RawWaker` is
-        // violated.
         static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
         RawWaker::new(std::ptr::null(), &VTABLE)
     }
-
-    // SAFETY: `raw_waker` builds a `RawWaker` whose vtable satisfies the
-    // contract documented above; the data pointer is never dereferenced.
     let waker = unsafe { Waker::from_raw(raw_waker()) };
     let mut context = Context::from_waker(&waker);
     let mut future = std::pin::pin!(future);
@@ -29,7 +20,6 @@ fn block_on<F: Future>(future: F) -> F::Output {
         std::task::Poll::Pending => panic!("test future must not pend"),
     }
 }
-
 /// Fetcher stubs with call counters, in place of HTTP clients.
 struct StubFetchers {
     usd_calls: std::sync::Arc<AtomicU32>,
@@ -37,7 +27,6 @@ struct StubFetchers {
     usd: std::sync::Arc<dyn Fn(String) -> FetchFuture + Send + Sync>,
     fx: std::sync::Arc<dyn Fn(String, String) -> FetchFuture + Send + Sync>,
 }
-
 fn stub_fetchers(usd_price: f64, fx_rate: f64) -> StubFetchers {
     let usd_calls = std::sync::Arc::new(AtomicU32::new(0));
     let fx_calls = std::sync::Arc::new(AtomicU32::new(0));
@@ -62,10 +51,8 @@ fn stub_fetchers(usd_price: f64, fx_rate: f64) -> StubFetchers {
         fx: std::sync::Arc::new(fx),
     }
 }
-
 const INSIDE_COVERAGE: i64 = civil_time::epoch_seconds(2020, 1, 1, 12, 34, 0);
 const BEYOND_COVERAGE: i64 = civil_time::epoch_seconds(2026, 7, 1, 10, 0, 0);
-
 #[test]
 fn stored_price_is_returned_without_network() {
     let database = Database::open_in_memory().unwrap();
@@ -80,7 +67,6 @@ fn stored_price_is_returned_without_network() {
     )
     .unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
-
     let price = block_on(resolve_price(
         &database,
         "USD",
@@ -89,20 +75,17 @@ fn stored_price_is_returned_without_network() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close, 12345.0);
     assert_eq!(price.close_time, bucket);
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
     assert_eq!(stubs.fx_calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn usd_miss_fetches_once_and_stores_day_and_bucket_rows() {
     let database = Database::open_in_memory().unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
     let bucket = fifteen_minute_close_time(INSIDE_COVERAGE);
     let day = daily_close_time(INSIDE_COVERAGE);
-
     let price = block_on(resolve_price(
         &database,
         "USD",
@@ -111,7 +94,6 @@ fn usd_miss_fetches_once_and_stores_day_and_bucket_rows() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close, 66_000.0);
     assert_eq!(price.close_time, bucket);
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 1);
@@ -119,16 +101,14 @@ fn usd_miss_fetches_once_and_stores_day_and_bucket_rows() {
         price_repository::find_price(&database, "USD", day)
             .unwrap()
             .map(|stored| stored.close),
-        Some(66_000.0)
+        Some(66_000.0),
     );
     assert_eq!(
         price_repository::find_price(&database, "USD", bucket)
             .unwrap()
             .map(|stored| stored.close),
-        Some(66_000.0)
+        Some(66_000.0),
     );
-
-    // A repeated request of the same candle is served from the database.
     block_on(resolve_price(
         &database,
         "USD",
@@ -139,14 +119,12 @@ fn usd_miss_fetches_once_and_stores_day_and_bucket_rows() {
     .unwrap();
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 1);
 }
-
 #[test]
 fn eur_miss_resolves_usd_first_then_converts_and_stores() {
     let database = Database::open_in_memory().unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
     let bucket = fifteen_minute_close_time(INSIDE_COVERAGE);
     let day = daily_close_time(INSIDE_COVERAGE);
-
     let price = block_on(resolve_price(
         &database,
         "EUR",
@@ -155,7 +133,6 @@ fn eur_miss_resolves_usd_first_then_converts_and_stores() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close, 66_000.0 * 0.9);
     assert_eq!(price.close_time, bucket);
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 1);
@@ -164,17 +141,14 @@ fn eur_miss_resolves_usd_first_then_converts_and_stores() {
         price_repository::find_price(&database, "EUR", day)
             .unwrap()
             .map(|stored| stored.close),
-        Some(66_000.0 * 0.9)
+        Some(66_000.0 * 0.9),
     );
     assert_eq!(
         price_repository::find_price(&database, "EUR", bucket)
             .unwrap()
             .map(|stored| stored.close),
-        Some(66_000.0 * 0.9)
+        Some(66_000.0 * 0.9),
     );
-
-    // The USD reference row for the day was stored as well, so a later
-    // same-day lookup hits the database only.
     let second = block_on(resolve_price(
         &database,
         "EUR",
@@ -190,13 +164,11 @@ fn eur_miss_resolves_usd_first_then_converts_and_stores() {
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 1);
     assert_eq!(stubs.fx_calls.load(Ordering::SeqCst), 1);
 }
-
 #[test]
 fn beyond_coverage_resolves_at_daily_granularity() {
     let database = Database::open_in_memory().unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
     let day = daily_close_time(BEYOND_COVERAGE);
-
     let price = block_on(resolve_price(
         &database,
         "USD",
@@ -205,7 +177,6 @@ fn beyond_coverage_resolves_at_daily_granularity() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close_time, day);
     let rows: i64 = database
         .connection()
@@ -216,12 +187,10 @@ fn beyond_coverage_resolves_at_daily_granularity() {
         .unwrap();
     assert_eq!(rows, 1);
 }
-
 #[test]
 fn latest_price_uses_the_requested_day_without_fallback() {
     let database = Database::open_in_memory().unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
-
     let price = block_on(latest_price_at(
         &database,
         "USD",
@@ -230,19 +199,15 @@ fn latest_price_uses_the_requested_day_without_fallback() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close_time, daily_close_time(BEYOND_COVERAGE));
     assert_eq!(price.close, 66_000.0);
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 1);
 }
-
 #[test]
 fn latest_price_falls_back_one_day_when_today_is_not_published() {
     let database = Database::open_in_memory().unwrap();
     let fx_calls = std::sync::Arc::new(AtomicU32::new(0));
     let today = civil_time::format_date(BEYOND_COVERAGE);
-
-    // The current day's close is not published yet; any earlier day is.
     let usd = move |date: String| -> FetchFuture {
         let not_found = date == today;
         Box::pin(async move {
@@ -263,7 +228,6 @@ fn latest_price_falls_back_one_day_when_today_is_not_published() {
             Box::pin(async move { Ok(0.9) })
         }
     };
-
     let price = block_on(latest_price_at(
         &database,
         "USD",
@@ -272,48 +236,43 @@ fn latest_price_falls_back_one_day_when_today_is_not_published() {
         &fx,
     ))
     .unwrap();
-
     assert_eq!(
         price.close_time,
-        daily_close_time(BEYOND_COVERAGE - LATEST_PRICE_FALLBACK_SECONDS)
+        daily_close_time(BEYOND_COVERAGE - LATEST_PRICE_FALLBACK_SECONDS),
     );
     assert_eq!(price.close, 64_000.0);
     assert_eq!(fx_calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn latest_price_propagates_non_not_found_errors() {
     let database = Database::open_in_memory().unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
-
     assert!(matches!(
         block_on(latest_price_at(
             &database,
             "us",
             BEYOND_COVERAGE,
             stubs.usd.as_ref(),
-            stubs.fx.as_ref()
-        )),
+            stubs.fx.as_ref(),
+        ),),
         Err(PriceServiceError::Price(PriceError::InvalidSymbol(_)))
-    ));
+    ),);
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn invalid_input_is_rejected_before_storage() {
     let database = Database::open_in_memory().unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
-
     assert!(matches!(
         block_on(resolve_price(
             &database,
             "us",
             INSIDE_COVERAGE,
             stubs.usd.as_ref(),
-            stubs.fx.as_ref()
-        )),
+            stubs.fx.as_ref(),
+        ),),
         Err(PriceServiceError::Price(PriceError::InvalidSymbol(_)))
-    ));
+    ),);
     assert!(matches!(
         block_on(resolve_price(
             &database,
@@ -321,11 +280,10 @@ fn invalid_input_is_rejected_before_storage() {
             0,
             stubs.usd.as_ref(),
             stubs.fx.as_ref()
-        )),
+        ),),
         Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
-    ));
+    ),);
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
-
     let rows: i64 = database
         .connection()
         .unwrap()
@@ -335,7 +293,6 @@ fn invalid_input_is_rejected_before_storage() {
         .unwrap();
     assert_eq!(rows, 0);
 }
-
 fn query(page: u32, page_size: u32) -> TableQuery {
     TableQuery {
         page,
@@ -343,7 +300,6 @@ fn query(page: u32, page_size: u32) -> TableQuery {
         ..Default::default()
     }
 }
-
 #[test]
 fn list_price_page_normalizes_the_symbol_and_clamps_the_page_size() {
     let database = Database::open_in_memory().unwrap();
@@ -358,27 +314,20 @@ fn list_price_page_normalizes_the_symbol_and_clamps_the_page_size() {
         )
         .unwrap();
     }
-
     let page = list_price_page(&database, " eur ", 0, 0, &query(0, MAX_PAGE_SIZE + 50)).unwrap();
     assert_eq!(page.total, 3);
     assert_eq!(page.items.len(), 3);
-    // Newest close first.
     assert_eq!(page.items[0].price.close_time, 102);
-
     let second = list_price_page(&database, "EUR", 0, 0, &query(1, 2)).unwrap();
     assert_eq!(second.items.len(), 1);
     assert_eq!(second.items[0].price.close_time, 100);
-
-    // Time bounds narrow both the page and the total.
     let bounded = list_price_page(&database, "EUR", 101, 102, &query(0, 10)).unwrap();
     assert_eq!(bounded.total, 2);
-
     assert!(matches!(
         list_price_page(&database, "u$", 0, 0, &query(0, 10)),
         Err(PriceServiceError::Price(PriceError::InvalidSymbol(_)))
-    ));
+    ),);
 }
-
 #[test]
 fn list_price_page_sorts_in_the_backend() {
     let database = Database::open_in_memory().unwrap();
@@ -393,7 +342,6 @@ fn list_price_page_sorts_in_the_backend() {
         )
         .unwrap();
     }
-
     let sorted = list_price_page(
         &database,
         "USD",
@@ -412,10 +360,8 @@ fn list_price_page_sorts_in_the_backend() {
             .iter()
             .map(|price| price.price.close)
             .collect::<Vec<_>>(),
-        [100.0, 10.0, 2.0]
+        [100.0, 10.0, 2.0],
     );
-
-    // An unknown sort key is rejected at the service boundary.
     assert!(matches!(
         list_price_page(
             &database,
@@ -428,9 +374,8 @@ fn list_price_page_sorts_in_the_backend() {
             },
         ),
         Err(PriceServiceError::Price(PriceError::InvalidSortColumn(_)))
-    ));
+    ),);
 }
-
 /// Stub FX series fetcher keyed by date, counting its calls.
 fn stub_fx_series(
     rates: Vec<(String, f64)>,
@@ -449,12 +394,9 @@ fn stub_fx_series(
     };
     (calls, fetch)
 }
-
 #[test]
 fn sync_prices_bulk_converts_only_existing_usd_close_times() {
     let database = Database::open_in_memory().unwrap();
-    // Wednesday 2020-01-01 and Saturday 2020-01-04; the series publishes
-    // business days only.
     let wednesday = civil_time::epoch_seconds(2020, 1, 1, 12, 0, 0);
     let saturday = civil_time::epoch_seconds(2020, 1, 4, 12, 0, 0);
     for close_time in [wednesday, saturday] {
@@ -472,33 +414,27 @@ fn sync_prices_bulk_converts_only_existing_usd_close_times() {
         ("2020-01-01".to_string(), 0.9),
         ("2020-01-03".to_string(), 0.8),
     ]);
-
     let summary = block_on(sync_prices_bulk(
         &database, "eur", wednesday, saturday, &fetch,
     ))
     .unwrap();
-
     assert_eq!(summary.symbol, "EUR");
     assert_eq!(summary.source_rows, 2);
     assert_eq!(summary.stored, 2);
     assert_eq!(summary.skipped, 0);
-    // One series request for the whole range, not one per row.
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    // Wednesday takes its own rate; Saturday falls back to Friday's.
     assert_eq!(
         price_repository::find_price(&database, "EUR", wednesday)
             .unwrap()
             .map(|price| price.close),
-        Some(90.0)
+        Some(90.0),
     );
     assert_eq!(
         price_repository::find_price(&database, "EUR", saturday)
             .unwrap()
             .map(|price| price.close),
-        Some(80.0)
+        Some(80.0),
     );
-
-    // A second run only fills gaps: nothing is inserted twice.
     let second = block_on(sync_prices_bulk(
         &database, "EUR", wednesday, saturday, &fetch,
     ))
@@ -506,7 +442,6 @@ fn sync_prices_bulk_converts_only_existing_usd_close_times() {
     assert_eq!(second.stored, 0);
     assert_eq!(second.source_rows, 2);
 }
-
 #[test]
 fn sync_prices_bulk_skips_days_before_the_first_available_rate() {
     let database = Database::open_in_memory().unwrap();
@@ -524,7 +459,6 @@ fn sync_prices_bulk_skips_days_before_the_first_available_rate() {
         .unwrap();
     }
     let (_, fetch) = stub_fx_series(vec![("1999-01-04".to_string(), 0.9)]);
-
     let summary = block_on(sync_prices_bulk(
         &database,
         "EUR",
@@ -533,22 +467,18 @@ fn sync_prices_bulk_skips_days_before_the_first_available_rate() {
         &fetch,
     ))
     .unwrap();
-
     assert_eq!(summary.stored, 1);
     assert_eq!(summary.skipped, 1);
     assert_eq!(
         price_repository::find_price(&database, "EUR", before_coverage).unwrap(),
-        None
+        None,
     );
 }
-
 #[test]
 fn fx_series_start_date_pads_the_range_for_prior_business_days() {
     assert_eq!(fx_series_start_date("2020-01-04"), "2019-12-28");
-    // An unparseable value is passed through instead of panicking.
     assert_eq!(fx_series_start_date("not-a-date"), "not-a-date");
 }
-
 #[test]
 fn ensure_currency_history_converts_the_full_stored_history_once() {
     let database = Database::open_in_memory().unwrap();
@@ -569,9 +499,7 @@ fn ensure_currency_history_converts_the_full_stored_history_once() {
         ("2020-01-01".to_string(), 0.5),
         ("2020-01-02".to_string(), 0.4),
     ]);
-
     let summary = block_on(ensure_currency_history(&database, "eur", &fetch)).unwrap();
-
     assert_eq!(summary.symbol, "EUR");
     assert_eq!(summary.source_rows, 2);
     assert_eq!(summary.stored, 2);
@@ -582,22 +510,19 @@ fn ensure_currency_history_converts_the_full_stored_history_once() {
         price_repository::find_price(&database, "EUR", first)
             .unwrap()
             .map(|price| price.close),
-        Some(50.0)
+        Some(50.0),
     );
     assert_eq!(
         price_repository::find_price(&database, "EUR", second)
             .unwrap()
             .map(|price| price.close),
-        Some(80.0)
+        Some(80.0),
     );
-
-    // An already prepared currency is a pure database check.
     let second_run = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
     assert_eq!(second_run.source_rows, 0);
     assert_eq!(second_run.stored, 0);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
-
 #[test]
 fn ensure_currency_history_fills_gaps_without_overwriting_existing_rows() {
     let database = Database::open_in_memory().unwrap();
@@ -614,7 +539,6 @@ fn ensure_currency_history_fills_gaps_without_overwriting_existing_rows() {
         )
         .unwrap();
     }
-    // A manually edited target row must survive the automatic pass.
     price_repository::store_price(
         &database,
         &Price {
@@ -625,9 +549,7 @@ fn ensure_currency_history_fills_gaps_without_overwriting_existing_rows() {
     )
     .unwrap();
     let (calls, fetch) = stub_fx_series(vec![("2020-01-02".to_string(), 0.4)]);
-
     let summary = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
-
     assert_eq!(summary.source_rows, 1);
     assert_eq!(summary.stored, 1);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -635,31 +557,27 @@ fn ensure_currency_history_fills_gaps_without_overwriting_existing_rows() {
         price_repository::find_price(&database, "EUR", first)
             .unwrap()
             .map(|price| price.close),
-        Some(999.0)
+        Some(999.0),
     );
     assert_eq!(
         price_repository::find_price(&database, "EUR", second)
             .unwrap()
             .map(|price| price.close),
-        Some(40.0)
+        Some(40.0),
     );
 }
-
 #[test]
 fn ensure_currency_history_noops_for_usd_and_without_source_rows() {
     let database = Database::open_in_memory().unwrap();
     let (calls, fetch) = stub_fx_series(vec![("2020-01-01".to_string(), 0.5)]);
-
     let usd = block_on(ensure_currency_history(&database, "usd", &fetch)).unwrap();
     assert_eq!(usd.stored, 0);
     assert_eq!(usd.warning, None);
-
     let empty = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
     assert_eq!(empty.stored, 0);
     assert!(empty.warning.is_some());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn ensure_currency_history_reports_network_failures_as_warnings() {
     let database = Database::open_in_memory().unwrap();
@@ -680,44 +598,35 @@ fn ensure_currency_history_reports_network_failures_as_warnings() {
             )))
         })
     };
-
     let summary = block_on(ensure_currency_history(&database, "EUR", &fetch)).unwrap();
-
     assert_eq!(summary.stored, 0);
     assert!(summary
         .warning
         .as_deref()
-        .is_some_and(|warning| warning.contains("fx offline")));
+        .is_some_and(|warning| warning.contains("fx offline")),);
 }
-
 #[test]
 fn sync_prices_bulk_validates_input_before_touching_the_network() {
     let database = Database::open_in_memory().unwrap();
     let (calls, fetch) = stub_fx_series(vec![]);
-
-    // USD is the source currency, never a sync target.
     assert!(matches!(
         block_on(sync_prices_bulk(&database, "USD", 100, 200, &fetch)),
         Err(PriceServiceError::Price(PriceError::InvalidData(_)))
-    ));
-    // Open bounds and inverted ranges are rejected.
+    ),);
     assert!(matches!(
         block_on(sync_prices_bulk(&database, "EUR", 0, 200, &fetch)),
         Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
-    ));
+    ),);
     assert!(matches!(
         block_on(sync_prices_bulk(&database, "EUR", 300, 200, &fetch)),
         Err(PriceServiceError::Price(PriceError::InvalidData(_)))
-    ));
+    ),);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-
-    // An empty USD range short-circuits without a network call.
     let summary = block_on(sync_prices_bulk(&database, "EUR", 100, 200, &fetch)).unwrap();
     assert_eq!(summary.source_rows, 0);
     assert_eq!(summary.stored, 0);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn list_price_conversions_validates_input_and_reads_the_table() {
     let database = Database::open_in_memory().unwrap();
@@ -732,32 +641,27 @@ fn list_price_conversions_validates_input_and_reads_the_table() {
         )
         .unwrap();
     }
-
     let conversions = list_price_conversions(&database, "usd", 200).unwrap();
     assert_eq!(
         conversions
             .iter()
             .map(|price| price.symbol.as_str())
             .collect::<Vec<_>>(),
-        ["AUD", "EUR"]
+        ["AUD", "EUR"],
     );
-
     assert!(matches!(
         list_price_conversions(&database, "USD", 0),
         Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
-    ));
+    ),);
     assert!(matches!(
         list_price_conversions(&database, "u$", 200),
         Err(PriceServiceError::Price(PriceError::InvalidSymbol(_)))
-    ));
+    ),);
 }
-
 #[test]
 fn price_series_reports_the_full_span_and_downsamples_the_window() {
     let database = Database::open_in_memory().unwrap();
     assert!(price_series(&database, "USD", 0, 0).unwrap().is_none());
-
-    // 10_000 rows one second apart: far more than SERIES_MAX_POINTS.
     for index in 0..10_000_i64 {
         price_repository::store_price(
             &database,
@@ -769,29 +673,22 @@ fn price_series_reports_the_full_span_and_downsamples_the_window() {
         )
         .unwrap();
     }
-
     let series = price_series(&database, "usd", 0, 0).unwrap().unwrap();
     assert_eq!(series.first_close_time, 1_000_000);
     assert_eq!(series.last_close_time, 1_009_999);
     assert!(series.points.len() <= SERIES_MAX_POINTS as usize);
     assert!(series.points.len() > 1);
-    // Oldest first.
     assert!(series.points[0].close_time < series.points[1].close_time);
-
-    // A narrow window yields finer buckets over the same span.
     let zoomed = price_series(&database, "USD", 1_000_000, 1_000_099)
         .unwrap()
         .unwrap();
     assert_eq!(zoomed.points.len(), 100);
     assert_eq!(zoomed.points[0].close_time, 1_000_000);
-
-    // Windows outside the history clamp to the stored span.
     let clamped = price_series(&database, "USD", 0, i64::MAX)
         .unwrap()
         .unwrap();
     assert_eq!(clamped.points.len(), series.points.len());
 }
-
 #[test]
 fn update_stored_price_validates_and_updates_in_place() {
     let database = Database::open_in_memory().unwrap();
@@ -804,44 +701,40 @@ fn update_stored_price_validates_and_updates_in_place() {
         },
     )
     .unwrap();
-
     let updated = update_stored_price(&database, " usd ", 200, 2.5).unwrap();
     assert_eq!(
         updated,
         Price {
             symbol: "USD".to_string(),
             close_time: 200,
-            close: 2.5
-        }
+            close: 2.5,
+        },
     );
     assert_eq!(
         price_repository::find_price(&database, "USD", 200)
             .unwrap()
             .map(|price| price.close),
-        Some(2.5)
+        Some(2.5),
     );
-
     assert!(matches!(
         update_stored_price(&database, "USD", 200, -1.0),
         Err(PriceServiceError::Price(PriceError::InvalidData(_)))
-    ));
+    ),);
     assert!(matches!(
         update_stored_price(&database, "USD", 999, 2.5),
         Err(PriceServiceError::Price(PriceError::NotFound { .. }))
-    ));
+    ),);
     assert!(matches!(
         update_stored_price(&database, "USD", 0, 2.5),
         Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
-    ));
-    // Failed edits leave the stored value untouched.
+    ),);
     assert_eq!(
         price_repository::find_price(&database, "USD", 200)
             .unwrap()
             .map(|price| price.close),
-        Some(2.5)
+        Some(2.5),
     );
 }
-
 /// Stub daily fetcher returning `prices` and counting its calls.
 fn stub_daily(
     prices: Vec<Price>,
@@ -860,7 +753,6 @@ fn stub_daily(
     };
     (calls, fetch)
 }
-
 /// Stub reference-rate fetcher returning `rows` and counting its calls.
 fn stub_reference(
     rows: Vec<(i64, f64)>,
@@ -879,7 +771,6 @@ fn stub_reference(
     };
     (calls, fetch)
 }
-
 /// Drive [`sync_prices_range`] with the three stub sources.
 #[allow(clippy::too_many_arguments)]
 fn run_sync(
@@ -902,12 +793,10 @@ fn run_sync(
         database, symbol, from_time, to_time, now, plan, &sources,
     ))
 }
-
 /// Noon of a November 2026 day, the month the sync tests use.
 fn november_day(day: i64) -> i64 {
     civil_time::epoch_seconds(2026, 11, day, 12, 0, 0)
 }
-
 fn daily_row(day: i64, close: f64) -> Price {
     Price {
         symbol: USD_SYMBOL.to_string(),
@@ -915,17 +804,14 @@ fn daily_row(day: i64, close: f64) -> Price {
         close,
     }
 }
-
 fn empty_reference() -> impl Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync {
     |_frequency: &str, _from: i64, _to: i64| -> FetchReferenceFuture {
         Box::pin(async move { Ok(Vec::new()) })
     }
 }
-
 fn empty_fx_series() -> impl Fn(String, String) -> FetchSeriesFuture + Send + Sync {
     |_from: String, _to: String| -> FetchSeriesFuture { Box::pin(async move { Ok(Vec::new()) }) }
 }
-
 #[test]
 fn asset_metric_rows_map_to_stored_daily_closes() {
     let price = daily_price("2026-06-16T00:00:00.000000000Z", 66_000.0).unwrap();
@@ -935,10 +821,8 @@ fn asset_metric_rows_map_to_stored_daily_closes() {
         civil_time::epoch_seconds(2026, 6, 16, 23, 59, 59)
     );
     assert_eq!(price.close, 66_000.0);
-
     assert_eq!(daily_price("not a timestamp", 66_000.0), None);
 }
-
 #[test]
 fn plan_price_sync_picks_the_finest_available_window() {
     let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
@@ -958,7 +842,6 @@ fn plan_price_sync_picks_the_finest_available_window() {
             },
         ],
     };
-
     let plan = plan_price_sync(
         SyncGranularity::Auto,
         &coverage,
@@ -969,13 +852,9 @@ fn plan_price_sync_picks_the_finest_available_window() {
     assert_eq!(plan.granularity, SyncGranularity::FifteenMinutes);
     assert_eq!(plan.granular_from, Some(week_ago));
     assert_eq!(plan.granular_to, Some(now));
-
-    // A manual choice is honored when its window intersects the range.
     let plan = plan_price_sync(SyncGranularity::Hourly, &coverage, week_ago, now, now);
     assert_eq!(plan.granularity, SyncGranularity::Hourly);
     assert_eq!(plan.granular_from, Some(week_ago));
-
-    // A range older than the reference window falls back to daily only.
     let old = civil_time::epoch_seconds(2020, 1, 1, 0, 0, 0);
     let plan = plan_price_sync(
         SyncGranularity::Auto,
@@ -986,9 +865,6 @@ fn plan_price_sync_picks_the_finest_available_window() {
     );
     assert_eq!(plan.granularity, SyncGranularity::Daily);
     assert_eq!(plan.granular_from, None);
-
-    // A manual intraday choice without coverage keeps its label so the
-    // run can explain why the stage was skipped.
     let empty = BtcUsdCoverage {
         daily_start: Some(PRICE_HISTORY_START),
         reference: Vec::new(),
@@ -997,7 +873,6 @@ fn plan_price_sync_picks_the_finest_available_window() {
     assert_eq!(plan.granularity, SyncGranularity::FifteenMinutes);
     assert_eq!(plan.granular_from, None);
 }
-
 #[test]
 fn reference_prices_sample_the_requested_frequency() {
     let start = civil_time::epoch_seconds(2026, 11, 6, 18, 0, 0);
@@ -1007,7 +882,6 @@ fn reference_prices_sample_the_requested_frequency() {
         (start + 15 * 60, 3.0),
         (start + 3_600, 4.0),
     ];
-
     let quarter = super::sync::reference_prices(SyncGranularity::FifteenMinutes, rows.clone());
     assert_eq!(
         quarter,
@@ -1027,17 +901,14 @@ fn reference_prices_sample_the_requested_frequency() {
                 close_time: start + 3_600,
                 close: 4.0,
             },
-        ]
+        ],
     );
-
     let hourly = super::sync::reference_prices(SyncGranularity::Hourly, rows);
     assert_eq!(hourly.len(), 2);
     assert_eq!(hourly[0].close_time, start);
     assert_eq!(hourly[1].close_time, start + 3_600);
-
-    assert!(super::sync::reference_prices(SyncGranularity::Daily, vec![(start, 1.0)]).is_empty());
+    assert!(super::sync::reference_prices(SyncGranularity::Daily, vec![(start, 1.0)]).is_empty(),);
 }
-
 #[test]
 fn sync_prices_range_fills_daily_and_granular_rows() {
     let database = Database::open_in_memory().unwrap();
@@ -1061,12 +932,10 @@ fn sync_prices_range_fills_daily_and_granular_rows() {
         granular_from: Some(granular_start),
         granular_to: Some(now),
     };
-
     let summary = run_sync(
         &database, USD_SYMBOL, from, now, now, plan, &daily, &reference, &fx,
     )
     .unwrap();
-
     assert_eq!(summary.from_time, from);
     assert_eq!(summary.to_time, now);
     assert_eq!(summary.granularity, SyncGranularity::FifteenMinutes);
@@ -1078,14 +947,11 @@ fn sync_prices_range_fills_daily_and_granular_rows() {
     assert!(summary.warnings.is_empty());
     assert_eq!(daily_calls.load(Ordering::SeqCst), 1);
     assert_eq!(reference_calls.load(Ordering::SeqCst), 1);
-
-    // The daily closes live at 23:59:59; the reference observations keep
-    // their source timestamps.
     assert_eq!(
-        price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(3)))
+        price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(3)),)
             .unwrap()
             .map(|price| price.close),
-        Some(103.0)
+        Some(103.0),
     );
     assert_eq!(
         price_repository::find_latest_price_between(
@@ -1096,10 +962,8 @@ fn sync_prices_range_fills_daily_and_granular_rows() {
         )
         .unwrap()
         .map(|price| price.close),
-        Some(3.0)
+        Some(3.0),
     );
-
-    // A second run inserts nothing new.
     let second = run_sync(
         &database, USD_SYMBOL, from, now, now, plan, &daily, &reference, &fx,
     )
@@ -1107,19 +971,15 @@ fn sync_prices_range_fills_daily_and_granular_rows() {
     assert_eq!(second.daily_stored, 0);
     assert_eq!(second.granular_stored, 0);
 }
-
 #[test]
 fn sync_prices_range_preserves_existing_rows_and_counts_unavailable_days() {
     let database = Database::open_in_memory().unwrap();
     let now = civil_time::epoch_seconds(2026, 11, 6, 19, 0, 0);
     let from = civil_time::epoch_seconds(2026, 11, 1, 0, 0, 0);
-    // A manually edited row on day 2 must survive the sync.
     price_repository::store_price(&database, &daily_row(2, 999.0)).unwrap();
-    // The source only knows days 1 and 3 of the expected five days.
     let (_, daily) = stub_daily(vec![daily_row(1, 101.0), daily_row(3, 103.0)]);
     let reference = empty_reference();
     let fx = empty_fx_series();
-
     let summary = run_sync(
         &database,
         USD_SYMBOL,
@@ -1132,19 +992,17 @@ fn sync_prices_range_preserves_existing_rows_and_counts_unavailable_days() {
         &fx,
     )
     .unwrap();
-
     assert_eq!(summary.daily_fetched, 2);
     assert_eq!(summary.daily_stored, 2);
     assert_eq!(summary.unavailable_days, 3);
     assert_eq!(summary.granular_fetched, 0);
     assert_eq!(
-        price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(2)))
+        price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(2)),)
             .unwrap()
             .map(|price| price.close),
-        Some(999.0)
+        Some(999.0),
     );
 }
-
 #[test]
 fn sync_prices_range_keeps_daily_rows_when_the_intraday_stage_fails() {
     let database = Database::open_in_memory().unwrap();
@@ -1166,18 +1024,15 @@ fn sync_prices_range_keeps_daily_rows_when_the_intraday_stage_fails() {
         granular_from: Some(granular_start),
         granular_to: Some(now),
     };
-
     let summary = run_sync(
         &database, USD_SYMBOL, from, now, now, plan, &daily, &reference, &fx,
     )
     .unwrap();
-
     assert_eq!(summary.daily_stored, 1);
     assert_eq!(summary.granular_stored, 0);
     assert_eq!(summary.warnings.len(), 1);
     assert!(summary.warnings[0].contains("Could not fetch hourly closes"));
 }
-
 #[test]
 fn sync_prices_range_fails_when_the_daily_source_fails() {
     let database = Database::open_in_memory().unwrap();
@@ -1192,7 +1047,6 @@ fn sync_prices_range_fails_when_the_daily_source_fails() {
     };
     let reference = empty_reference();
     let fx = empty_fx_series();
-
     assert!(matches!(
         run_sync(
             &database,
@@ -1206,9 +1060,8 @@ fn sync_prices_range_fails_when_the_daily_source_fails() {
             &fx,
         ),
         Err(PriceServiceError::CoinMetrics(_))
-    ));
+    ),);
 }
-
 #[test]
 fn sync_prices_range_rejects_invalid_source_values_and_bad_ranges() {
     let database = Database::open_in_memory().unwrap();
@@ -1221,7 +1074,6 @@ fn sync_prices_range_rejects_invalid_source_values_and_bad_ranges() {
     }]);
     let reference = empty_reference();
     let fx = empty_fx_series();
-
     assert!(matches!(
         run_sync(
             &database,
@@ -1235,7 +1087,7 @@ fn sync_prices_range_rejects_invalid_source_values_and_bad_ranges() {
             &fx,
         ),
         Err(PriceServiceError::Price(PriceError::InvalidData(_)))
-    ));
+    ),);
     assert!(matches!(
         run_sync(
             &database,
@@ -1249,7 +1101,7 @@ fn sync_prices_range_rejects_invalid_source_values_and_bad_ranges() {
             &fx,
         ),
         Err(PriceServiceError::Price(PriceError::InvalidData(_)))
-    ));
+    ),);
     assert!(matches!(
         run_sync(
             &database,
@@ -1263,9 +1115,8 @@ fn sync_prices_range_rejects_invalid_source_values_and_bad_ranges() {
             &fx,
         ),
         Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
-    ));
+    ),);
 }
-
 #[test]
 fn sync_prices_range_converts_every_stored_usd_close_time() {
     let database = Database::open_in_memory().unwrap();
@@ -1287,7 +1138,6 @@ fn sync_prices_range_converts_every_stored_usd_close_time() {
     let (_, daily) = stub_daily((1..=5).map(|day| daily_row(day, 100.0)).collect());
     let reference = empty_reference();
     let (fx_calls, fx) = stub_fx_series(vec![("2010-01-01".to_string(), 0.5)]);
-
     let summary = run_sync(
         &database,
         "eur",
@@ -1300,7 +1150,6 @@ fn sync_prices_range_converts_every_stored_usd_close_time() {
         &fx,
     )
     .unwrap();
-
     let conversion = summary.conversion.expect("EUR run converts");
     assert_eq!(conversion.symbol, "EUR");
     assert_eq!(conversion.source_rows, 7);
@@ -1312,11 +1161,9 @@ fn sync_prices_range_converts_every_stored_usd_close_time() {
             price_repository::find_price(&database, "EUR", close_time)
                 .unwrap()
                 .map(|price| price.close),
-            Some(50.0)
+            Some(50.0),
         );
     }
-
-    // A second run keeps the target rows and stores nothing new.
     let second = run_sync(
         &database,
         "EUR",
@@ -1333,7 +1180,6 @@ fn sync_prices_range_converts_every_stored_usd_close_time() {
     assert_eq!(second.source_rows, 7);
     assert_eq!(second.stored, 0);
 }
-
 #[test]
 fn sync_prices_range_reports_a_failed_conversion_as_a_warning() {
     let database = Database::open_in_memory().unwrap();
@@ -1348,7 +1194,6 @@ fn sync_prices_range_reports_a_failed_conversion_as_a_warning() {
             )))
         })
     };
-
     let summary = run_sync(
         &database,
         "EUR",
@@ -1361,19 +1206,17 @@ fn sync_prices_range_reports_a_failed_conversion_as_a_warning() {
         &fx,
     )
     .unwrap();
-
     assert_eq!(summary.daily_stored, 1);
     assert!(summary.conversion.is_none());
     assert_eq!(summary.warnings.len(), 1);
     assert!(summary.warnings[0].contains("Could not convert"));
     assert_eq!(
-        price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(5)))
+        price_repository::find_price(&database, USD_SYMBOL, daily_close_time(november_day(5)),)
             .unwrap()
             .map(|price| price.close),
-        Some(100.0)
+        Some(100.0),
     );
 }
-
 #[test]
 fn resolution_prefers_a_recent_intraday_row() {
     let database = Database::open_in_memory().unwrap();
@@ -1397,7 +1240,6 @@ fn resolution_prefers_a_recent_intraday_row() {
     )
     .unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
-
     let price = block_on(resolve_price(
         &database,
         USD_SYMBOL,
@@ -1406,13 +1248,11 @@ fn resolution_prefers_a_recent_intraday_row() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close, 123.0);
     assert_eq!(price.close_time, observation);
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
     assert_eq!(stubs.fx_calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn resolution_falls_back_to_the_daily_row_without_intraday_data() {
     let database = Database::open_in_memory().unwrap();
@@ -1426,7 +1266,6 @@ fn resolution_falls_back_to_the_daily_row_without_intraday_data() {
     )
     .unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
-
     let price = block_on(resolve_price(
         &database,
         USD_SYMBOL,
@@ -1435,12 +1274,10 @@ fn resolution_falls_back_to_the_daily_row_without_intraday_data() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close, 456.0);
     assert_eq!(price.close_time, daily_close_time(BEYOND_COVERAGE));
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn a_daily_close_just_before_midnight_does_not_outrank_the_daily_bucket() {
     let database = Database::open_in_memory().unwrap();
@@ -1465,7 +1302,6 @@ fn a_daily_close_just_before_midnight_does_not_outrank_the_daily_bucket() {
     )
     .unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);
-
     let price = block_on(resolve_price(
         &database,
         USD_SYMBOL,
@@ -1474,12 +1310,10 @@ fn a_daily_close_just_before_midnight_does_not_outrank_the_daily_bucket() {
         stubs.fx.as_ref(),
     ))
     .unwrap();
-
     assert_eq!(price.close, 789.0);
     assert_eq!(price.close_time, daily_close_time(just_after_midnight));
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
 }
-
 #[test]
 fn delete_stored_prices_validates_and_deduplicates_the_snapshot_batch() {
     let database = Database::open_in_memory().unwrap();
@@ -1499,17 +1333,14 @@ fn delete_stored_prices_validates_and_deduplicates_the_snapshot_batch() {
         )
         .unwrap();
     }
-
     assert!(matches!(
         delete_stored_prices(&database, &[]),
         Err(PriceServiceError::Validation(_))
-    ));
+    ),);
     assert!(matches!(
         delete_stored_prices(&database, &[0]),
         Err(PriceServiceError::Price(PriceError::InvalidTimestamp(0)))
-    ));
-
-    // Duplicate close times collapse into one snapshot deletion.
+    ),);
     assert_eq!(
         delete_stored_prices(&database, &[100, 100, 300]).unwrap(),
         3
@@ -1532,6 +1363,6 @@ fn delete_stored_prices_validates_and_deduplicates_the_snapshot_batch() {
             symbol: "USD".to_string(),
             close_time: 200,
             close: 2.0,
-        })
+        }),
     );
 }

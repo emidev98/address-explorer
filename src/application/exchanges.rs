@@ -1,8 +1,5 @@
 //! Exchange ledger service: CSV import, account/transaction workflows,
 //! reconciliation, and manual on-chain linking.
-
-use std::collections::BTreeMap;
-
 use crate::application::exchange_fiat::{ExchangeFiatService, FiatValue};
 use crate::application::prices::PriceService;
 use crate::data::repositories::{
@@ -24,13 +21,12 @@ use crate::domain::exchange::{
 };
 use crate::domain::price::{fiat_to_sats, sats_to_fiat, USD_SYMBOL};
 use crate::domain::table::{SortDirection, TablePage};
-
+use std::collections::BTreeMap;
 const MAX_CSV_BYTES: usize = 25 * 1024 * 1024;
 const MAX_CSV_ROWS: usize = 200_000;
 const MAX_PAGE_SIZE: u32 = 100;
 /// Largest number of rows one bulk action may address.
 const MAX_BULK_IDS: usize = 100;
-
 #[derive(Debug, thiserror::Error)]
 pub enum ExchangeServiceError {
     #[error("{0}")]
@@ -42,12 +38,10 @@ pub enum ExchangeServiceError {
     #[error("database access failed: {0}")]
     Database(#[from] DatabaseError),
 }
-
 pub struct ExchangeService {
     database: Database,
     fiat: ExchangeFiatService,
 }
-
 impl ExchangeService {
     pub fn connect(database: Database) -> Self {
         Self {
@@ -55,7 +49,6 @@ impl ExchangeService {
             database,
         }
     }
-
     pub async fn list_accounts(
         &self,
         query: &ExchangeAccountTableQuery,
@@ -72,12 +65,10 @@ impl ExchangeService {
             conversion_warning,
         })
     }
-
     pub fn get_account(&self, id: i64) -> Result<ExchangeAccount, ExchangeServiceError> {
         exchange_repository::get_account(&self.database, id)?
             .ok_or(ExchangeServiceError::AccountNotFound)
     }
-
     pub async fn detail(&self, id: i64) -> Result<ExchangeAccountDetail, ExchangeServiceError> {
         let account = self.get_account(id)?;
         let mut transactions =
@@ -89,7 +80,6 @@ impl ExchangeService {
             conversion_warning,
         })
     }
-
     /// Value the lean ledger projection in the current default currency. Both
     /// the exchanges list and the account detail use this path so their KPI
     /// cards always describe the same population the same way.
@@ -115,7 +105,6 @@ impl ExchangeService {
         let conversion_warning = (!warnings.is_empty()).then(|| warnings.join(" "));
         Ok((kpis, conversion_warning))
     }
-
     pub async fn list_transactions(
         &self,
         query: &ExchangeTransactionTableQuery,
@@ -136,7 +125,6 @@ impl ExchangeService {
         self.fiat.convert_transactions(&mut page.items).await;
         Ok(page)
     }
-
     pub fn create_account(
         &self,
         name: &str,
@@ -150,7 +138,6 @@ impl ExchangeService {
             provider_id,
         )?)
     }
-
     pub fn update_account(
         &self,
         id: i64,
@@ -166,14 +153,12 @@ impl ExchangeService {
             provider_id,
         )?)
     }
-
     /// Delete several exchange accounts atomically; their ledger rows
     /// cascade and the affected provider balances are refreshed once.
     pub fn delete_accounts(&self, ids: &[i64]) -> Result<usize, ExchangeServiceError> {
         let ids = normalize_bulk_ids(ids, "exchange")?;
         Ok(exchange_repository::delete_accounts(&self.database, &ids)?)
     }
-
     pub async fn preview_import_data(
         &self,
         csv_text: &str,
@@ -239,7 +224,6 @@ impl ExchangeService {
             conversion_warning: warning,
         })
     }
-
     pub async fn import_data(
         &self,
         exchange_id: Option<i64>,
@@ -259,7 +243,6 @@ impl ExchangeService {
             .into_iter()
             .filter(|row| csv::is_bitcoin_currency(&row.currency))
             .collect::<Vec<_>>();
-
         let created = exchange_id.is_none();
         let account = if let Some(id) = exchange_id {
             self.get_account(id)?
@@ -280,7 +263,6 @@ impl ExchangeService {
                 conversion_warning: None,
             });
         }
-
         let exchange_repository::ExistingIdentities {
             fingerprints: mut existing_fingerprints,
             linked_txids,
@@ -339,7 +321,6 @@ impl ExchangeService {
             }
             writes.push(write);
         }
-
         exchange_repository::insert_imported_transactions(
             &self.database,
             account.id,
@@ -357,7 +338,6 @@ impl ExchangeService {
             conversion_warning: None,
         })
     }
-
     pub async fn save_transaction(
         &self,
         request: &ExchangeTransactionSaveRequest,
@@ -465,7 +445,6 @@ impl ExchangeService {
             .await;
         Ok(ExchangeTransactionSaveOutcome::Saved(Box::new(saved)))
     }
-
     /// Delete several ledger transactions of one account atomically.
     pub fn delete_transactions(
         &self,
@@ -479,7 +458,6 @@ impl ExchangeService {
             &ids,
         )?)
     }
-
     pub async fn get_transaction(
         &self,
         exchange_id: i64,
@@ -495,14 +473,12 @@ impl ExchangeService {
             .await;
         Ok(transaction)
     }
-
     pub async fn reconcile(&self, exchange_id: i64) -> Result<(), ExchangeServiceError> {
         self.get_account(exchange_id)?;
         let on_chain = exchange_repository::load_on_chain_transactions(&self.database)?;
         let scoring = settings_repository::load_on_chain_link_scoring(&self.database)?;
         self.reconcile_account(exchange_id, &on_chain, &scoring)
     }
-
     /// Reconcile several exchange accounts in one request.
     ///
     /// The on-chain transaction cache and scoring settings are loaded once.
@@ -540,7 +516,6 @@ impl ExchangeService {
         }
         Ok(summary)
     }
-
     fn reconcile_account(
         &self,
         exchange_id: i64,
@@ -549,8 +524,6 @@ impl ExchangeService {
     ) -> Result<(), ExchangeServiceError> {
         let transactions =
             exchange_repository::list_account_transactions(&self.database, exchange_id)?;
-        // Manual links are authoritative and are not re-evaluated. Seed their
-        // claims first so an automatic amount/date match cannot take them.
         let mut claims = OnChainClaims::new();
         for transaction in &transactions {
             if transaction.match_state == MatchState::ManualMatch {
@@ -567,8 +540,6 @@ impl ExchangeService {
             }
             let mut result =
                 matching::match_transaction(&transaction, on_chain, scoring, &claims, now);
-            // Re-running reconciliation must not rewrite the link timestamp
-            // when the same transaction and evidence source are still selected.
             if let (Some(existing), Some(next)) =
                 (&transaction.on_chain_link, result.on_chain_link.as_mut())
             {
@@ -594,7 +565,6 @@ impl ExchangeService {
         exchange_repository::update_match_states(&self.database, exchange_id, &updates)?;
         Ok(())
     }
-
     pub fn candidates(
         &self,
         transaction_id: i64,
@@ -617,7 +587,6 @@ impl ExchangeService {
                 .collect(),
         )
     }
-
     pub fn link(
         &self,
         transaction_id: i64,
@@ -671,7 +640,6 @@ impl ExchangeService {
         )?;
         Ok(ExchangeLinkOutcome::Linked(Box::new(updated)))
     }
-
     pub fn clear_link(
         &self,
         transaction_id: i64,
@@ -687,7 +655,6 @@ impl ExchangeService {
             None,
         )?)
     }
-
     fn validate_provider(&self, provider_id: Option<i64>) -> Result<(), ExchangeServiceError> {
         if let Some(provider_id) = provider_id {
             if !catalog_repository::exchange_type_exists(&self.database, provider_id)? {
@@ -699,7 +666,6 @@ impl ExchangeService {
         Ok(())
     }
 }
-
 fn validate_name(name: &str) -> Result<String, ExchangeServiceError> {
     let name = name.trim();
     if name.is_empty() {
@@ -714,7 +680,6 @@ fn validate_name(name: &str) -> Result<String, ExchangeServiceError> {
     }
     Ok(name.to_string())
 }
-
 /// Deduplicate and validate a batch selection before it reaches the
 /// repository. Sorting also gives the SQL parameters a deterministic order.
 fn normalize_bulk_ids(ids: &[i64], noun: &str) -> Result<Vec<i64>, ExchangeServiceError> {
@@ -733,7 +698,6 @@ fn normalize_bulk_ids(ids: &[i64], noun: &str) -> Result<Vec<i64>, ExchangeServi
     }
     Ok(ids)
 }
-
 fn parse_account_sort(
     key: Option<&str>,
     direction: SortDirection,
@@ -751,7 +715,6 @@ fn parse_account_sort(
             .ok_or_else(|| ExchangeServiceError::Validation(format!("unknown sort column: {key}"))),
     }
 }
-
 fn parse_transaction_sort(
     key: Option<&str>,
     direction: SortDirection,
@@ -769,7 +732,6 @@ fn parse_transaction_sort(
             .ok_or_else(|| ExchangeServiceError::Validation(format!("unknown sort column: {key}"))),
     }
 }
-
 fn parse_document(text: &str) -> Result<csv::CsvDocument, ExchangeServiceError> {
     if text.len() > MAX_CSV_BYTES {
         return Err(ExchangeServiceError::Validation(
@@ -784,9 +746,7 @@ fn parse_document(text: &str) -> Result<csv::CsvDocument, ExchangeServiceError> 
     }
     Ok(document)
 }
-
 type ParsedCsv = (Vec<ParsedExchangeTx>, Option<String>, Option<String>);
-
 fn parse_for_request(
     document: &csv::CsvDocument,
     detected: Option<csv::ParserKind>,
@@ -805,7 +765,6 @@ fn parse_for_request(
     }
     Ok((Vec::new(), None, None))
 }
-
 fn write_from_parsed(parsed: &ParsedExchangeTx) -> exchange_repository::ExchangeTransactionWrite {
     ExchangeTransactionWriteBuilder::new(
         parsed.fingerprint.clone(),
@@ -823,11 +782,9 @@ fn write_from_parsed(parsed: &ParsedExchangeTx) -> exchange_repository::Exchange
     )
     .build()
 }
-
 struct ExchangeTransactionWriteBuilder {
     write: exchange_repository::ExchangeTransactionWrite,
 }
-
 impl ExchangeTransactionWriteBuilder {
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -866,12 +823,10 @@ impl ExchangeTransactionWriteBuilder {
             },
         }
     }
-
     fn build(self) -> exchange_repository::ExchangeTransactionWrite {
         self.write
     }
 }
-
 fn manual_raw_data(draft: &ExchangeTransactionDraft) -> BTreeMap<String, String> {
     let mut raw = BTreeMap::new();
     raw.insert("source".into(), "manual-entry".into());
@@ -903,7 +858,6 @@ fn manual_raw_data(draft: &ExchangeTransactionDraft) -> BTreeMap<String, String>
     }
     raw
 }
-
 fn duplicate_info(transaction: &ExchangeTransaction) -> ExchangeDuplicateInfo {
     ExchangeDuplicateInfo {
         transaction_id: transaction.id,
@@ -915,7 +869,6 @@ fn duplicate_info(transaction: &ExchangeTransaction) -> ExchangeDuplicateInfo {
         description: transaction.description.clone(),
     }
 }
-
 fn candidate_view(
     database: &Database,
     candidate: OnChainLinkCandidate,
@@ -944,7 +897,6 @@ fn candidate_view(
         is_already_linked: candidate.is_already_linked,
     }
 }
-
 fn transaction_link_txid(transaction: &ExchangeTransaction) -> Option<String> {
     transaction
         .on_chain_link
@@ -952,7 +904,6 @@ fn transaction_link_txid(transaction: &ExchangeTransaction) -> Option<String> {
         .map(|link| link.txid.clone())
         .or_else(|| transaction.matched_tx_id.clone())
 }
-
 /// Prepare the default-currency price history once per KPI request.
 /// `ensure_currency_history` is idempotent and returns immediately once the
 /// stored USD series has been materialized in `target`.
@@ -967,7 +918,6 @@ async fn prepare_currency_history(prices: &PriceService, target: &str) -> Option
         )),
     }
 }
-
 /// Whether one ledger row needs a historical BTC price. Rows with an already
 /// converted fiat consideration and no fee can reuse that value; everything
 /// else is valued at the transaction timestamp.
@@ -985,7 +935,6 @@ fn needs_btc_price(transaction: &ExchangeKpiTransaction) -> bool {
         .is_some_and(csv::is_bitcoin_currency)
         || transaction.converted_fee_amount.is_some()
 }
-
 /// Resolve the BTC price in `target` for every transaction timestamp that
 /// needs valuation. One price is resolved per UTC day and shared by all rows of
 /// that day, keeping a large ledger from issuing one lookup per row.
@@ -1010,7 +959,6 @@ async fn btc_prices(
     if timestamps_by_day.is_empty() {
         return (BTreeMap::new(), None);
     }
-
     let mut warning = prepare_currency_history(prices, target).await;
     let mut values = BTreeMap::new();
     for timestamps in timestamps_by_day.values() {
@@ -1026,7 +974,7 @@ async fn btc_prices(
             Err(error) => {
                 if warning.is_none() {
                     warning = Some(format!(
-                        "Some ledger values could not be valued in {target}: {error}."
+                        "Some ledger values could not be valued in {target}: {error}.",
                     ));
                 }
             }
@@ -1034,13 +982,11 @@ async fn btc_prices(
     }
     (values, warning)
 }
-
 fn add_kpi_metric(metric: &mut ExchangeKpiMetric, sats: i64, fiat: Option<f64>) {
     metric.sats += sats;
     metric.fiat += fiat.unwrap_or(0.0);
     metric.count += 1;
 }
-
 fn kpis(
     transactions: &[ExchangeKpiTransaction],
     target: &str,
@@ -1065,7 +1011,6 @@ fn kpis(
             ExchangeTxType::Deposit => add_kpi_metric(&mut kpis.deposited, sats, fiat),
             ExchangeTxType::Unknown => {}
         }
-
         if matches!(
             transaction.tx_type,
             ExchangeTxType::Withdrawal | ExchangeTxType::Deposit
@@ -1075,7 +1020,6 @@ fn kpis(
                 add_kpi_metric(&mut kpis.onchain_matched, sats, fiat);
             }
         }
-
         let fee = transaction.fee.unwrap_or(0.0).abs();
         if fee == 0.0 {
             continue;
@@ -1101,18 +1045,14 @@ fn kpis(
     }
     kpis
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     use crate::clients::mempool::bitcoin::types::{Tx, TxStatus, TxVin, Vout};
     use crate::data::repositories::transactions as transaction_repository;
     use crate::domain::address::StoredAddress;
-
     const TEST_ADDRESS: &str = "bc1qtestimport";
     const TEST_BLOCK_TIME: i64 = 1_700_000_000;
-
     fn on_chain_tx(txid: &str, output_value: i64, block_time: i64) -> Tx {
         Tx {
             txid: txid.into(),
@@ -1145,7 +1085,6 @@ mod tests {
             },
         }
     }
-
     fn seed_on_chain_transaction(database: &Database, tx: Tx) {
         address_repository::insert_address(
             database,
@@ -1157,7 +1096,6 @@ mod tests {
         .unwrap();
         transaction_repository::sync_transactions(database, TEST_ADDRESS, &[tx], false).unwrap();
     }
-
     fn import_mapping() -> ImportDataMapping {
         ImportDataMapping {
             timestamp: "Date".into(),
@@ -1167,7 +1105,6 @@ mod tests {
             ..ImportDataMapping::default()
         }
     }
-
     fn withdrawal_draft(timestamp: i64) -> ExchangeTransactionDraft {
         ExchangeTransactionDraft {
             timestamp,
@@ -1182,7 +1119,6 @@ mod tests {
             description: None,
         }
     }
-
     fn save_withdrawal(
         service: &ExchangeService,
         exchange_id: i64,
@@ -1201,22 +1137,16 @@ mod tests {
             }
         }
     }
-
     fn block_on<F: std::future::Future>(future: F) -> F::Output {
         use std::task::{Context, RawWaker, RawWakerVTable, Waker};
-
         fn raw_waker() -> RawWaker {
             fn clone(_: *const ()) -> RawWaker {
                 raw_waker()
             }
             fn noop(_: *const ()) {}
-            // SAFETY: the vtable never dereferences the null data pointer.
             static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
             RawWaker::new(std::ptr::null(), &VTABLE)
         }
-
-        // SAFETY: `raw_waker` builds a `RawWaker` whose vtable upholds the
-        // contract documented above; the data pointer is never dereferenced.
         let waker = unsafe { Waker::from_raw(raw_waker()) };
         let mut context = Context::from_waker(&waker);
         let mut future = std::pin::pin!(future);
@@ -1225,7 +1155,6 @@ mod tests {
             std::task::Poll::Pending => panic!("future is pending"),
         }
     }
-
     #[allow(clippy::too_many_arguments)]
     fn kpi_transaction(
         tx_type: ExchangeTxType,
@@ -1250,15 +1179,12 @@ mod tests {
             converted_fee_amount,
         }
     }
-
     #[test]
     fn deleting_an_empty_batch_is_rejected() {
         let service = ExchangeService::connect(Database::open_in_memory().unwrap());
-
         assert!(service.delete_accounts(&[]).is_err());
         assert!(service.delete_transactions(1, &[]).is_err());
     }
-
     #[test]
     fn kpis_split_btc_movements_and_value_all_fees_in_the_default_currency() {
         let timestamp = 1_700_000_000;
@@ -1325,9 +1251,7 @@ mod tests {
             ),
         ];
         let prices = BTreeMap::from([(timestamp, 60_000.0)]);
-
         let kpis = kpis(&transactions, "USD", &prices);
-
         assert_eq!(kpis.bought.sats, 100_000_000);
         assert_eq!(kpis.bought.fiat, 50_000.0);
         assert_eq!(kpis.bought.count, 1);
@@ -1343,9 +1267,7 @@ mod tests {
         assert_eq!(kpis.deposited.sats, 25_000_000);
         assert_eq!(kpis.deposited.fiat, 15_000.0);
         assert_eq!(kpis.deposited.count, 2);
-        // 2.75 converted EUR fee + 0.0001 BTC at $60,000 = 6.00.
         assert!((kpis.fees.fiat - 8.75).abs() < 1e-9);
-        // The fiat fee is 4,583 sats at $60,000; the BTC fee is 10,000.
         assert_eq!(kpis.fees.sats, 14_583);
         assert_eq!(kpis.fees.count, 2);
         assert_eq!(kpis.onchain_matched.sats, 5_000_000);
@@ -1354,7 +1276,6 @@ mod tests {
         assert_eq!(kpis.onchain_total_count, 3);
         assert_eq!(kpis.fiat_currency, "USD");
     }
-
     #[test]
     fn parsed_btc_fees_are_normalized_to_satoshis_at_the_import_boundary() {
         let parsed = ParsedExchangeTx {
@@ -1371,12 +1292,9 @@ mod tests {
             description: None,
             raw_data: BTreeMap::new(),
         };
-
         let write = write_from_parsed(&parsed);
-
         assert_eq!(write.fee, Some(10_000.0));
     }
-
     #[test]
     fn manual_btc_fees_are_normalized_to_satoshis_on_save() {
         let database = Database::open_in_memory().unwrap();
@@ -1399,9 +1317,7 @@ mod tests {
             },
             duplicate_choice: None,
         };
-
         let outcome = block_on(service.save_transaction(&request)).unwrap();
-
         match outcome {
             ExchangeTransactionSaveOutcome::Saved(row) => {
                 assert_eq!(row.fee, Some(10_000.0));
@@ -1411,7 +1327,6 @@ mod tests {
             }
         }
     }
-
     #[test]
     fn import_auto_links_a_unique_amount_date_transaction() {
         let database = Database::open_in_memory().unwrap();
@@ -1422,10 +1337,8 @@ mod tests {
         let service = ExchangeService::connect(database);
         let mapping = import_mapping();
         let csv = "Date,Amount,Currency,Type\n2023-11-14 22:13:20,0.001,BTC,Withdrawal\n";
-
         let summary =
             block_on(service.import_data(None, Some("Test"), None, csv, Some(&mapping))).unwrap();
-
         assert_eq!(summary.inserted, 1);
         assert_eq!(summary.auto_linked, 1);
         let rows =
@@ -1435,7 +1348,6 @@ mod tests {
         assert_eq!(rows[0].match_state, MatchState::AmountDateMatch);
         assert_eq!(rows[0].matched_tx_id.as_deref(), Some("import-tx"));
     }
-
     #[test]
     fn reconcile_links_at_most_one_row_to_a_transaction() {
         let database = Database::open_in_memory().unwrap();
@@ -1447,9 +1359,7 @@ mod tests {
         let account = service.create_account("Test", None).unwrap();
         save_withdrawal(&service, account.id, TEST_BLOCK_TIME);
         save_withdrawal(&service, account.id, TEST_BLOCK_TIME + 1);
-
         block_on(service.reconcile(account.id)).unwrap();
-
         let rows =
             exchange_repository::list_account_transactions(&service.database, account.id).unwrap();
         let matched = rows
@@ -1461,7 +1371,6 @@ mod tests {
             .iter()
             .any(|row| row.match_state == MatchState::AmountDateMatch));
     }
-
     #[test]
     fn reconcile_many_reconciles_each_selected_account_and_reports_missing_ones() {
         let database = Database::open_in_memory().unwrap();
@@ -1471,13 +1380,9 @@ mod tests {
         let second = service.create_account("Second", None).unwrap();
         save_withdrawal(&service, first.id, TEST_BLOCK_TIME);
         save_withdrawal(&service, second.id, TEST_BLOCK_TIME);
-
-        // The repeated id is deduplicated and the missing account is reported
-        // without blocking the accounts that exist.
         let summary = service
             .reconcile_many(&[first.id, second.id, first.id, 999_999])
             .unwrap();
-
         assert_eq!(summary.reconciled, 2);
         assert_eq!(summary.failed.len(), 1);
         assert_eq!(summary.failed[0].exchange_id, 999_999);
@@ -1488,17 +1393,14 @@ mod tests {
                     .unwrap();
             assert!(rows
                 .iter()
-                .all(|row| row.match_state == MatchState::AmountDateMatch));
+                .all(|row| row.match_state == MatchState::AmountDateMatch),);
         }
     }
-
     #[test]
     fn reconcile_many_rejects_an_empty_selection() {
         let service = ExchangeService::connect(Database::open_in_memory().unwrap());
-
         assert!(service.reconcile_many(&[]).is_err());
     }
-
     #[test]
     fn reconcile_preserves_an_unchanged_link_timestamp() {
         let database = Database::open_in_memory().unwrap();
@@ -1509,7 +1411,6 @@ mod tests {
         let service = ExchangeService::connect(database);
         let account = service.create_account("Test", None).unwrap();
         let saved = save_withdrawal(&service, account.id, TEST_BLOCK_TIME);
-
         block_on(service.reconcile(account.id)).unwrap();
         let row = exchange_repository::get_transaction(&service.database, saved.id)
             .unwrap()
@@ -1528,9 +1429,7 @@ mod tests {
             Some(&old_link),
         )
         .unwrap();
-
         block_on(service.reconcile(account.id)).unwrap();
-
         let row = exchange_repository::get_transaction(&service.database, saved.id)
             .unwrap()
             .unwrap();

@@ -1,5 +1,4 @@
 #![cfg_attr(not(feature = "server"), allow(dead_code))]
-
 //! Exchange and wallet provider catalogs and their two-level taxonomy.
 //!
 //! Each kind has its own provider table (`exchanges_types` /
@@ -15,13 +14,9 @@
 //! initial category vocabulary. The seeded provider rows are fully user-owned
 //! once created: they can be renamed, recategorized, and deleted like
 //! user-created rows.
-
 pub mod csv;
-
-use serde::{Deserialize, Serialize};
-
 use crate::domain::table::TablePage;
-
+use serde::{Deserialize, Serialize};
 /// Which provider catalog a request addresses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -29,7 +24,6 @@ pub enum CatalogKind {
     Exchange,
     Wallet,
 }
-
 impl CatalogKind {
     /// API/route segment of the kind.
     pub fn as_str(self) -> &'static str {
@@ -38,7 +32,6 @@ impl CatalogKind {
             Self::Wallet => "wallet",
         }
     }
-
     /// Parse the API/route segment. Unknown values return `None` so the
     /// controller can reject them before any service call.
     pub fn parse(value: &str) -> Option<Self> {
@@ -48,7 +41,6 @@ impl CatalogKind {
             _ => None,
         }
     }
-
     /// Title of the sub-settings entry.
     pub fn label(self) -> &'static str {
         match self {
@@ -56,14 +48,12 @@ impl CatalogKind {
             Self::Wallet => "Wallet Types",
         }
     }
-
     pub fn singular_label(self) -> &'static str {
         match self {
             Self::Exchange => "exchange type",
             Self::Wallet => "wallet type",
         }
     }
-
     pub fn plural_label(self) -> &'static str {
         match self {
             Self::Exchange => "exchange types",
@@ -71,7 +61,6 @@ impl CatalogKind {
         }
     }
 }
-
 /// Who controls the private keys of a provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -79,24 +68,20 @@ pub enum CustodyModel {
     SelfCustody,
     Custodial,
 }
-
 impl CustodyModel {
     pub const ALL: [Self; 2] = [Self::SelfCustody, Self::Custodial];
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::SelfCustody => "self_custody",
             Self::Custodial => "custodial",
         }
     }
-
     pub fn label(self) -> &'static str {
         match self {
             Self::SelfCustody => "Self-custody",
             Self::Custodial => "Custodial",
         }
     }
-
     /// Accept the spellings used by the CSV importer and the stored values.
     pub fn parse(value: &str) -> Option<Self> {
         match value
@@ -111,7 +96,6 @@ impl CustodyModel {
         }
     }
 }
-
 /// Wallet form factor. Exchanges have no platform column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -119,24 +103,20 @@ pub enum WalletPlatform {
     Hardware,
     Software,
 }
-
 impl WalletPlatform {
     pub const ALL: [Self; 2] = [Self::Hardware, Self::Software];
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Hardware => "hardware",
             Self::Software => "software",
         }
     }
-
     pub fn label(self) -> &'static str {
         match self {
             Self::Hardware => "Hardware",
             Self::Software => "Software",
         }
     }
-
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "hardware" => Some(Self::Hardware),
@@ -145,7 +125,6 @@ impl WalletPlatform {
         }
     }
 }
-
 /// One provider row with its category resolved and its address usage counted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogType {
@@ -161,7 +140,6 @@ pub struct CatalogType {
     /// Number of addresses classified under this provider.
     pub address_count: i64,
 }
-
 /// Editable fields of a provider. `slug = None` derives it from the name.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -173,7 +151,6 @@ pub struct CatalogTypeDraft {
     pub platform: Option<WalletPlatform>,
     pub brand_color: Option<String>,
 }
-
 /// A draft whose textual fields have been normalized and whose kind-specific
 /// rules have been checked. Repositories only accept this type for writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,14 +162,12 @@ pub struct NormalizedCatalogTypeDraft {
     pub platform: Option<WalletPlatform>,
     pub brand_color: Option<String>,
 }
-
 /// One page of providers plus the global KPI totals of the collection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CatalogTypePage {
     pub page: TablePage<CatalogType>,
     pub totals: CatalogTotals,
 }
-
 /// Global totals shown by the KPI cards.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CatalogTotals {
@@ -202,7 +177,6 @@ pub struct CatalogTotals {
     pub classified_addresses: i64,
     pub uncategorized: i64,
 }
-
 /// One category with the number of providers using it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogCategory {
@@ -210,7 +184,6 @@ pub struct CatalogCategory {
     pub name: String,
     pub provider_count: i64,
 }
-
 /// Provider option used by the pickers across the app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogEntry {
@@ -220,7 +193,6 @@ pub struct CatalogEntry {
     pub category_name: Option<String>,
     pub brand_color: Option<String>,
 }
-
 /// Impact of deleting one or more providers, or a category and its providers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CatalogDeletePreview {
@@ -231,7 +203,6 @@ pub struct CatalogDeletePreview {
     pub exchange_account_count: u64,
     pub ledger_transaction_count: u64,
 }
-
 impl CatalogDeletePreview {
     /// Related rows that would be removed together with the selected rows.
     /// The provider/category rows themselves are not "related" data.
@@ -241,12 +212,10 @@ impl CatalogDeletePreview {
             + self.exchange_account_count
             + self.ledger_transaction_count
     }
-
     pub fn has_related_rows(self) -> bool {
         self.related_rows() > 0
     }
 }
-
 /// Counts actually removed by a confirmed deletion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CatalogDeleteSummary {
@@ -257,7 +226,6 @@ pub struct CatalogDeleteSummary {
     pub exchange_account_count: u64,
     pub ledger_transaction_count: u64,
 }
-
 /// Deletion result: either the rows were removed, or the caller must confirm
 /// the cascade after seeing the impact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -265,7 +233,6 @@ pub enum CatalogDeleteOutcome {
     Deleted(CatalogDeleteSummary),
     ConfirmationRequired(Box<CatalogDeletePreview>),
 }
-
 /// One row of an import preview.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogImportRowPreview {
@@ -276,7 +243,6 @@ pub struct CatalogImportRowPreview {
     pub category: Option<String>,
     pub status: CatalogImportRowStatus,
 }
-
 /// Outcome of one CSV row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CatalogImportRowStatus {
@@ -284,7 +250,6 @@ pub enum CatalogImportRowStatus {
     Duplicate(String),
     Invalid(String),
 }
-
 /// Validation preview of a create-only CSV import.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogImportPreview {
@@ -305,7 +270,6 @@ pub struct CatalogImportPreview {
     /// valid row.
     pub rows_truncated: bool,
 }
-
 /// Result of applying a create-only CSV import.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct CatalogImportSummary {
@@ -314,7 +278,6 @@ pub struct CatalogImportSummary {
     pub invalid_rows: usize,
     pub uncategorized_rows: usize,
 }
-
 /// Field of a provider form that failed validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -326,7 +289,6 @@ pub enum CatalogField {
     Platform,
     BrandColor,
 }
-
 impl CatalogField {
     pub fn label(self) -> &'static str {
         match self {
@@ -339,14 +301,12 @@ impl CatalogField {
         }
     }
 }
-
 /// Validation failure that can be shown next to its form field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogValidationError {
     pub field: CatalogField,
     pub message: String,
 }
-
 impl CatalogValidationError {
     fn new(field: CatalogField, message: impl Into<String>) -> Self {
         Self {
@@ -355,20 +315,16 @@ impl CatalogValidationError {
         }
     }
 }
-
 impl std::fmt::Display for CatalogValidationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.message)
     }
 }
-
 impl std::error::Error for CatalogValidationError {}
-
 /// Longest accepted provider name.
 pub const MAX_NAME_LENGTH: usize = 100;
 /// Longest accepted slug.
 pub const MAX_SLUG_LENGTH: usize = 64;
-
 impl CatalogTypeDraft {
     /// Trim and validate the textual fields, derive a missing slug, and
     /// enforce the kind-specific rules. Category existence is checked by the
@@ -397,14 +353,12 @@ impl CatalogTypeDraft {
             }
         };
         let brand_color = normalize_brand_color(self.brand_color.as_deref())?;
-
         if kind == CatalogKind::Exchange && self.platform.is_some() {
             return Err(CatalogValidationError::new(
                 CatalogField::Platform,
                 "Platform applies only to wallet types.",
             ));
         }
-
         Ok(NormalizedCatalogTypeDraft {
             name,
             slug,
@@ -415,7 +369,6 @@ impl CatalogTypeDraft {
         })
     }
 }
-
 /// Trim a provider name and check its length.
 pub fn normalize_name(name: &str) -> Result<String, CatalogValidationError> {
     let name = name.trim();
@@ -433,7 +386,6 @@ pub fn normalize_name(name: &str) -> Result<String, CatalogValidationError> {
     }
     Ok(name.to_string())
 }
-
 /// Build a slug from a provider name. Non-ASCII characters act as separators
 /// because slugs are restricted to ASCII letters, numbers, and hyphens.
 pub fn slugify(name: &str) -> String {
@@ -457,7 +409,6 @@ pub fn slugify(name: &str) -> String {
     }
     slug
 }
-
 /// Normalize and validate a user-provided slug.
 pub fn normalize_slug(raw: &str) -> Result<String, CatalogValidationError> {
     let trimmed = raw.trim();
@@ -467,7 +418,6 @@ pub fn normalize_slug(raw: &str) -> Result<String, CatalogValidationError> {
             "Enter a slug using letters, numbers, and hyphens.",
         ));
     }
-
     let mut slug = String::new();
     let mut last_was_dash = false;
     for character in trimmed.chars() {
@@ -504,7 +454,6 @@ pub fn normalize_slug(raw: &str) -> Result<String, CatalogValidationError> {
     }
     Ok(slug)
 }
-
 /// Normalize an optional `#RGB` / `#RRGGBB` color to uppercase `#RRGGBB`.
 /// Blank input means "no stored color"; the UI derives a fallback color.
 pub fn normalize_brand_color(raw: Option<&str>) -> Result<Option<String>, CatalogValidationError> {
@@ -526,7 +475,7 @@ pub fn normalize_brand_color(raw: Option<&str>) -> Result<Option<String>, Catalo
             return Err(CatalogValidationError::new(
                 CatalogField::BrandColor,
                 "Enter a color like #6750A4.",
-            ))
+            ));
         }
     };
     if !expanded
@@ -540,11 +489,9 @@ pub fn normalize_brand_color(raw: Option<&str>) -> Result<Option<String>, Catalo
     }
     Ok(Some(format!("#{}", expanded.to_ascii_uppercase())))
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn kinds_parse_their_api_segments_case_insensitively() {
         assert_eq!(CatalogKind::parse("exchange"), Some(CatalogKind::Exchange));
@@ -553,7 +500,6 @@ mod tests {
         assert_eq!(CatalogKind::Exchange.as_str(), "exchange");
         assert_eq!(CatalogKind::Wallet.label(), "Wallet Types");
     }
-
     #[test]
     fn slugs_are_derived_from_brand_names() {
         assert_eq!(slugify("Crypto.com"), "crypto-com");
@@ -563,7 +509,6 @@ mod tests {
         assert_eq!(slugify("Café"), "caf");
         assert_eq!(slugify("!!!"), "");
     }
-
     #[test]
     fn slug_normalization_collapses_separators_and_rejects_symbols() {
         assert_eq!(normalize_slug("  My_Wallet  ").unwrap(), "my-wallet");
@@ -571,29 +516,26 @@ mod tests {
         assert!(normalize_slug("wallet$").is_err());
         assert!(normalize_slug("   ").is_err());
     }
-
     #[test]
     fn names_are_trimmed_and_capped() {
         assert_eq!(normalize_name("  Ledger ").unwrap(), "Ledger");
         assert!(normalize_name(" ").is_err());
         assert!(normalize_name(&"x".repeat(MAX_NAME_LENGTH + 1)).is_err());
     }
-
     #[test]
     fn colors_normalize_to_uppercase_six_digit_hex() {
         assert_eq!(
             normalize_brand_color(Some("#abc")).unwrap(),
-            Some("#AABBCC".to_string())
+            Some("#AABBCC".to_string()),
         );
         assert_eq!(
             normalize_brand_color(Some(" 6750a4 ")).unwrap(),
-            Some("#6750A4".to_string())
+            Some("#6750A4".to_string()),
         );
         assert_eq!(normalize_brand_color(Some("  ")).unwrap(), None);
         assert!(normalize_brand_color(Some("#12")).is_err());
         assert!(normalize_brand_color(Some("#GGGGGG")).is_err());
     }
-
     #[test]
     fn drafts_derive_missing_slugs_and_reject_platform_on_exchanges() {
         let draft = CatalogTypeDraft {
@@ -603,7 +545,6 @@ mod tests {
         let normalized = draft.normalize(CatalogKind::Wallet).unwrap();
         assert_eq!(normalized.name, "OKX Wallet");
         assert_eq!(normalized.slug, "okx-wallet");
-
         let draft = CatalogTypeDraft {
             name: "Binance".to_string(),
             platform: Some(WalletPlatform::Software),
@@ -612,7 +553,6 @@ mod tests {
         let error = draft.normalize(CatalogKind::Exchange).unwrap_err();
         assert_eq!(error.field, CatalogField::Platform);
     }
-
     #[test]
     fn delete_preview_distinguishes_related_rows() {
         let empty = CatalogDeletePreview {
@@ -620,7 +560,6 @@ mod tests {
             ..CatalogDeletePreview::default()
         };
         assert!(!empty.has_related_rows());
-
         let with_addresses = CatalogDeletePreview {
             address_count: 3,
             transaction_count: 10,

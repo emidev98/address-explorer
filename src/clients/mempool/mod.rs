@@ -5,22 +5,18 @@ pub mod error;
 pub mod http;
 pub mod liquid;
 pub mod ws;
-
 pub use bitcoin::Bitcoin;
+use bitcoin::Bitcoin as BitcoinApi;
 pub use config::MempoolConfig;
 pub use error::MempoolError;
 pub use http::HttpClient;
 pub use liquid::Liquid;
-
-use bitcoin::Bitcoin as BitcoinApi;
 use liquid::Liquid as LiquidApi;
-
 #[derive(Clone)]
 pub struct Mempool {
     pub bitcoin: BitcoinApi,
     pub liquid: LiquidApi,
 }
-
 impl Mempool {
     pub fn new(config: MempoolConfig) -> Self {
         let bitcoin_http = HttpClient::new(config.bitcoin_base_url(), &config);

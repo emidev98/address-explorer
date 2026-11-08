@@ -1,6 +1,5 @@
 use super::*;
 use dioxus::prelude::*;
-
 /// Create or edit one provider.
 #[component]
 pub fn CatalogTypeDialog(
@@ -26,7 +25,6 @@ pub fn CatalogTypeDialog(
         .as_ref()
         .and_then(|entry| entry.brand_color.clone())
         .unwrap_or_else(|| derived_color(&initial_name));
-
     let mut name = use_signal(|| initial_name.clone());
     let mut slug = use_signal(|| initial_slug.clone());
     let mut slug_touched = use_signal(|| editing);
@@ -38,13 +36,11 @@ pub fn CatalogTypeDialog(
     let mut validation = use_signal(|| Option::<CatalogValidationError>::None);
     let mut error = use_signal(|| Option::<String>::None);
     let mut show_discard = use_signal(|| false);
-
     use_effect(move || {
         if !slug_touched() {
             slug.set(slugify(&name()));
         }
     });
-
     let normalized_color = normalize_brand_color(Some(&color())).unwrap_or(None);
     let initial_normalized_color = normalize_brand_color(Some(&initial_color)).unwrap_or(None);
     let dirty = name() != initial_name
@@ -53,7 +49,6 @@ pub fn CatalogTypeDialog(
         || custody() != initial_custody
         || platform() != initial_platform
         || normalized_color != initial_normalized_color;
-
     let submit = move |_| {
         if *saving.read() {
             return;
@@ -99,7 +94,6 @@ pub fn CatalogTypeDialog(
             }
         });
     };
-
     let validation_state = validation();
     let name_error = validation_state
         .as_ref()
@@ -112,7 +106,6 @@ pub fn CatalogTypeDialog(
     });
     let color_valid = normalized_color;
     let title = if editing { "Edit type" } else { "New type" };
-
     rsx! {
         Modal {
             title,
@@ -122,185 +115,182 @@ pub fn CatalogTypeDialog(
             p { class: "text-body-medium text-on-surface-variant",
                 "Name and slug identify the {kind.singular_label()}; the slug is locked after creation."
             }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "catalog-type-name",
-                    "Name *"
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "catalog-type-name",
+                "Name *"
+            }
+            div { class: "md3-text-field",
+                input {
+                    id: "catalog-type-name",
+                    class: "md3-input",
+                    value: "{name}",
+                    autofocus: true,
+                    disabled: *saving.read(),
+                    oninput: move |event| name.set(event.value()),
                 }
-                div { class: "md3-text-field",
-                    input {
-                        id: "catalog-type-name",
-                        class: "md3-input",
-                        value: "{name}",
-                        autofocus: true,
+            }
+            if let Some(message) = name_error {
+                p { class: "text-body-small md3-settings-error", "{message}" }
+            }
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "catalog-type-slug",
+                "Slug"
+            }
+            div { class: "md3-text-field",
+                input {
+                    id: "catalog-type-slug",
+                    class: "md3-input",
+                    value: "{slug}",
+                    disabled: editing || *saving.read(),
+                    oninput: move |event| {
+                        slug_touched.set(true);
+                        slug.set(event.value());
+                    },
+                }
+            }
+            if editing {
+                p { class: "text-body-small text-on-surface-variant",
+                    "The slug is locked after creation."
+                }
+            }
+            if let Some(message) = slug_error {
+                p { class: "text-body-small md3-settings-error", "{message}" }
+            }
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "catalog-type-category",
+                "Category"
+            }
+            div { class: "md3-text-field",
+                select {
+                    id: "catalog-type-category",
+                    class: "md3-input",
+                    value: category_id().map(| id | id
+                                                                                        .to_string()).unwrap_or_default(),
+                    disabled: *saving.read(),
+                    onchange: move |event| {
+                        category_id.set(event.value().parse::<i64>().ok());
+                    },
+                    option { value: "", "Uncategorized" }
+                    for category in categories {
+                        option { value: "{category.id}", "{category.name}" }
+                    }
+                }
+            }
+            label { class: "text-body-medium text-on-surface-variant", "Custody" }
+            div {
+                class: "md3-chip-group",
+                role: "group",
+                aria_label: "Custody model",
+                button {
+                    r#type: "button",
+                    class: if custody().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                    aria_pressed: custody().is_none().to_string(),
+                    disabled: * saving
+                                                                                        .read(),
+                    onclick: move |_| custody.set(None),
+                    "Not set"
+                }
+                for model in CustodyModel::ALL {
+                    button {
+                        r#type: "button",
+                        class: if custody() == Some(model) { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                        aria_pressed: (custody() == Some(model)).to_string(),
                         disabled: *saving.read(),
-                        oninput: move |event| name.set(event.value()),
+                        onclick: move |_| custody.set(Some(model)),
+                        "{model.label()}"
                     }
                 }
-                if let Some(message) = name_error {
-                    p { class: "text-body-small md3-settings-error", "{message}" }
-                }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "catalog-type-slug",
-                    "Slug"
-                }
-                div { class: "md3-text-field",
-                    input {
-                        id: "catalog-type-slug",
-                        class: "md3-input",
-                        value: "{slug}",
-                        disabled: editing || *saving.read(),
-                        oninput: move |event| {
-                            slug_touched.set(true);
-                            slug.set(event.value());
-                        },
-                    }
-                }
-                if editing {
-                    p { class: "text-body-small text-on-surface-variant",
-                        "The slug is locked after creation."
-                    }
-                }
-                if let Some(message) = slug_error {
-                    p { class: "text-body-small md3-settings-error", "{message}" }
-                }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "catalog-type-category",
-                    "Category"
-                }
-                div { class: "md3-text-field",
-                    select {
-                        id: "catalog-type-category",
-                        class: "md3-input",
-                        value: category_id().map(|id| id.to_string()).unwrap_or_default(),
-                        disabled: *saving.read(),
-                        onchange: move |event| {
-                            category_id.set(event.value().parse::<i64>().ok());
-                        },
-                        option { value: "", "Uncategorized" }
-                        for category in categories {
-                            option { value: "{category.id}", "{category.name}" }
-                        }
-                    }
-                }
-
-                label { class: "text-body-medium text-on-surface-variant", "Custody" }
+            }
+            if kind == CatalogKind::Wallet {
+                label { class: "text-body-medium text-on-surface-variant", "Platform" }
                 div {
                     class: "md3-chip-group",
                     role: "group",
-                    aria_label: "Custody model",
+                    aria_label: "Wallet platform",
                     button {
                         r#type: "button",
-                        class: if custody().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                        aria_pressed: custody().is_none().to_string(),
+                        class: if platform().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                        aria_pressed: platform()
+                                                                                                        .is_none().to_string(),
                         disabled: *saving.read(),
-                        onclick: move |_| custody.set(None),
+                        onclick: move | _ | platform
+                                                                                                        .set(None),
                         "Not set"
                     }
-                    for model in CustodyModel::ALL {
+                    for value in WalletPlatform::ALL {
                         button {
                             r#type: "button",
-                            class: if custody() == Some(model) { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                            aria_pressed: (custody() == Some(model)).to_string(),
+                            class: if platform() == Some(value) { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                            aria_pressed: (platform() == Some(value)).to_string(),
                             disabled: *saving.read(),
-                            onclick: move |_| custody.set(Some(model)),
-                            "{model.label()}"
+                            onclick: move |_| platform.set(Some(value)),
+                            "{value.label()}"
                         }
                     }
                 }
-
-                if kind == CatalogKind::Wallet {
-                    label { class: "text-body-medium text-on-surface-variant", "Platform" }
-                    div {
-                        class: "md3-chip-group",
-                        role: "group",
-                        aria_label: "Wallet platform",
-                        button {
-                            r#type: "button",
-                            class: if platform().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                            aria_pressed: platform().is_none().to_string(),
-                            disabled: *saving.read(),
-                            onclick: move |_| platform.set(None),
-                            "Not set"
-                        }
-                        for value in WalletPlatform::ALL {
-                            button {
-                                r#type: "button",
-                                class: if platform() == Some(value) { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                                aria_pressed: (platform() == Some(value)).to_string(),
-                                disabled: *saving.read(),
-                                onclick: move |_| platform.set(Some(value)),
-                                "{value.label()}"
-                            }
-                        }
+            }
+            label {
+                class: "text-body-medium text-on-surface-variant",
+                r#for: "catalog-type-color",
+                "Brand color"
+            }
+            div { class: "md3-catalog-color-row",
+                input {
+                    id: "catalog-type-color",
+                    r#type: "color",
+                    class: "md3-catalog-color-input",
+                    value: "{color}",
+                    disabled: *saving.read(),
+                    oninput: move | event | color.set(event
+                                                                                        .value()),
+                }
+                span { class: "md3-catalog-color-hex", "{color}" }
+                button {
+                    r#type: "button",
+                    class: "md3-button-text",
+                    disabled: *saving.read(),
+                    onclick: move
+                                                                                        | _ | color.set(derived_color(& name())),
+                    "Suggested"
+                }
+                ProviderBadge {
+                    name: name(),
+                    color: color_valid.clone(),
+                    size: BadgeSize::Regular,
+                }
+            }
+            if let Some(message) = color_error {
+                p { class: "text-body-small md3-settings-error", "{message}" }
+            }
+            if let Some(message) = error() {
+                p { class: "text-body-small md3-settings-error", "{message}" }
+            }
+            div { class: "md3-dialog-actions",
+                button {
+                    r#type: "button",
+                    class: "md3-button-text",
+                    disabled: *saving.read(),
+                    onclick: move |_| request_close(saving, dirty, show_discard, on_close),
+                    "Cancel"
+                }
+                button {
+                    r#type: "button",
+                    class: "md3-button-filled",
+                    disabled: *saving.read(),
+                    onclick: submit,
+                    if *saving.read() {
+                        "Saving..."
+                    } else if editing {
+                        "Save changes"
+                    } else {
+                        "Create"
                     }
                 }
-
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "catalog-type-color",
-                    "Brand color"
-                }
-                div { class: "md3-catalog-color-row",
-                    input {
-                        id: "catalog-type-color",
-                        r#type: "color",
-                        class: "md3-catalog-color-input",
-                        value: "{color}",
-                        disabled: *saving.read(),
-                        oninput: move |event| color.set(event.value()),
-                    }
-                    span { class: "md3-catalog-color-hex", "{color}" }
-                    button {
-                        r#type: "button",
-                        class: "md3-button-text",
-                        disabled: *saving.read(),
-                        onclick: move |_| color.set(derived_color(&name())),
-                        "Suggested"
-                    }
-                    ProviderBadge {
-                        name: name(),
-                        color: color_valid.clone(),
-                        size: BadgeSize::Regular,
-                    }
-                }
-                if let Some(message) = color_error {
-                    p { class: "text-body-small md3-settings-error", "{message}" }
-                }
-
-                if let Some(message) = error() {
-                    p { class: "text-body-small md3-settings-error", "{message}" }
-                }
-
-                div { class: "md3-dialog-actions",
-                    button {
-                        r#type: "button",
-                        class: "md3-button-text",
-                        disabled: *saving.read(),
-                        onclick: move |_| request_close(saving, dirty, show_discard, on_close),
-                        "Cancel"
-                    }
-                    button {
-                        r#type: "button",
-                        class: "md3-button-filled",
-                        disabled: *saving.read(),
-                        onclick: submit,
-                        if *saving.read() {
-                            "Saving..."
-                        } else if editing {
-                            "Save changes"
-                        } else {
-                            "Create"
-                        }
-                    }
             }
         }
-
         if show_discard() {
             ConfirmDialog {
                 title: "Discard changes".to_string(),
@@ -316,7 +306,6 @@ pub fn CatalogTypeDialog(
         }
     }
 }
-
 fn request_close(
     saving: Signal<bool>,
     dirty: bool,

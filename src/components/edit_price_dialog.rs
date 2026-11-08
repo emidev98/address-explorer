@@ -1,11 +1,9 @@
-use dioxus::prelude::*;
-
 use crate::api::prices::update_price_api;
 use crate::components::format::format_fiat;
 use crate::components::{use_toast, Modal};
 use crate::domain::civil_time::format_datetime;
 use crate::domain::price::Price;
-
+use dioxus::prelude::*;
 /// Modal dialog that edits the close of one stored price. The update goes
 /// through `update_price_api`, which validates the value like any external
 /// input and never creates rows: editing only changes existing history.
@@ -18,7 +16,6 @@ pub fn EditPriceDialog(
     let toast = use_toast();
     let mut value = use_signal(|| price.close.to_string());
     let mut loading = use_signal(|| false);
-
     let save = {
         let price = price.clone();
         move |_| {
@@ -35,7 +32,6 @@ pub fn EditPriceDialog(
                 toast.error("The price must be a positive number.");
                 return;
             }
-
             loading.set(true);
             let price = price.clone();
             spawn(async move {
@@ -52,11 +48,11 @@ pub fn EditPriceDialog(
             });
         }
     };
-
     rsx! {
         Modal {
             title: "Modify price".to_string(),
-            title_id: "edit-price-title".to_string(),
+            title_id: "edit-price-title"
+                                                        .to_string(),
             on_close: move |_| on_close.call(()),
             p { class: "text-body-medium text-on-surface-variant",
                 "Update the {price.symbol} close of {format_datetime(price.close_time)} (UTC), currently {format_fiat(price.close, &price.symbol)}."
@@ -83,7 +79,8 @@ pub fn EditPriceDialog(
                     r#type: "button",
                     class: "md3-button-text",
                     onclick: move |_| on_close.call(()),
-                    disabled: *loading.read(),
+                    disabled: * loading
+                                                                                        .read(),
                     "Cancel"
                 }
                 button {

@@ -2,7 +2,6 @@
 //!
 //! Modules here are plain data and pure functions: they MUST NOT contain SQL,
 //! HTTP, RSX, or Dioxus signal code.
-
 pub mod address;
 pub mod calendar;
 pub mod catalog;

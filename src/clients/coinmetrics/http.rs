@@ -4,7 +4,6 @@ use crate::clients::coinmetrics::types::ErrorResponse;
 use reqwest::{Client, RequestBuilder};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-
 /// HTTP client for the Coin Metrics v4 API. Adds the configured `api_key` to
 /// every request and translates API error responses into
 /// [`CoinMetricsError::Api`].
@@ -14,7 +13,6 @@ pub struct HttpClient {
     base_url: String,
     api_key: Option<String>,
 }
-
 impl HttpClient {
     pub fn new(config: &CoinMetricsConfig) -> Self {
         let mut builder = Client::builder();
@@ -32,23 +30,19 @@ impl HttpClient {
             api_key: config.api_key.clone(),
         }
     }
-
     fn url(&self, path: &str) -> String {
         format!("{}{}", self.base_url, path.trim_start_matches('/'))
     }
-
     fn with_api_key(&self, request: RequestBuilder) -> RequestBuilder {
         match &self.api_key {
             Some(api_key) => request.query(&[("api_key", api_key)]),
             None => request,
         }
     }
-
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, CoinMetricsError> {
         let request = self.with_api_key(self.client.get(self.url(path)));
         self.send_json(request).await
     }
-
     pub async fn get_query<T, Q>(&self, path: &str, query: &Q) -> Result<T, CoinMetricsError>
     where
         T: DeserializeOwned,
@@ -57,7 +51,6 @@ impl HttpClient {
         let request = self.with_api_key(self.client.get(self.url(path)).query(query));
         self.send_json(request).await
     }
-
     pub async fn put_json<T, B>(&self, path: &str, body: &B) -> Result<T, CoinMetricsError>
     where
         T: DeserializeOwned,
@@ -66,7 +59,6 @@ impl HttpClient {
         let request = self.with_api_key(self.client.put(self.url(path)).json(body));
         self.send_json(request).await
     }
-
     /// Builds an authenticated WebSocket URL for one of the
     /// `/timeseries-stream/*` endpoints without opening a connection.
     pub fn stream_url<Q>(&self, path: &str, query: &Q) -> Result<String, CoinMetricsError>
@@ -82,7 +74,6 @@ impl HttpClient {
             .map_err(|_| CoinMetricsError::Url(url.to_string()))?;
         Ok(url.to_string())
     }
-
     async fn send_json<T: DeserializeOwned>(
         &self,
         request: RequestBuilder,
@@ -96,7 +87,6 @@ impl HttpClient {
         Ok(response.json::<T>().await?)
     }
 }
-
 fn api_error(status: u16, body: &str) -> CoinMetricsError {
     match serde_json::from_str::<ErrorResponse>(body) {
         Ok(response) => CoinMetricsError::Api {
@@ -111,11 +101,9 @@ fn api_error(status: u16, body: &str) -> CoinMetricsError {
         },
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn parses_api_error_bodies() {
         let error = api_error(
@@ -135,7 +123,6 @@ mod tests {
             other => panic!("unexpected error: {other}"),
         }
     }
-
     #[test]
     fn falls_back_to_the_raw_body_for_non_json_errors() {
         let error = api_error(502, "bad gateway");

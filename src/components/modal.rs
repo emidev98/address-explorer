@@ -1,7 +1,5 @@
 //! Shared modal dialog shell.
-
 use dioxus::prelude::*;
-
 /// Modal scrim and dialog container. Dialogs render their form and actions as
 /// children; the shell owns the scrim click, Escape handling, and ARIA roles.
 #[component]
@@ -20,7 +18,6 @@ pub fn Modal(
     } else {
         format!("md3-dialog {class}")
     };
-
     rsx! {
         div {
             class: "md3-dialog-scrim",

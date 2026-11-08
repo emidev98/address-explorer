@@ -1,5 +1,3 @@
-use dioxus::prelude::*;
-
 use crate::api::prices::ensure_currency_history_api;
 use crate::api::settings::{
     save_confirm_destructive_actions_api, save_default_fiat_currency_api,
@@ -12,14 +10,13 @@ use crate::components::{
 use crate::domain::interface_settings::NavigationPosition;
 use crate::domain::price::{CurrencyHistorySummary, FIAT_CURRENCIES, USD_SYMBOL};
 use crate::domain::theme::{ThemeMode, ThemePalette, ThemePreference};
-
+use dioxus::prelude::*;
 /// General settings: theme, currency, interface hints, and safety.
 #[component]
 pub fn SettingsGeneral() -> Element {
     let mut toast = use_toast();
     let theme = use_context::<Signal<ThemePreference>>();
     let saving = use_signal(|| false);
-
     let currency = use_fiat_currency();
     let currency_saving = use_signal(|| false);
     let currency_status = use_signal(|| Option::<String>::None);
@@ -28,12 +25,9 @@ pub fn SettingsGeneral() -> Element {
     let navigation_saving = use_signal(|| false);
     let confirm_saving = use_signal(|| false);
     let confirm_destructive = interface_settings.get().confirm_destructive_actions;
-
     let currency_code = currency.code();
-
     rsx! {
         PageHeader { title: "General".to_string() }
-
         section { class: "md3-settings-section",
             div {
                 h3 { class: "text-title-medium leading-title-medium text-on-surface",
@@ -43,13 +37,13 @@ pub fn SettingsGeneral() -> Element {
                     "Choose a Material 3 color palette and appearance. Your selection is saved automatically."
                 }
             }
-
             div { class: "md3-theme-grid",
                 for palette in ThemePalette::ALL {
                     button {
                         r#type: "button",
                         class: "md3-theme-option",
-                        aria_pressed: (theme().palette == palette).to_string(),
+                        aria_pressed: (theme().palette ==
+                                                                                                        palette).to_string(),
                         disabled: *saving.read(),
                         onclick: move |_| {
                             let next = ThemePreference {
@@ -62,7 +56,6 @@ pub fn SettingsGeneral() -> Element {
                         span { "{palette.label()}" }
                     }
                 }
-
                 div { class: "md3-theme-appearance",
                     h4 { class: "text-title-small leading-title-small text-on-surface",
                         "Appearance"
@@ -87,9 +80,7 @@ pub fn SettingsGeneral() -> Element {
                     }
                 }
             }
-
         }
-
         section { class: "md3-settings-section",
             div {
                 h3 { class: "text-title-medium leading-title-medium text-on-surface",
@@ -122,7 +113,6 @@ pub fn SettingsGeneral() -> Element {
                 }
             }
         }
-
         section { class: "md3-settings-section",
             div {
                 h3 { class: "text-title-medium leading-title-medium text-on-surface",
@@ -135,13 +125,13 @@ pub fn SettingsGeneral() -> Element {
             Checkbox {
                 checked: interface_settings.get().show_date_range_support,
                 disabled: *support_saving.read(),
-                label: "Show date range support text".to_string(),
+                label: "Show date range support text"
+                                                                        .to_string(),
                 on_change: move |enabled| {
                     persist_date_range_support(interface_settings, support_saving, toast, enabled);
                 },
             }
         }
-
         div { class: "md3-settings-row",
             section { class: "md3-settings-section",
                 div {
@@ -165,16 +155,22 @@ pub fn SettingsGeneral() -> Element {
                         saving.set(true);
                         spawn(async move {
                             match save_confirm_destructive_actions_api(enabled).await {
-                                Ok(()) => toast.success(if enabled {
-                                    "Destructive action confirmations enabled."
-                                } else {
-                                    "Destructive action confirmations disabled."
-                                }),
+                                Ok(()) => {
+                                    toast
+                                        .success(
+                                            if enabled {
+                                                "Destructive action confirmations enabled."
+                                            } else {
+                                                "Destructive action confirmations disabled."
+                                            },
+                                        )
+                                }
                                 Err(error) => {
                                     interface_settings.set(previous);
-                                    toast.error(format!(
-                                        "Could not save the confirmation setting: {error}"
-                                    ));
+                                    toast
+                                        .error(
+                                            format!("Could not save the confirmation setting: {error}"),
+                                        );
                                 }
                             }
                             saving.set(false);
@@ -182,7 +178,6 @@ pub fn SettingsGeneral() -> Element {
                     },
                 }
             }
-
             section { class: "md3-settings-section",
                 div {
                     h3 { class: "text-title-medium leading-title-medium text-on-surface",
@@ -192,7 +187,6 @@ pub fn SettingsGeneral() -> Element {
                         "Fiat prices across the app are displayed in this currency. Selecting a currency also converts the stored BTC price history into it and saves the result for later use. Your selection is saved automatically."
                     }
                 }
-
                 label {
                     class: "text-body-medium text-on-surface-variant",
                     r#for: "default-fiat-currency",
@@ -226,13 +220,10 @@ pub fn SettingsGeneral() -> Element {
                         "{status}"
                     }
                 }
-
             }
         }
-
     }
 }
-
 /// Apply the new navigation placement immediately, then persist it. If the
 /// write fails, restore the previous value so the shell never presents an
 /// uncommitted position as saved.
@@ -250,21 +241,22 @@ fn persist_navigation_position(
     next.navigation_position = position;
     interface_settings.set(next);
     saving.set(true);
-
     spawn(async move {
         match save_navigation_position_api(position).await {
             Ok(()) => toast.success(format!("Navigation position set to {}.", position.label())),
             Err(error) => {
                 interface_settings.set(previous);
-                toast.error(format!(
-                    "Could not save the navigation position: {error}. The previous value was restored."
-                ));
+                toast
+                    .error(
+                        format!(
+                            "Could not save the navigation position: {error}. The previous value was restored.",
+                        ),
+                    );
             }
         }
         saving.set(false);
     });
 }
-
 /// Apply the new date-range support preference immediately, then persist it.
 /// If the write fails, restore the previous value so the checkbox never
 /// presents an uncommitted setting as saved.
@@ -279,7 +271,6 @@ fn persist_date_range_support(
     next.show_date_range_support = enabled;
     interface_settings.set(next);
     saving.set(true);
-
     spawn(async move {
         match save_show_date_range_support_api(enabled).await {
             Ok(()) => toast.success(if enabled {
@@ -289,15 +280,17 @@ fn persist_date_range_support(
             }),
             Err(error) => {
                 interface_settings.set(previous);
-                toast.error(format!(
-                    "Could not save the date range support setting: {error}. The previous value was restored."
-                ));
+                toast
+                    .error(
+                        format!(
+                            "Could not save the date range support setting: {error}. The previous value was restored.",
+                        ),
+                    );
             }
         }
         saving.set(false);
     });
 }
-
 /// Apply the new preference immediately, then persist it. If the write fails,
 /// restore the previous preference so the UI never presents an uncommitted
 /// theme as saved. Controls are disabled while the save is in flight so rapid
@@ -311,21 +304,19 @@ fn persist_theme(
     let previous = theme();
     theme.set(next);
     saving.set(true);
-
     spawn(async move {
         match save_theme_api(next).await {
             Ok(()) => toast.success("Theme saved."),
             Err(error) => {
                 theme.set(previous);
                 toast.error(format!(
-                    "Could not save theme: {error}. The previous theme was restored."
+                    "Could not save theme: {error}. The previous theme was restored.",
                 ));
             }
         }
         saving.set(false);
     });
 }
-
 /// Apply the new default fiat currency immediately, then persist it. If the
 /// write fails, restore the previous value so the UI never presents an
 /// uncommitted currency as saved. A successful save is followed by a
@@ -345,12 +336,10 @@ fn persist_currency(
     if next == currency.code() {
         return;
     }
-
     let previous = currency.code();
     currency.set(next.clone());
     saving.set(true);
     status.set(Some("Saving the default fiat currency…".to_string()));
-
     spawn(async move {
         let saved = match save_default_fiat_currency_api(next).await {
             Ok(saved) => saved,
@@ -358,22 +347,22 @@ fn persist_currency(
                 currency.set(previous);
                 status.set(None);
                 saving.set(false);
-                toast.error(format!(
-                    "Could not save the default fiat currency: {error}. The previous value was restored."
-                ));
+                toast
+                    .error(
+                        format!(
+                            "Could not save the default fiat currency: {error}. The previous value was restored.",
+                        ),
+                    );
                 return;
             }
         };
-
         currency.set(saved.clone());
-
         if saved == USD_SYMBOL {
             status.set(None);
             saving.set(false);
             toast.success("Default fiat currency saved.");
             return;
         }
-
         status.set(Some(format!("Preparing {saved} historical prices…")));
         match ensure_currency_history_api(saved.clone()).await {
             Ok(summary) => {
@@ -383,7 +372,7 @@ fn persist_currency(
             }
             Err(error) => {
                 let message = format!(
-                    "Default fiat currency saved to {saved}, but historical prices could not be converted: {error}. Historical Prices will retry."
+                    "Default fiat currency saved to {saved}, but historical prices could not be converted: {error}. Historical Prices will retry.",
                 );
                 status.set(Some(message.clone()));
                 toast.show(ToastKind::Info, message);
@@ -392,14 +381,13 @@ fn persist_currency(
         saving.set(false);
     });
 }
-
 /// Toast copy for a successful preference save followed by history
 /// preparation.
 fn currency_change_message(symbol: &str, summary: &CurrencyHistorySummary) -> (ToastKind, String) {
     let mut message = if summary.stored > 0 {
         format!(
             "Default fiat currency saved. Converted {} historical prices to {symbol}.",
-            summary.stored
+            summary.stored,
         )
     } else {
         "Default fiat currency saved.".to_string()

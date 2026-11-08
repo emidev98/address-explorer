@@ -1,17 +1,13 @@
 //! Price endpoints.
-
-use dioxus::prelude::*;
-
-use crate::domain::price::{
-    CurrencyHistorySummary, FiatCurrency, Price, PricePage, PriceSeries, PriceSyncSummary,
-    PriceTableQuery, SyncGranularity,
-};
-
 #[cfg(feature = "server")]
 use super::open_database;
 #[cfg(feature = "server")]
 use crate::application::prices::{self, PriceService};
-
+use crate::domain::price::{
+    CurrencyHistorySummary, FiatCurrency, Price, PricePage, PriceSeries, PriceSyncSummary,
+    PriceTableQuery, SyncGranularity,
+};
+use dioxus::prelude::*;
 /// Resolve the most recent BTC price in `symbol`: the freshest stored close
 /// (an intraday observation when one was synced), falling back to the previous
 /// day when today's daily close is not published yet.
@@ -23,7 +19,6 @@ pub async fn latest_price_api(symbol: String) -> Result<Price, ServerFnError> {
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Read one page of the stored history matching `query`: the shared table
 /// contract (page, page size, backend sorting) plus the
 /// price-specific symbol and close-time bounds (a bound of `0` or less
@@ -40,7 +35,6 @@ pub async fn list_prices_api(query: PriceTableQuery) -> Result<PricePage, Server
     )
     .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Synchronize the stored BTC price history of `[from_time, to_time]`.
 ///
 /// The run always fills the BTC/USD daily closes of the range and adds the
@@ -60,7 +54,6 @@ pub async fn sync_prices_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Prepare the stored USD price history in `symbol`.
 ///
 /// This is idempotent: an already prepared currency returns immediately
@@ -77,7 +70,6 @@ pub async fn ensure_currency_history_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Read the stored prices of the other symbols at `close_time`: the
 /// conversions displayed when hovering a row of the historical prices table.
 #[server]
@@ -89,7 +81,6 @@ pub async fn price_conversions_api(
     prices::list_price_conversions(&open_database()?, &symbol, close_time)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Update the close of a stored price. Editing never creates rows: a missing
 /// `(symbol, close_time)` pair is a not-found failure.
 #[server]
@@ -102,7 +93,6 @@ pub async fn update_price_api(
     prices::update_stored_price(&open_database()?, &symbol, close_time, close)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Delete every stored price at the given close times in one transaction.
 ///
 /// A close time removes the whole snapshot, including every currency stored
@@ -113,7 +103,6 @@ pub async fn delete_prices_api(close_times: Vec<i64>) -> Result<usize, ServerFnE
     prices::delete_stored_prices(&open_database()?, &close_times)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Read the stored price series of `symbol` for the trend chart, downsampled
 /// to a bounded number of bucketed averages for `[from_time, to_time]`
 /// (bounds of `0` or less fall back to the full stored span). `None` when the
@@ -128,7 +117,6 @@ pub async fn price_series_api(
     prices::price_series(&open_database()?, &symbol, from_time, to_time)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// List the currencies the Frankfurter catalogue offers for conversions, the
 /// choices of the "add conversion" action of the historical prices table.
 #[server]

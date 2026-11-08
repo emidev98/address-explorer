@@ -6,7 +6,6 @@ use crate::clients::coinmetrics::types::{
     PairInfo, ProtocolInfo,
 };
 use serde::Serialize;
-
 /// Filters for `/reference-data/assets`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AssetsQuery {
@@ -21,7 +20,6 @@ pub struct AssetsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/reference-data/asset-groups`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AssetGroupsQuery {
@@ -36,7 +34,6 @@ pub struct AssetGroupsQuery {
     )]
     pub assets: Vec<String>,
 }
-
 /// Filters for `/reference-data/exchanges`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ExchangesQuery {
@@ -51,7 +48,6 @@ pub struct ExchangesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/reference-data/markets`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketsQuery {
@@ -63,7 +59,6 @@ pub struct MarketsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/reference-data/indexes`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct IndexesQuery {
@@ -75,7 +70,6 @@ pub struct IndexesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/reference-data/protocols`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct ProtocolsQuery {
@@ -97,7 +91,6 @@ pub struct ProtocolsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for the `/reference-data/*-metrics` catalogs.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MetricsQuery {
@@ -109,7 +102,6 @@ pub struct MetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/reference-data/asset-metrics`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AssetMetricsQuery {
@@ -124,26 +116,22 @@ pub struct AssetMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Reference-data endpoints for assets, exchanges, markets, pairs, indexes,
 /// protocols and metric catalogs.
 #[derive(Clone)]
 pub struct ReferenceData {
     http: HttpClient,
 }
-
 impl ReferenceData {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     pub async fn get_assets(
         &self,
         query: AssetsQuery,
     ) -> Result<ListResponse<AssetInfo>, CoinMetricsError> {
         self.http.get_query("/reference-data/assets", &query).await
     }
-
     pub async fn get_asset_groups(
         &self,
         query: AssetGroupsQuery,
@@ -152,7 +140,6 @@ impl ReferenceData {
             .get_query("/reference-data/asset-groups", &query)
             .await
     }
-
     pub async fn get_exchanges(
         &self,
         query: ExchangesQuery,
@@ -161,21 +148,18 @@ impl ReferenceData {
             .get_query("/reference-data/exchanges", &query)
             .await
     }
-
     pub async fn get_markets(
         &self,
         query: MarketsQuery,
     ) -> Result<ListResponse<MarketInfo>, CoinMetricsError> {
         self.http.get_query("/reference-data/markets", &query).await
     }
-
     pub async fn get_indexes(
         &self,
         query: IndexesQuery,
     ) -> Result<ListResponse<IndexInfo>, CoinMetricsError> {
         self.http.get_query("/reference-data/indexes", &query).await
     }
-
     pub async fn get_protocols(
         &self,
         query: ProtocolsQuery,
@@ -184,14 +168,12 @@ impl ReferenceData {
             .get_query("/reference-data/protocols", &query)
             .await
     }
-
     pub async fn get_pairs(
         &self,
         query: PairsQuery,
     ) -> Result<ListResponse<PairInfo>, CoinMetricsError> {
         self.http.get_query("/reference-data/pairs", &query).await
     }
-
     pub async fn get_asset_metrics(
         &self,
         query: AssetMetricsQuery,
@@ -200,7 +182,6 @@ impl ReferenceData {
             .get_query("/reference-data/asset-metrics", &query)
             .await
     }
-
     pub async fn get_exchange_metrics(
         &self,
         query: MetricsQuery,
@@ -209,7 +190,6 @@ impl ReferenceData {
             .get_query("/reference-data/exchange-metrics", &query)
             .await
     }
-
     pub async fn get_exchange_asset_metrics(
         &self,
         query: MetricsQuery,
@@ -218,7 +198,6 @@ impl ReferenceData {
             .get_query("/reference-data/exchange-asset-metrics", &query)
             .await
     }
-
     pub async fn get_exchange_pair_metrics(
         &self,
         query: MetricsQuery,
@@ -227,7 +206,6 @@ impl ReferenceData {
             .get_query("/reference-data/exchange-pair-metrics", &query)
             .await
     }
-
     pub async fn get_pair_metrics(
         &self,
         query: MetricsQuery,
@@ -236,7 +214,6 @@ impl ReferenceData {
             .get_query("/reference-data/pair-metrics", &query)
             .await
     }
-
     pub async fn get_institution_metrics(
         &self,
         query: MetricsQuery,
@@ -245,7 +222,6 @@ impl ReferenceData {
             .get_query("/reference-data/institution-metrics", &query)
             .await
     }
-
     pub async fn get_market_metrics(
         &self,
         query: MetricsQuery,
@@ -255,7 +231,6 @@ impl ReferenceData {
             .await
     }
 }
-
 /// Filters for `/reference-data/pairs`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct PairsQuery {
@@ -267,12 +242,10 @@ pub struct PairsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
     #[test]
     fn serializes_reference_data_filters() {
         let query = AssetsQuery {
@@ -285,10 +258,9 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({"assets": "btc,eth", "include": "talos", "page_size": 2})
+            json!({ "assets" : "btc,eth", "include" : "talos", "page_size" : 2 }),
         );
     }
-
     #[test]
     fn serializes_pair_filters() {
         let query = PairsQuery {
@@ -297,7 +269,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({"pairs": "btc-usd"})
+            json!({ "pairs" : "btc-usd" })
         );
     }
 }

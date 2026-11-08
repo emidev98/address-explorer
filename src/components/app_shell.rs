@@ -1,31 +1,26 @@
-use dioxus::prelude::*;
-
 use crate::api::settings::save_side_nav_collapsed_api;
 use crate::app::Route;
 use crate::components::{
     use_interface_settings, use_toast, Icon, IconName, InterfaceSettingsContext, Toast,
 };
 use crate::navigation::Destination;
-
+use dioxus::prelude::*;
 /// One icon shown by a navigation destination.
 fn nav_icon(name: IconName) -> Element {
     rsx! {
         Icon { name, size: 24, class: "md3-nav-icon" }
     }
 }
-
 /// Close the mobile drawer and request focus restoration to its toggle.
 fn close_mobile_navigation(mut open: Signal<bool>, mut restore_focus: Signal<bool>) {
     open.set(false);
     restore_focus.set(true);
 }
-
 /// Close the compact Settings flyout and request focus restoration to its gear.
 fn close_compact_settings(mut open: Signal<bool>, mut restore_focus: Signal<bool>) {
     open.set(false);
     restore_focus.set(true);
 }
-
 /// Toggle the side panel, applying the preference immediately and restoring
 /// it if the persistence request fails.
 fn persist_side_nav_collapsed(
@@ -38,12 +33,10 @@ fn persist_side_nav_collapsed(
     if previous.side_nav_collapsed == collapsed {
         return;
     }
-
     let mut next = previous;
     next.side_nav_collapsed = collapsed;
     interface_settings.set(next);
     saving.set(true);
-
     spawn(async move {
         match save_side_nav_collapsed_api(collapsed).await {
             Ok(()) => toast.success(if collapsed {
@@ -53,15 +46,17 @@ fn persist_side_nav_collapsed(
             }),
             Err(error) => {
                 interface_settings.set(previous);
-                toast.error(format!(
-                    "Could not save the side panel state: {error}. The previous value was restored."
-                ));
+                toast
+                    .error(
+                        format!(
+                            "Could not save the side panel state: {error}. The previous value was restored.",
+                        ),
+                    );
             }
         }
         saving.set(false);
     });
 }
-
 /// One destination link. Expanded presentations show an icon and label;
 /// compact presentations show the icon only, with an accessible label and a
 /// native tooltip.
@@ -83,7 +78,6 @@ fn NavLink(
         class.push_str(" active");
     }
     let title = compact.then(|| label.clone());
-
     rsx! {
         Link {
             to,
@@ -101,7 +95,6 @@ fn NavLink(
         }
     }
 }
-
 /// Full navigation: destinations at the top and Settings beneath them.
 /// `settings_bottom` pins the Settings group to the bottom of the side panel;
 /// the mobile drawer keeps the settings directly after the destinations.
@@ -114,7 +107,6 @@ fn FullNavPanel(current: Route, settings_bottom: bool, on_navigate: EventHandler
     } else {
         "md3-nav-panel"
     };
-
     rsx! {
         nav { class, aria_label: "Primary",
             div { class: "md3-nav-panel-primary",
@@ -138,9 +130,11 @@ fn FullNavPanel(current: Route, settings_bottom: bool, on_navigate: EventHandler
                 for destination in Destination::SETTINGS {
                     NavLink {
                         to: destination.route(),
-                        label: destination.label().to_string(),
+                        label: destination
+                                                                                                        .label().to_string(),
                         icon: None,
-                        active: current_destination == Some(destination),
+                        active: current_destination ==
+                                                                                                        Some(destination),
                         compact: false,
                         nested: true,
                         on_navigate,
@@ -150,7 +144,6 @@ fn FullNavPanel(current: Route, settings_bottom: bool, on_navigate: EventHandler
         }
     }
 }
-
 /// Compact icon-rail navigation. Settings is a single gear at the bottom; its
 /// flyout is rendered by the shell so the scrolling panel cannot clip it.
 #[component]
@@ -163,7 +156,6 @@ fn CompactNavPanel(
 ) -> Element {
     let current_destination = Destination::from_route(&current);
     let settings_active = current_destination.is_some_and(Destination::is_settings);
-
     rsx! {
         nav {
             class: "md3-nav-panel md3-nav-panel-compact",
@@ -177,7 +169,8 @@ fn CompactNavPanel(
                 for destination in Destination::PRIMARY {
                     NavLink {
                         to: destination.route(),
-                        label: destination.label().to_string(),
+                        label: destination
+                                                                                                        .label().to_string(),
                         icon: Some(destination.icon()),
                         active: current_destination == Some(destination),
                         compact: true,
@@ -193,17 +186,18 @@ fn CompactNavPanel(
                     class: if settings_active { "md3-nav-panel-link md3-nav-compact-settings-toggle active" } else { "md3-nav-panel-link md3-nav-compact-settings-toggle" },
                     aria_label: "Settings sections",
                     aria_haspopup: "menu",
-                    aria_expanded: settings_menu_open.to_string(),
+                    aria_expanded: settings_menu_open
+                                                                                        .to_string(),
                     aria_controls: "md3-compact-settings-menu",
                     title: "Settings",
                     onclick: move |_| on_toggle_settings.call(()),
-                    {nav_icon(IconName::Settings)}
+                    { nav_icon(IconName::Settings)
+                                                                                        }
                 }
             }
         }
     }
 }
-
 /// Top-level navigation shell. Renders one entry per application screen,
 /// highlights the currently active screen, and exposes the Settings sections
 /// in a hover/tap dropdown attached to the Settings item. On tablet and wider
@@ -230,37 +224,29 @@ pub fn AppShell() -> Element {
     let title = current_destination
         .map(Destination::label)
         .unwrap_or("Addresses");
-
-    // Return keyboard focus to the menu button after the drawer closes.
     use_effect(move || {
         if restore_mobile_focus() && !mobile_menu_open() {
             document::eval("document.getElementById('md3-nav-menu-button')?.focus();");
             restore_mobile_focus.set(false);
         }
     });
-
-    // Return keyboard focus to the compact Settings gear after its flyout
-    // closes.
     use_effect(move || {
         if restore_compact_settings_focus() && !compact_settings_menu_open() {
             document::eval("document.getElementById('md3-compact-settings-toggle')?.focus();");
             restore_compact_settings_focus.set(false);
         }
     });
-
-    // A navigation change (including browser back/forward) closes both
-    // overlays. Reading the router inside the effect subscribes it to updates.
     let router_context = router();
     use_effect(move || {
         let _ = router_context.full_route_string();
         mobile_menu_open.set(false);
         compact_settings_menu_open.set(false);
     });
-
     rsx! {
         div {
             class: "md3-app-shell",
-            "data-nav-position": navigation_position.as_str(),
+            "data-nav-position": navigation_position
+                                                        .as_str(),
             "data-side-nav-collapsed": side_nav_collapsed.to_string(),
             header { class: "md3-top-app-bar",
                 button {
@@ -281,7 +267,6 @@ pub fn AppShell() -> Element {
                     }
                 }
                 span { class: "md3-top-app-bar-title", "{title}" }
-
                 nav { class: "md3-top-app-bar-nav", aria_label: "Primary",
                     for destination in Destination::PRIMARY {
                         {
@@ -297,7 +282,6 @@ pub fn AppShell() -> Element {
                             }
                         }
                     }
-
                     div {
                         class: if settings_menu_open() { "md3-nav-dropdown is-open" } else { "md3-nav-dropdown" },
                         onkeydown: move |event| {
@@ -309,7 +293,8 @@ pub fn AppShell() -> Element {
                             Link {
                                 to: Route::SettingsGeneral {},
                                 aria_current: if general_active { "page" } else { "false" },
-                                onclick: move |_| settings_menu_open.set(false),
+                                onclick: move | _ |
+                                                                                                                                        settings_menu_open.set(false),
                                 "Settings"
                             }
                             button {
@@ -319,7 +304,8 @@ pub fn AppShell() -> Element {
                                 aria_haspopup: "menu",
                                 aria_expanded: settings_menu_open().to_string(),
                                 aria_controls: "settings-menu",
-                                onclick: move |_| settings_menu_open.set(!settings_menu_open()),
+                                onclick: move | _ | settings_menu_open.set(!
+                                                                                                                                        settings_menu_open()),
                                 svg {
                                     view_box: "0 0 24 24",
                                     width: "20",
@@ -329,7 +315,6 @@ pub fn AppShell() -> Element {
                                 }
                             }
                         }
-
                         div {
                             id: "settings-menu",
                             class: "md3-nav-dropdown-menu",
@@ -354,7 +339,6 @@ pub fn AppShell() -> Element {
                     }
                 }
             }
-
             aside { id: "md3-side-nav", class: "md3-side-nav",
                 div { class: if side_nav_collapsed { "md3-side-nav-brand md3-side-nav-brand-compact" } else { "md3-side-nav-brand" },
                     if side_nav_collapsed {
@@ -363,7 +347,6 @@ pub fn AppShell() -> Element {
                         "Address Explorer"
                     }
                 }
-
                 if side_nav_collapsed {
                     CompactNavPanel {
                         current: current.clone(),
@@ -386,7 +369,6 @@ pub fn AppShell() -> Element {
                         on_navigate: move |_| {},
                     }
                 }
-
                 if side_nav_collapsed && compact_settings_menu_open() {
                     div {
                         class: "md3-nav-compact-settings-backdrop",
@@ -435,7 +417,6 @@ pub fn AppShell() -> Element {
                         }
                     }
                 }
-
                 div { class: "md3-side-nav-footer",
                     button {
                         id: "md3-side-nav-compress",
@@ -456,7 +437,13 @@ pub fn AppShell() -> Element {
                             );
                         },
                         {
-                            nav_icon(if side_nav_collapsed { IconName::ChevronRight } else { IconName::ChevronLeft })
+                            nav_icon(
+                                if side_nav_collapsed {
+                                    IconName::ChevronRight
+                                } else {
+                                    IconName::ChevronLeft
+                                },
+                            )
                         }
                         if !side_nav_collapsed {
                             span { class: "md3-side-nav-compress-label", "Compress side panel" }
@@ -464,10 +451,8 @@ pub fn AppShell() -> Element {
                     }
                 }
             }
-
             main { id: "screens", Outlet::<Route> {} }
         }
-
         if mobile_menu_open() {
             div {
                 class: "md3-nav-drawer-scrim",
@@ -519,30 +504,26 @@ pub fn AppShell() -> Element {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn exchange_account_detail() -> Route {
         Route::ExchangeAccountDetail {
             account_id: 1,
             transaction_id: None,
         }
     }
-
     #[test]
     fn exchange_account_detail_keeps_exchanges_active() {
         assert_eq!(
             Destination::from_route(&exchange_account_detail()),
-            Some(Destination::Exchanges)
+            Some(Destination::Exchanges),
         );
         assert_eq!(
             Destination::from_route(&exchange_account_detail()).map(Destination::label),
-            Some("Exchanges")
+            Some("Exchanges"),
         );
     }
-
     #[test]
     fn every_settings_route_is_grouped() {
         for destination in Destination::SETTINGS {
@@ -553,7 +534,6 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn every_destination_has_a_label_and_icon() {
         for destination in Destination::PRIMARY {

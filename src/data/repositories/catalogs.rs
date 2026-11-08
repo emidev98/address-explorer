@@ -4,9 +4,6 @@
 //!
 //! Table and column names come from [`CatalogKind`] through a fixed match;
 //! client input never reaches an SQL identifier.
-
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension, TransactionBehavior};
-
 use super::placeholders;
 use crate::data::{Database, DatabaseError};
 use crate::domain::catalog::{
@@ -14,7 +11,7 @@ use crate::domain::catalog::{
     CatalogTotals, CatalogType, CustodyModel, NormalizedCatalogTypeDraft, WalletPlatform,
 };
 use crate::domain::table::{SortDirection, TablePage};
-
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, TransactionBehavior};
 /// Sortable columns of a provider listing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogTypeSortColumn {
@@ -24,7 +21,6 @@ pub enum CatalogTypeSortColumn {
     Platform,
     AddressCount,
 }
-
 impl CatalogTypeSortColumn {
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
@@ -36,7 +32,6 @@ impl CatalogTypeSortColumn {
             _ => None,
         }
     }
-
     fn order_expression(self, kind: CatalogKind) -> &'static str {
         match self {
             Self::Name => "t.name COLLATE NOCASE",
@@ -53,7 +48,6 @@ impl CatalogTypeSortColumn {
         }
     }
 }
-
 /// Paging and sorting of one provider listing.
 #[derive(Debug, Clone)]
 pub struct CatalogListParams {
@@ -61,14 +55,12 @@ pub struct CatalogListParams {
     pub limit: u32,
     pub offset: u64,
 }
-
 #[derive(Debug, Clone, Copy)]
 struct CatalogTables {
     types: &'static str,
     categories: &'static str,
     owner_column: &'static str,
 }
-
 fn tables(kind: CatalogKind) -> CatalogTables {
     match kind {
         CatalogKind::Exchange => CatalogTables {
@@ -83,7 +75,6 @@ fn tables(kind: CatalogKind) -> CatalogTables {
         },
     }
 }
-
 /// Explicit columns of a provider row. Exchanges have no platform column, so
 /// they select a typed NULL to keep one row shape for both kinds.
 fn select_columns(kind: CatalogKind) -> &'static str {
@@ -100,7 +91,6 @@ fn select_columns(kind: CatalogKind) -> &'static str {
         }
     }
 }
-
 fn type_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CatalogType> {
     let custody: Option<String> = row.get(5)?;
     let platform: Option<String> = row.get(6)?;
@@ -116,7 +106,6 @@ fn type_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CatalogType> {
         address_count: row.get(8)?,
     })
 }
-
 /// Read one page of providers.
 pub fn list_types(
     database: &Database,
@@ -128,7 +117,6 @@ pub fn list_types(
         .sort
         .map(|(column, direction)| (column.order_expression(kind), direction.as_sql()))
         .unwrap_or(("t.name COLLATE NOCASE", "ASC"));
-
     let sql = format!(
         "SELECT {columns}
          FROM {types} t
@@ -139,7 +127,6 @@ pub fn list_types(
         types = tables.types,
         categories = tables.categories,
     );
-
     let connection = database.connection()?;
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map(
@@ -154,19 +141,16 @@ pub fn list_types(
         items.push(row.map_err(|error| DatabaseError::new(error.to_string()))?);
     }
     drop(statement);
-
     let total: i64 = connection.query_row(
         &format!("SELECT COUNT(*) FROM {types}", types = tables.types),
         [],
         |row| row.get(0),
     )?;
-
     Ok(TablePage {
         items,
         total: total as u64,
     })
 }
-
 /// Global KPI totals of one provider collection.
 pub fn totals(database: &Database, kind: CatalogKind) -> Result<CatalogTotals, DatabaseError> {
     let tables = tables(kind);
@@ -191,7 +175,6 @@ pub fn totals(database: &Database, kind: CatalogKind) -> Result<CatalogTotals, D
         })
         .map_err(Into::into)
 }
-
 /// All providers of a kind ordered for the pickers.
 pub fn list_options(
     database: &Database,
@@ -223,7 +206,6 @@ pub fn list_options(
     }
     Ok(entries)
 }
-
 /// Read one provider with its category and address count.
 pub fn get_type(
     database: &Database,
@@ -246,7 +228,6 @@ pub fn get_type(
         .optional()
         .map_err(Into::into)
 }
-
 /// Find a provider id by name, case-insensitively. `exclude_id` lets an
 /// update ignore the row being edited.
 pub fn find_by_name(
@@ -260,7 +241,7 @@ pub fn find_by_name(
         "SELECT t.id FROM {types} t
          WHERE t.name = ?1 COLLATE NOCASE AND (?2 IS NULL OR t.id <> ?2)
          LIMIT 1",
-        types = tables.types
+        types = tables.types,
     );
     let connection = database.connection()?;
     connection
@@ -268,7 +249,6 @@ pub fn find_by_name(
         .optional()
         .map_err(Into::into)
 }
-
 /// Whether a provider id exists in the kind's table.
 pub fn type_exists(database: &Database, kind: CatalogKind, id: i64) -> Result<bool, DatabaseError> {
     let tables = tables(kind);
@@ -283,17 +263,14 @@ pub fn type_exists(database: &Database, kind: CatalogKind, id: i64) -> Result<bo
         .map(|found| found.is_some())
         .map_err(Into::into)
 }
-
 /// Compatibility helper used by the address service.
 pub fn exchange_type_exists(database: &Database, id: i64) -> Result<bool, DatabaseError> {
     type_exists(database, CatalogKind::Exchange, id)
 }
-
 /// Compatibility helper used by the address service.
 pub fn wallet_type_exists(database: &Database, id: i64) -> Result<bool, DatabaseError> {
     type_exists(database, CatalogKind::Wallet, id)
 }
-
 /// Find a provider id by slug.
 pub fn find_by_slug(
     database: &Database,
@@ -306,7 +283,7 @@ pub fn find_by_slug(
         "SELECT t.id FROM {types} t
          WHERE t.slug = ?1 AND (?2 IS NULL OR t.id <> ?2)
          LIMIT 1",
-        types = tables.types
+        types = tables.types,
     );
     let connection = database.connection()?;
     connection
@@ -314,7 +291,6 @@ pub fn find_by_slug(
         .optional()
         .map_err(Into::into)
 }
-
 fn insert_type_row(
     connection: &Connection,
     kind: CatalogKind,
@@ -353,7 +329,6 @@ fn insert_type_row(
     }
     Ok(connection.last_insert_rowid())
 }
-
 /// Insert one provider and return its id.
 pub fn insert_type(
     database: &Database,
@@ -363,7 +338,6 @@ pub fn insert_type(
     let connection = database.connection()?;
     insert_type_row(&connection, kind, draft)
 }
-
 /// Update one provider. Returns whether the row existed.
 pub fn update_type(
     database: &Database,
@@ -405,7 +379,6 @@ pub fn update_type(
     };
     Ok(updated == 1)
 }
-
 /// Existing name/slug identities of one kind, used by the import planner.
 pub fn list_identities(
     database: &Database,
@@ -422,7 +395,6 @@ pub fn list_identities(
     }
     Ok(identities)
 }
-
 /// Categories of one kind ordered by name, with their provider counts.
 pub fn list_categories(
     database: &Database,
@@ -446,7 +418,6 @@ pub fn list_categories(
     }
     Ok(categories)
 }
-
 fn category_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CatalogCategory> {
     Ok(CatalogCategory {
         id: row.get(0)?,
@@ -454,7 +425,6 @@ fn category_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CatalogCategor
         provider_count: row.get(2)?,
     })
 }
-
 /// Read one category with its provider count.
 pub fn get_category(
     database: &Database,
@@ -476,7 +446,6 @@ pub fn get_category(
         .optional()
         .map_err(Into::into)
 }
-
 /// Find a category id by name, case-insensitively.
 pub fn find_category_by_name(
     database: &Database,
@@ -489,7 +458,7 @@ pub fn find_category_by_name(
         "SELECT c.id FROM {categories} c
          WHERE c.name = ?1 COLLATE NOCASE AND (?2 IS NULL OR c.id <> ?2)
          LIMIT 1",
-        categories = tables.categories
+        categories = tables.categories,
     );
     let connection = database.connection()?;
     connection
@@ -497,7 +466,6 @@ pub fn find_category_by_name(
         .optional()
         .map_err(Into::into)
 }
-
 /// Insert a category and return its id.
 pub fn insert_category(
     database: &Database,
@@ -509,13 +477,12 @@ pub fn insert_category(
     connection.execute(
         &format!(
             "INSERT INTO {categories} (name) VALUES (?1)",
-            categories = tables.categories
+            categories = tables.categories,
         ),
         [name],
     )?;
     Ok(connection.last_insert_rowid())
 }
-
 /// Rename a category. Returns whether the row existed.
 pub fn rename_category(
     database: &Database,
@@ -528,13 +495,12 @@ pub fn rename_category(
     let updated = connection.execute(
         &format!(
             "UPDATE {categories} SET name = ?2 WHERE id = ?1",
-            categories = tables.categories
+            categories = tables.categories,
         ),
         params![id, name],
     )?;
     Ok(updated == 1)
 }
-
 fn provider_ids_for_category(
     connection: &Connection,
     kind: CatalogKind,
@@ -543,7 +509,7 @@ fn provider_ids_for_category(
     let tables = tables(kind);
     let sql = format!(
         "SELECT id FROM {types} WHERE category_id = ?1",
-        types = tables.types
+        types = tables.types,
     );
     let mut statement = connection.prepare(&sql)?;
     let rows = statement.query_map([category_id], |row| row.get(0))?;
@@ -553,7 +519,6 @@ fn provider_ids_for_category(
     }
     Ok(ids)
 }
-
 fn delete_preview_with_connection(
     connection: &Connection,
     kind: CatalogKind,
@@ -564,11 +529,10 @@ fn delete_preview_with_connection(
     }
     let tables = tables(kind);
     let placeholders = placeholders(ids.len());
-
     let provider_count: i64 = connection.query_row(
         &format!(
             "SELECT COUNT(*) FROM {types} WHERE id IN ({placeholders})",
-            types = tables.types
+            types = tables.types,
         ),
         params_from_iter(ids.iter()),
         |row| row.get(0),
@@ -576,7 +540,7 @@ fn delete_preview_with_connection(
     let address_count: i64 = connection.query_row(
         &format!(
             "SELECT COUNT(*) FROM addresses WHERE {owner} IN ({placeholders})",
-            owner = tables.owner_column
+            owner = tables.owner_column,
         ),
         params_from_iter(ids.iter()),
         |row| row.get(0),
@@ -587,19 +551,18 @@ fn delete_preview_with_connection(
              WHERE address IN (
                  SELECT address FROM addresses WHERE {owner} IN ({placeholders})
              )",
-            owner = tables.owner_column
+            owner = tables.owner_column,
         ),
         params_from_iter(ids.iter()),
         |row| row.get(0),
     )?;
-
     let (exchange_account_count, ledger_transaction_count) = match kind {
         CatalogKind::Wallet => (0, 0),
         CatalogKind::Exchange => {
             let accounts: i64 = connection.query_row(
                 &format!(
                     "SELECT COUNT(*) FROM exchange_accounts
-                     WHERE provider_id IN ({placeholders})"
+                     WHERE provider_id IN ({placeholders})",
                 ),
                 params_from_iter(ids.iter()),
                 |row| row.get(0),
@@ -610,7 +573,7 @@ fn delete_preview_with_connection(
                      WHERE exchange_id IN (
                          SELECT id FROM exchange_accounts
                          WHERE provider_id IN ({placeholders})
-                     )"
+                     )",
                 ),
                 params_from_iter(ids.iter()),
                 |row| row.get(0),
@@ -618,7 +581,6 @@ fn delete_preview_with_connection(
             (accounts, ledger)
         }
     };
-
     Ok(CatalogDeletePreview {
         provider_count: provider_count as u64,
         category_count: 0,
@@ -628,7 +590,6 @@ fn delete_preview_with_connection(
         ledger_transaction_count: ledger_transaction_count as u64,
     })
 }
-
 /// Impact of deleting the given providers.
 pub fn delete_preview(
     database: &Database,
@@ -638,7 +599,6 @@ pub fn delete_preview(
     let connection = database.connection()?;
     delete_preview_with_connection(&connection, kind, ids)
 }
-
 fn delete_types_in_transaction(
     transaction: &rusqlite::Transaction<'_>,
     kind: CatalogKind,
@@ -650,28 +610,26 @@ fn delete_types_in_transaction(
     let tables = tables(kind);
     let placeholders = placeholders(ids.len());
     let preview = delete_preview_with_connection(transaction, kind, ids)?;
-
     transaction.execute(
         &format!(
             "DELETE FROM addresses WHERE {owner} IN ({placeholders})",
-            owner = tables.owner_column
+            owner = tables.owner_column,
         ),
         params_from_iter(ids.iter()),
     )?;
     if kind == CatalogKind::Exchange {
         transaction.execute(
-            &format!("DELETE FROM exchange_accounts WHERE provider_id IN ({placeholders})"),
+            &format!("DELETE FROM exchange_accounts WHERE provider_id IN ({placeholders})",),
             params_from_iter(ids.iter()),
         )?;
     }
     let providers = transaction.execute(
         &format!(
             "DELETE FROM {types} WHERE id IN ({placeholders})",
-            types = tables.types
+            types = tables.types,
         ),
         params_from_iter(ids.iter()),
     )?;
-
     Ok(CatalogDeleteSummary {
         provider_count: providers as u64,
         category_count: 0,
@@ -681,7 +639,6 @@ fn delete_types_in_transaction(
         ledger_transaction_count: preview.ledger_transaction_count,
     })
 }
-
 /// Delete providers and every row that depends on them in one transaction.
 /// Addresses cascade to their stored transactions; exchange accounts cascade
 /// to their ledger rows.
@@ -696,7 +653,6 @@ pub fn delete_types(
     transaction.commit()?;
     Ok(summary)
 }
-
 /// Impact of deleting one category: its providers and their related data.
 pub fn delete_category_preview(
     database: &Database,
@@ -709,7 +665,7 @@ pub fn delete_category_preview(
         .query_row(
             &format!(
                 "SELECT id FROM {categories} WHERE id = ?1",
-                categories = tables.categories
+                categories = tables.categories,
             ),
             [category_id],
             |row| row.get(0),
@@ -718,13 +674,11 @@ pub fn delete_category_preview(
     if exists.is_none() {
         return Ok(CatalogDeletePreview::default());
     }
-
     let provider_ids = provider_ids_for_category(&connection, kind, category_id)?;
     let mut preview = delete_preview_with_connection(&connection, kind, &provider_ids)?;
     preview.category_count = 1;
     Ok(preview)
 }
-
 /// Delete one category, cascading through its providers and their data.
 pub fn delete_category(
     database: &Database,
@@ -734,7 +688,6 @@ pub fn delete_category(
     let mut connection = database.connection()?;
     let tables = tables(kind);
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-
     let provider_ids = provider_ids_for_category(&transaction, kind, category_id)?;
     let mut summary = if provider_ids.is_empty() {
         CatalogDeleteSummary::default()
@@ -744,16 +697,14 @@ pub fn delete_category(
     let categories = transaction.execute(
         &format!(
             "DELETE FROM {categories} WHERE id = ?1",
-            categories = tables.categories
+            categories = tables.categories,
         ),
         [category_id],
     )?;
     transaction.commit()?;
-
     summary.category_count = categories as u64;
     Ok(summary)
 }
-
 /// Insert already validated import rows in one transaction.
 pub fn insert_imported_types(
     database: &Database,
@@ -771,7 +722,6 @@ pub fn insert_imported_types(
     transaction.commit()?;
     Ok(drafts.len())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -780,7 +730,6 @@ mod tests {
     };
     use crate::domain::address::StoredAddress;
     use crate::domain::catalog::CatalogTypeDraft;
-
     fn draft(name: &str, category_id: Option<i64>) -> NormalizedCatalogTypeDraft {
         CatalogTypeDraft {
             name: name.to_string(),
@@ -790,7 +739,6 @@ mod tests {
         .normalize(CatalogKind::Wallet)
         .unwrap()
     }
-
     fn exchange_draft(name: &str) -> NormalizedCatalogTypeDraft {
         CatalogTypeDraft {
             name: name.to_string(),
@@ -801,7 +749,6 @@ mod tests {
         .normalize(CatalogKind::Exchange)
         .unwrap()
     }
-
     fn address(value: &str, exchange_id: Option<i64>, wallet_id: Option<i64>) -> StoredAddress {
         StoredAddress {
             address: value.to_string(),
@@ -810,7 +757,6 @@ mod tests {
             ..StoredAddress::default()
         }
     }
-
     fn list_params() -> CatalogListParams {
         CatalogListParams {
             sort: Some((CatalogTypeSortColumn::Name, SortDirection::Asc)),
@@ -818,7 +764,6 @@ mod tests {
             offset: 0,
         }
     }
-
     #[test]
     fn seeded_catalogs_keep_their_names_and_gain_categories() {
         let database = Database::open_in_memory().unwrap();
@@ -826,7 +771,6 @@ mod tests {
         assert_eq!(exchanges.len(), 8);
         let wallets = list_categories(&database, CatalogKind::Wallet).unwrap();
         assert_eq!(wallets.len(), 9);
-
         let binance_id = find_by_name(&database, CatalogKind::Exchange, "Binance", None)
             .unwrap()
             .unwrap();
@@ -840,7 +784,6 @@ mod tests {
             Some("Centralized exchange")
         );
         assert_eq!(binance.custody_model, Some(CustodyModel::Custodial));
-
         let ledger_id = find_by_name(&database, CatalogKind::Wallet, "Ledger", None)
             .unwrap()
             .unwrap();
@@ -851,7 +794,6 @@ mod tests {
         assert_eq!(ledger.platform, Some(WalletPlatform::Hardware));
         assert_eq!(ledger.custody_model, Some(CustodyModel::SelfCustody));
     }
-
     #[test]
     fn options_are_sorted_by_name_and_carry_their_category() {
         let database = Database::open_in_memory().unwrap();
@@ -860,7 +802,6 @@ mod tests {
         assert_eq!(options[0].name, "Base Wallet");
         assert_eq!(options[0].category_name.as_deref(), Some("Mobile wallet"));
     }
-
     #[test]
     fn totals_count_providers_categories_and_addresses() {
         let database = Database::open_in_memory().unwrap();
@@ -872,7 +813,6 @@ mod tests {
         assert_eq!(totals.classified_addresses, 1);
         assert_eq!(totals.uncategorized, 0);
     }
-
     #[test]
     fn sorting_and_pagination_work() {
         let database = Database::open_in_memory().unwrap();
@@ -886,7 +826,6 @@ mod tests {
         assert_eq!(page.items.len(), 2);
         assert_eq!(page.items[0].name, "Wasabi Wallet");
         assert_eq!(page.items[1].name, "Trust Wallet");
-
         let second = list_types(
             &database,
             CatalogKind::Wallet,
@@ -899,7 +838,6 @@ mod tests {
         assert_eq!(second.items.len(), 2);
         assert_eq!(second.items[0].name, "Trezor");
     }
-
     #[test]
     fn provider_crud_checks_duplicates_and_locks_nothing_at_this_layer() {
         let database = Database::open_in_memory().unwrap();
@@ -909,19 +847,17 @@ mod tests {
             .unwrap();
         assert_eq!(stored.slug, "acme");
         assert_eq!(stored.category_id, Some(2));
-
         assert!(find_by_name(&database, CatalogKind::Wallet, "acme", None)
             .unwrap()
-            .is_some());
+            .is_some(),);
         assert!(
             find_by_name(&database, CatalogKind::Wallet, "ACME", Some(created))
                 .unwrap()
-                .is_none()
+                .is_none(),
         );
         assert!(find_by_slug(&database, CatalogKind::Wallet, "acme", None)
             .unwrap()
-            .is_some());
-
+            .is_some(),);
         let mut updated = draft("Acme Two", Some(3));
         updated.custody_model = Some(CustodyModel::SelfCustody);
         assert!(update_type(&database, CatalogKind::Wallet, created, &updated).unwrap());
@@ -930,33 +866,28 @@ mod tests {
             .unwrap();
         assert_eq!(stored.name, "Acme Two");
         assert_eq!(stored.category_name.as_deref(), Some("Mobile wallet"));
-
         assert!(!update_type(&database, CatalogKind::Wallet, 9999, &updated).unwrap());
         assert!(get_type(&database, CatalogKind::Wallet, 9999)
             .unwrap()
             .is_none());
     }
-
     #[test]
     fn category_crud_uses_case_insensitive_names() {
         let database = Database::open_in_memory().unwrap();
         let id = insert_category(&database, CatalogKind::Wallet, "Test category").unwrap();
-        // The unique index rejects a differently-cased duplicate.
-        assert!(insert_category(&database, CatalogKind::Wallet, "TEST CATEGORY").is_err());
-
-        assert!(rename_category(&database, CatalogKind::Wallet, id, "Renamed category").unwrap());
+        assert!(insert_category(&database, CatalogKind::Wallet, "TEST CATEGORY").is_err(),);
+        assert!(rename_category(&database, CatalogKind::Wallet, id, "Renamed category").unwrap(),);
         let category = get_category(&database, CatalogKind::Wallet, id)
             .unwrap()
             .unwrap();
         assert_eq!(category.name, "Renamed category");
         assert_eq!(category.provider_count, 0);
         assert!(
-            find_category_by_name(&database, CatalogKind::Wallet, "renamed CATEGORY", None)
+            find_category_by_name(&database, CatalogKind::Wallet, "renamed CATEGORY", None,)
                 .unwrap()
-                .is_some()
+                .is_some(),
         );
     }
-
     fn insert_transaction(connection: &Connection, address: &str, txid: &str) {
         connection
             .execute(
@@ -967,7 +898,6 @@ mod tests {
             )
             .unwrap();
     }
-
     fn insert_ledger_row(connection: &Connection, exchange_id: i64) {
         connection
             .execute(
@@ -979,7 +909,6 @@ mod tests {
             )
             .unwrap();
     }
-
     #[test]
     fn delete_preview_counts_addresses_transactions_accounts_and_ledger_rows() {
         let database = Database::open_in_memory().unwrap();
@@ -990,7 +919,6 @@ mod tests {
         insert_transaction(&connection, "bc1qbinance", "tx1");
         insert_ledger_row(&connection, account.id);
         drop(connection);
-
         let preview = delete_preview(&database, CatalogKind::Exchange, &[1]).unwrap();
         assert_eq!(preview.provider_count, 1);
         assert_eq!(preview.address_count, 1);
@@ -999,7 +927,6 @@ mod tests {
         assert_eq!(preview.ledger_transaction_count, 1);
         assert!(preview.has_related_rows());
     }
-
     #[test]
     fn deleting_an_exchange_cascades_its_addresses_accounts_and_ledger() {
         let database = Database::open_in_memory().unwrap();
@@ -1013,14 +940,12 @@ mod tests {
         insert_transaction(&connection, "bc1qcoinbase", "tx2");
         insert_ledger_row(&connection, account.id);
         drop(connection);
-
         let summary = delete_types(&database, CatalogKind::Exchange, &[1]).unwrap();
         assert_eq!(summary.provider_count, 1);
         assert_eq!(summary.address_count, 1);
         assert_eq!(summary.transaction_count, 1);
         assert_eq!(summary.exchange_account_count, 1);
         assert_eq!(summary.ledger_transaction_count, 1);
-
         assert!(get_type(&database, CatalogKind::Exchange, 1)
             .unwrap()
             .is_none());
@@ -1047,7 +972,6 @@ mod tests {
             .unwrap();
         assert_eq!(remaining_accounts, 0);
     }
-
     #[test]
     fn deleting_a_wallet_cascades_addresses_and_transactions() {
         let database = Database::open_in_memory().unwrap();
@@ -1056,13 +980,11 @@ mod tests {
         let connection = database.connection().unwrap();
         insert_transaction(&connection, "bc1qledger", "tx1");
         drop(connection);
-
         let summary = delete_types(&database, CatalogKind::Wallet, &[1]).unwrap();
         assert_eq!(summary.provider_count, 1);
         assert_eq!(summary.address_count, 1);
         assert_eq!(summary.transaction_count, 1);
         assert_eq!(summary.exchange_account_count, 0);
-
         assert!(get_type(&database, CatalogKind::Wallet, 1)
             .unwrap()
             .is_none());
@@ -1072,7 +994,6 @@ mod tests {
             .unwrap();
         assert_eq!(addresses, 0);
     }
-
     #[test]
     fn deleting_a_category_cascades_through_its_providers() {
         let database = Database::open_in_memory().unwrap();
@@ -1085,12 +1006,10 @@ mod tests {
         .unwrap();
         address_repository::insert_address(&database, &address("bc1qtest", None, Some(provider)))
             .unwrap();
-
         let preview = delete_category_preview(&database, CatalogKind::Wallet, category).unwrap();
         assert_eq!(preview.category_count, 1);
         assert_eq!(preview.provider_count, 1);
         assert_eq!(preview.address_count, 1);
-
         let summary = delete_category(&database, CatalogKind::Wallet, category).unwrap();
         assert_eq!(summary.category_count, 1);
         assert_eq!(summary.provider_count, 1);
@@ -1100,16 +1019,15 @@ mod tests {
             .is_none());
         assert!(get_category(&database, CatalogKind::Wallet, category)
             .unwrap()
-            .is_none());
+            .is_none(),);
     }
-
     #[test]
     fn import_inserts_valid_rows_in_one_transaction() {
         let database = Database::open_in_memory().unwrap();
         let drafts = [draft("Acme", Some(2)), draft("Beta", None)];
         assert_eq!(
             insert_imported_types(&database, CatalogKind::Wallet, &drafts).unwrap(),
-            2
+            2,
         );
         let acme_id = find_by_name(&database, CatalogKind::Wallet, "Acme", None)
             .unwrap()
@@ -1125,7 +1043,6 @@ mod tests {
             20
         );
     }
-
     #[test]
     fn exchange_rows_have_no_platform_column() {
         let database = Database::open_in_memory().unwrap();

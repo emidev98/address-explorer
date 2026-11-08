@@ -4,13 +4,11 @@
 //! The repository persists the mempool `Tx` wire model because that is the
 //! shape being indexed; the service layer fetches the transactions and this
 //! module stores them atomically.
-
-use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
-
 use crate::clients::mempool::bitcoin::types::Tx;
 use crate::data::{Database, DatabaseError};
 use crate::domain::transaction::TransactionSyncSummary;
-
+use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
+use std::collections::HashSet;
 /// Store a batch of transactions and their inputs/outputs atomically.
 ///
 /// Existing transactions for the same address are updated instead of
@@ -24,78 +22,75 @@ pub fn sync_transactions(
 ) -> Result<TransactionSyncSummary, DatabaseError> {
     let mut connection = database.connection()?;
     let db_transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-
     let inserted = upsert_transactions(&db_transaction, address, transactions)?;
     let stored: i64 = db_transaction.query_row(
         "SELECT COUNT(*) FROM transactions WHERE address = ?1",
         [address],
         |row| row.get(0),
     )?;
-
     db_transaction.commit()?;
-
     Ok(TransactionSyncSummary {
         address: address.to_string(),
         fetched: transactions.len(),
         inserted,
         stored: stored as usize,
         truncated,
-        // The repository persists what it is given; the service layer knows
-        // whether the walk stopped on a rate limit and sets the flag.
         rate_limited: false,
     })
 }
-
-/// Copy the locally stored transactions that involve an exchange address.
+/// Mirror every stored transaction that connects an exchange provider to
+/// the other declared addresses.
 ///
-/// Full indexing of an exchange address is impractical because the mempool
-/// history pages of such addresses are effectively unbounded. Instead the
-/// reverse search starts from the known addresses: every transaction
-/// already stored under another address is scanned for inputs and outputs
-/// that reference `exchange_address`, and each matching transaction is
-/// mirrored under the exchange address with all of its inputs and outputs.
+/// An exchange provider owns several addresses and only its alphabetically
+/// first address carries the ledger balance, so that anchor is the only row
+/// the addresses table lists. The reverse search therefore scans the
+/// transactions stored for every address of the provider, matches their
+/// outputs and inputs against all provider addresses, and copies each
+/// matching transaction under the specific provider address that appears in
+/// it. This keeps the per-address `(address, txid)` store consistent while
+/// making the visible anchor row reflect the whole provider.
 ///
-/// The mirror is idempotent: transactions already stored for the address
-/// are left untouched, so repeated syncs only report new relations.
-/// Relations thus appear only once the addresses they involve have been
-/// indexed themselves; syncing the exchange address first simply reports
-/// that nothing is stored yet.
-pub fn mirror_related_transactions(
+/// The mirror is idempotent: transactions already stored for a provider
+/// address are left untouched. The returned summary describes the provider,
+/// not a single address; the caller sets `address` to the row that started
+/// the sync.
+pub fn mirror_related_transactions_for_provider(
     database: &Database,
-    exchange_address: &str,
+    provider_id: i64,
 ) -> Result<TransactionSyncSummary, DatabaseError> {
-    let related_txids = related_txids(database, exchange_address)?;
-
+    let related = related_transactions_for_provider(database, provider_id)?;
     let mut connection = database.connection()?;
     let db_transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-
-    let mut inserted = 0;
-    for txid in &related_txids {
-        inserted += mirror_stored_transaction(&db_transaction, exchange_address, txid)?;
+    let mut inserted_txids = HashSet::new();
+    let mut unique_txids = HashSet::new();
+    for (address, txid) in &related {
+        if mirror_stored_transaction(&db_transaction, address, txid)? == 1 {
+            inserted_txids.insert(txid.as_str());
+        }
+        unique_txids.insert(txid.as_str());
     }
-
     let stored: i64 = db_transaction.query_row(
-        "SELECT COUNT(*) FROM transactions WHERE address = ?1",
-        [exchange_address],
+        "SELECT COUNT(DISTINCT t.txid)
+             FROM transactions t
+             JOIN addresses a ON a.address = t.address
+             WHERE a.exchange_id = ?1",
+        [provider_id],
         |row| row.get(0),
     )?;
-
+    db_transaction.execute(
+        "UPDATE addresses SET tx_index_rate_limited = 0 WHERE exchange_id = ?1",
+        [provider_id],
+    )?;
     db_transaction.commit()?;
-
     Ok(TransactionSyncSummary {
-        address: exchange_address.to_string(),
-        fetched: related_txids.len(),
-        inserted,
+        address: String::new(),
+        fetched: unique_txids.len(),
+        inserted: inserted_txids.len(),
         stored: stored as usize,
-        // The reverse search is not paged; it either covers the local
-        // store completely or fails.
         truncated: false,
-        // The reverse search touches no external API, so it cannot be
-        // rate-limited.
         rate_limited: false,
     })
 }
-
 /// Txid of the oldest stored confirmed transaction of the address.
 ///
 /// This is the cursor where an interrupted backward indexing walk stopped:
@@ -120,35 +115,41 @@ pub fn oldest_confirmed_txid(
         .optional()
         .map_err(Into::into)
 }
-
-/// Txids of stored transactions whose inputs or outputs reference the
-/// address, collected from every other address row. Ordered by txid so
-/// the mirror stays deterministic across syncs.
-fn related_txids(
+/// `(provider address, txid)` pairs whose stored transaction inputs or
+/// outputs reference an address of the exchange provider.
+///
+/// The transaction row that supplies the copy must belong to a different
+/// address; a provider address's own row already contains the transaction
+/// and is not a source for another mirror. Idempotency is handled by the
+/// insert conflict clause, so already-mirrored pairs may be returned.
+fn related_transactions_for_provider(
     database: &Database,
-    exchange_address: &str,
-) -> Result<Vec<String>, DatabaseError> {
+    provider_id: i64,
+) -> Result<Vec<(String, String)>, DatabaseError> {
     let connection = database.connection()?;
     let mut statement = connection.prepare(
-        "SELECT DISTINCT t.txid
-         FROM transactions t
-         JOIN transaction_outputs o ON o.transaction_id = t.id
-         WHERE t.address <> ?1 AND o.scriptpubkey_address = ?1
+        "SELECT a.address, t.txid
+         FROM addresses a
+         JOIN transaction_outputs o ON o.scriptpubkey_address = a.address
+         JOIN transactions t ON t.id = o.transaction_id
+         WHERE a.exchange_id = ?1 AND t.address <> a.address
          UNION
-         SELECT DISTINCT t.txid
-         FROM transactions t
-         JOIN transaction_inputs i ON i.transaction_id = t.id
-         WHERE t.address <> ?1 AND i.prevout_scriptpubkey_address = ?1
-         ORDER BY txid",
+         SELECT a.address, t.txid
+         FROM addresses a
+         JOIN transaction_inputs i ON i.prevout_scriptpubkey_address = a.address
+         JOIN transactions t ON t.id = i.transaction_id
+         WHERE a.exchange_id = ?1 AND t.address <> a.address
+         ORDER BY 1, 2",
     )?;
-    let rows = statement.query_map([exchange_address], |row| row.get::<_, String>(0))?;
-    let mut txids = Vec::new();
-    for txid in rows {
-        txids.push(txid.map_err(|err| DatabaseError::new(err.to_string()))?);
+    let rows = statement.query_map([provider_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    let mut values = Vec::new();
+    for value in rows {
+        values.push(value.map_err(|err| DatabaseError::new(err.to_string()))?);
     }
-    Ok(txids)
+    Ok(values)
 }
-
 /// Snapshot of the originating address row for one txid.
 struct StoredTransactionSource {
     id: i64,
@@ -162,7 +163,6 @@ struct StoredTransactionSource {
     block_hash: Option<String>,
     block_time: Option<i64>,
 }
-
 /// Mirror one stored transaction under `exchange_address`.
 ///
 /// Copying keeps the exact stored data instead of re-fetching it from the
@@ -198,11 +198,9 @@ fn mirror_stored_transaction(
             },
         )
         .optional()?;
-
     let Some(source) = source else {
         return Ok(0);
     };
-
     let was_inserted = db_transaction.execute(
         "INSERT INTO transactions (
             address, txid, version, locktime, size, weight, fee,
@@ -223,13 +221,10 @@ fn mirror_stored_transaction(
             source.block_time,
         ],
     )?;
-
     if was_inserted == 0 {
         return Ok(0);
     }
-
     let transaction_id = db_transaction.last_insert_rowid();
-
     db_transaction.execute(
         "INSERT INTO transaction_inputs (
             transaction_id, input_index, prev_txid, prev_vout,
@@ -244,7 +239,6 @@ fn mirror_stored_transaction(
          FROM transaction_inputs s WHERE s.transaction_id = ?2",
         params![transaction_id, source.id],
     )?;
-
     db_transaction.execute(
         "INSERT INTO transaction_outputs (
             transaction_id, output_index, scriptpubkey, scriptpubkey_asm,
@@ -255,17 +249,14 @@ fn mirror_stored_transaction(
          FROM transaction_outputs s WHERE s.transaction_id = ?2",
         params![transaction_id, source.id],
     )?;
-
     Ok(1)
 }
-
 fn upsert_transactions(
     db_transaction: &Transaction<'_>,
     address: &str,
     transactions: &[Tx],
 ) -> Result<usize, DatabaseError> {
     let mut inserted = 0;
-
     for transaction in transactions {
         let was_inserted = db_transaction.execute(
             "INSERT INTO transactions (
@@ -287,12 +278,9 @@ fn upsert_transactions(
                 transaction.status.block_time,
             ],
         )?;
-
         if was_inserted == 1 {
             inserted += 1;
         } else {
-            // A transaction's status changes when it moves from the
-            // mempool into a block, so refresh its mutable metadata.
             db_transaction.execute(
                 "UPDATE transactions SET
                     version = ?3, locktime = ?4, size = ?5, weight = ?6, fee = ?7,
@@ -315,20 +303,16 @@ fn upsert_transactions(
                 ],
             )?;
         }
-
         let transaction_id: i64 = db_transaction.query_row(
             "SELECT id FROM transactions WHERE address = ?1 AND txid = ?2",
             params![address, transaction.txid],
             |row| row.get(0),
         )?;
-
         replace_inputs(db_transaction, transaction_id, transaction)?;
         replace_outputs(db_transaction, transaction_id, transaction)?;
     }
-
     Ok(inserted)
 }
-
 fn replace_inputs(
     db_transaction: &Transaction<'_>,
     transaction_id: i64,
@@ -338,7 +322,6 @@ fn replace_inputs(
         "DELETE FROM transaction_inputs WHERE transaction_id = ?1",
         [transaction_id],
     )?;
-
     for (input_index, input) in transaction.vin.iter().enumerate() {
         let prevout = input.prevout.as_ref();
         db_transaction.execute(
@@ -365,10 +348,8 @@ fn replace_inputs(
             ],
         )?;
     }
-
     Ok(())
 }
-
 fn replace_outputs(
     db_transaction: &Transaction<'_>,
     transaction_id: i64,
@@ -378,7 +359,6 @@ fn replace_outputs(
         "DELETE FROM transaction_outputs WHERE transaction_id = ?1",
         [transaction_id],
     )?;
-
     for (output_index, output) in transaction.vout.iter().enumerate() {
         db_transaction.execute(
             "INSERT INTO transaction_outputs (
@@ -396,19 +376,15 @@ fn replace_outputs(
             ],
         )?;
     }
-
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::clients::mempool::bitcoin::types::{TxStatus, TxVin, Vout};
     use crate::data::repositories::addresses as address_repository;
     use crate::domain::address::StoredAddress;
-
     const ADDRESS: &str = "bc1qtestaddress";
-
     fn sample_vout(address: Option<&str>, value: i64) -> Vout {
         Vout {
             scriptpubkey: "0014abcd".to_string(),
@@ -418,7 +394,6 @@ mod tests {
             value,
         }
     }
-
     fn sample_tx(txid: &str) -> Tx {
         Tx {
             txid: txid.to_string(),
@@ -445,7 +420,6 @@ mod tests {
             },
         }
     }
-
     fn database_with_address(address: &str) -> Database {
         let database = Database::open_in_memory().unwrap();
         address_repository::insert_address(
@@ -458,7 +432,6 @@ mod tests {
         .unwrap();
         database
     }
-
     fn count(database: &Database, table: &str) -> i64 {
         database
             .connection()
@@ -468,12 +441,10 @@ mod tests {
             })
             .unwrap()
     }
-
     #[test]
     fn syncing_the_same_transactions_twice_is_idempotent() {
         let database = database_with_address(ADDRESS);
         let transactions = vec![sample_tx("tx-one"), sample_tx("tx-two")];
-
         let first = sync_transactions(&database, ADDRESS, &transactions, false).unwrap();
         assert_eq!(first.fetched, 2);
         assert_eq!(first.inserted, 2);
@@ -481,7 +452,6 @@ mod tests {
         assert_eq!(count(&database, "transactions"), 2);
         assert_eq!(count(&database, "transaction_inputs"), 2);
         assert_eq!(count(&database, "transaction_outputs"), 4);
-
         let second = sync_transactions(&database, ADDRESS, &transactions, false).unwrap();
         assert_eq!(second.inserted, 0);
         assert_eq!(second.stored, 2);
@@ -489,11 +459,9 @@ mod tests {
         assert_eq!(count(&database, "transaction_inputs"), 2);
         assert_eq!(count(&database, "transaction_outputs"), 4);
     }
-
     #[test]
     fn resync_updates_confirmation_metadata() {
         let database = database_with_address(ADDRESS);
-
         let mut unconfirmed = sample_tx("tx-pending");
         unconfirmed.status = TxStatus {
             confirmed: false,
@@ -501,17 +469,13 @@ mod tests {
             block_hash: None,
             block_time: None,
         };
-
         sync_transactions(&database, ADDRESS, &[unconfirmed], false).unwrap();
-
         let mut confirmed = sample_tx("tx-pending");
         confirmed.status.block_height = Some(810_000);
         confirmed.status.block_hash = Some("new-block".to_string());
         confirmed.status.block_time = Some(1_700_000_100);
-
         let summary = sync_transactions(&database, ADDRESS, &[confirmed], false).unwrap();
         assert_eq!(summary.inserted, 0);
-
         let connection = database.connection().unwrap();
         let (confirmed, height, hash, time): (i64, i64, String, i64) = connection
             .query_row(
@@ -521,31 +485,24 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
             )
             .unwrap();
-
         assert_eq!(confirmed, 1);
         assert_eq!(height, 810_000);
         assert_eq!(hash, "new-block");
         assert_eq!(time, 1_700_000_100);
     }
-
     #[test]
     fn deleting_an_address_cascades_to_its_transactions() {
         let database = database_with_address(ADDRESS);
         sync_transactions(&database, ADDRESS, &[sample_tx("tx-one")], false).unwrap();
-
         address_repository::delete_addresses(&database, &[ADDRESS.to_string()]).unwrap();
-
         assert_eq!(count(&database, "transactions"), 0);
         assert_eq!(count(&database, "transaction_inputs"), 0);
         assert_eq!(count(&database, "transaction_outputs"), 0);
     }
-
     #[test]
     fn oldest_confirmed_txid_is_the_resume_cursor_of_an_interrupted_walk() {
         let database = database_with_address(ADDRESS);
-
         assert_eq!(oldest_confirmed_txid(&database, ADDRESS).unwrap(), None);
-
         let mut oldest = sample_tx("tx-old");
         oldest.status.block_time = Some(1_600_000_000);
         let mut newest = sample_tx("tx-new");
@@ -558,17 +515,13 @@ mod tests {
             block_time: None,
         };
         sync_transactions(&database, ADDRESS, &[oldest, newest, pending], false).unwrap();
-
-        // The unconfirmed row must not win even though it was stored last.
         assert_eq!(
             oldest_confirmed_txid(&database, ADDRESS).unwrap(),
-            Some("tx-old".to_string())
+            Some("tx-old".to_string()),
         );
     }
-
     const EXCHANGE_ADDRESS: &str = "bc1qexchange";
     const UNRELATED_ADDRESS: &str = "bc1qunrelated";
-
     fn database_with_exchange() -> Database {
         let database = Database::open_in_memory().unwrap();
         for address in [ADDRESS, EXCHANGE_ADDRESS, UNRELATED_ADDRESS] {
@@ -584,7 +537,6 @@ mod tests {
         }
         database
     }
-
     fn stored_txids_for(database: &Database, address: &str) -> Vec<String> {
         database
             .connection()
@@ -596,87 +548,136 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap()
     }
-
     #[test]
     fn mirroring_copies_only_transactions_related_to_the_exchange_address() {
         let database = database_with_exchange();
-
-        // Deposit: an input spent FROM the exchange address.
         let mut deposit = sample_tx("tx-deposit");
         deposit.vin[0].prevout = Some(sample_vout(Some(EXCHANGE_ADDRESS), 5_000));
         deposit.vout = vec![sample_vout(Some(ADDRESS), 4_800), sample_vout(None, 200)];
-
-        // Withdrawal: an output paid TO the exchange address.
         let mut withdrawal = sample_tx("tx-withdrawal");
         withdrawal.vout = vec![
             sample_vout(Some(ADDRESS), 100),
             sample_vout(Some(EXCHANGE_ADDRESS), 900),
         ];
-
-        // Unrelated: neither inputs nor outputs involve the exchange address.
         let mut unrelated = sample_tx("tx-unrelated");
         unrelated.vout = vec![sample_vout(Some(UNRELATED_ADDRESS), 700)];
-
         sync_transactions(&database, ADDRESS, &[deposit, withdrawal, unrelated], false).unwrap();
         sync_transactions(&database, UNRELATED_ADDRESS, &[sample_tx("tx-two")], false).unwrap();
-
-        let summary = mirror_related_transactions(&database, EXCHANGE_ADDRESS).unwrap();
-
-        assert_eq!(summary.address, EXCHANGE_ADDRESS);
+        let summary = mirror_related_transactions_for_provider(&database, 1).unwrap();
         assert_eq!(summary.fetched, 2);
         assert_eq!(summary.inserted, 2);
         assert_eq!(summary.stored, 2);
         assert!(!summary.truncated);
         assert_eq!(
             stored_txids_for(&database, EXCHANGE_ADDRESS),
-            ["tx-deposit", "tx-withdrawal"]
+            ["tx-deposit", "tx-withdrawal"],
         );
-
-        // Inputs and outputs are copied, not just the transaction header.
-        assert_eq!(
-            count(&database, "transaction_inputs"),
-            // 3 inputs under ADDRESS + 1 under UNRELATED + 2 mirrored
-            3 + 1 + 2
-        );
-        assert_eq!(
-            count(&database, "transaction_outputs"),
-            // 5 outputs under ADDRESS (2 + 2 + 1) + 2 under UNRELATED + 4 mirrored (2 + 2)
-            5 + 2 + 4
-        );
+        assert_eq!(count(&database, "transaction_inputs"), 3 + 1 + 2);
+        assert_eq!(count(&database, "transaction_outputs"), 5 + 2 + 4);
     }
-
     #[test]
     fn mirroring_is_idempotent_and_reports_up_to_date() {
         let database = database_with_exchange();
-
         let mut deposit = sample_tx("tx-deposit");
         deposit.vin[0].prevout = Some(sample_vout(Some(EXCHANGE_ADDRESS), 5_000));
-
         sync_transactions(&database, ADDRESS, &[deposit], false).unwrap();
-
-        let first = mirror_related_transactions(&database, EXCHANGE_ADDRESS).unwrap();
+        let first = mirror_related_transactions_for_provider(&database, 1).unwrap();
         assert_eq!(first.inserted, 1);
-
-        let second = mirror_related_transactions(&database, EXCHANGE_ADDRESS).unwrap();
+        let second = mirror_related_transactions_for_provider(&database, 1).unwrap();
         assert_eq!(second.fetched, 1);
         assert_eq!(second.inserted, 0);
         assert_eq!(second.stored, 1);
-        // One wallet row plus one mirrored row; re-running adds nothing.
         assert_eq!(count(&database, "transactions"), 2);
         assert_eq!(count(&database, "transaction_inputs"), 2);
         assert_eq!(count(&database, "transaction_outputs"), 4);
     }
-
     #[test]
     fn mirroring_an_exchange_address_without_relations_stores_nothing() {
         let database = database_with_exchange();
         sync_transactions(&database, ADDRESS, &[sample_tx("tx-only-wallet")], false).unwrap();
-
-        let summary = mirror_related_transactions(&database, EXCHANGE_ADDRESS).unwrap();
-
+        let summary = mirror_related_transactions_for_provider(&database, 1).unwrap();
         assert_eq!(summary.fetched, 0);
         assert_eq!(summary.inserted, 0);
         assert_eq!(summary.stored, 0);
         assert_eq!(count(&database, "transactions"), 1);
+    }
+    const EXCHANGE_SIBLING: &str = "bc1qexchangesibling";
+    const OTHER_EXCHANGE: &str = "bc1qexchangeother";
+    fn database_with_exchange_provider() -> Database {
+        let database = database_with_exchange();
+        for (address, exchange_id) in [(EXCHANGE_SIBLING, Some(1)), (OTHER_EXCHANGE, Some(2))] {
+            address_repository::insert_address(
+                &database,
+                &StoredAddress {
+                    address: address.to_string(),
+                    exchange_id,
+                    ..StoredAddress::default()
+                },
+            )
+            .unwrap();
+        }
+        database
+    }
+    #[test]
+    fn provider_mirror_covers_sibling_addresses_and_separates_providers() {
+        let database = database_with_exchange_provider();
+        address_repository::set_tx_index_rate_limited(&database, EXCHANGE_ADDRESS, true).unwrap();
+        address_repository::set_tx_index_rate_limited(&database, EXCHANGE_SIBLING, true).unwrap();
+        let mut deposit = sample_tx("tx-deposit");
+        deposit.vin[0].prevout = Some(sample_vout(Some(EXCHANGE_SIBLING), 5_000));
+        deposit.vout = vec![sample_vout(Some(ADDRESS), 4_800), sample_vout(None, 200)];
+        let mut withdrawal = sample_tx("tx-withdrawal");
+        withdrawal.vout = vec![
+            sample_vout(Some(ADDRESS), 100),
+            sample_vout(Some(EXCHANGE_SIBLING), 900),
+        ];
+        let mut both = sample_tx("tx-both");
+        both.vout = vec![
+            sample_vout(Some(EXCHANGE_ADDRESS), 300),
+            sample_vout(Some(EXCHANGE_SIBLING), 300),
+            sample_vout(None, 400),
+        ];
+        let mut other_provider = sample_tx("tx-other-provider");
+        other_provider.vout = vec![sample_vout(Some(OTHER_EXCHANGE), 700)];
+        let mut unrelated = sample_tx("tx-unrelated");
+        unrelated.vout = vec![sample_vout(Some(UNRELATED_ADDRESS), 700)];
+        sync_transactions(
+            &database,
+            ADDRESS,
+            &[deposit, withdrawal, both, other_provider, unrelated],
+            false,
+        )
+        .unwrap();
+        sync_transactions(&database, UNRELATED_ADDRESS, &[sample_tx("tx-two")], false).unwrap();
+        let summary = mirror_related_transactions_for_provider(&database, 1).unwrap();
+        assert_eq!(summary.address, "");
+        assert_eq!(summary.fetched, 3);
+        assert_eq!(summary.inserted, 3);
+        assert_eq!(summary.stored, 3);
+        assert_eq!(stored_txids_for(&database, EXCHANGE_ADDRESS), ["tx-both"]);
+        assert_eq!(
+            stored_txids_for(&database, EXCHANGE_SIBLING),
+            ["tx-both", "tx-deposit", "tx-withdrawal"],
+        );
+        assert!(stored_txids_for(&database, OTHER_EXCHANGE).is_empty());
+        let second = mirror_related_transactions_for_provider(&database, 1).unwrap();
+        assert_eq!(second.fetched, 3);
+        assert_eq!(second.inserted, 0);
+        assert_eq!(second.stored, 3);
+        let other = mirror_related_transactions_for_provider(&database, 2).unwrap();
+        assert_eq!(other.fetched, 1);
+        assert_eq!(other.inserted, 1);
+        assert_eq!(
+            stored_txids_for(&database, OTHER_EXCHANGE),
+            ["tx-other-provider"]
+        );
+        for address in [EXCHANGE_ADDRESS, EXCHANGE_SIBLING] {
+            assert!(
+                !address_repository::get_address(&database, address)
+                    .unwrap()
+                    .unwrap()
+                    .tx_index_rate_limited,
+            );
+        }
     }
 }

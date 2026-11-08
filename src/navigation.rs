@@ -1,8 +1,6 @@
 //! Screen navigation manifest: route, label, and icon in one place.
-
 use crate::app::Route;
 use crate::components::IconName;
-
 /// One navigable destination of the application shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Destination {
@@ -15,7 +13,6 @@ pub enum Destination {
     SettingsWalletTypes,
     SettingsExchangeTypes,
 }
-
 impl Destination {
     pub const PRIMARY: [Self; 4] = [
         Self::Addresses,
@@ -29,7 +26,6 @@ impl Destination {
         Self::SettingsWalletTypes,
         Self::SettingsExchangeTypes,
     ];
-
     pub const fn label(self) -> &'static str {
         match self {
             Self::Addresses => "Addresses",
@@ -42,7 +38,6 @@ impl Destination {
             Self::SettingsExchangeTypes => "Exchange Types",
         }
     }
-
     pub const fn icon(self) -> IconName {
         match self {
             Self::Addresses => IconName::Addresses,
@@ -55,7 +50,6 @@ impl Destination {
             | Self::SettingsExchangeTypes => IconName::Settings,
         }
     }
-
     pub const fn route(self) -> Route {
         match self {
             Self::Addresses => Route::Addresses {},
@@ -68,7 +62,6 @@ impl Destination {
             Self::SettingsExchangeTypes => Route::SettingsExchangeTypes {},
         }
     }
-
     pub const fn is_settings(self) -> bool {
         matches!(
             self,
@@ -78,7 +71,6 @@ impl Destination {
                 | Self::SettingsExchangeTypes
         )
     }
-
     /// Destination whose navigation entry is active for `route`.
     pub fn from_route(route: &Route) -> Option<Self> {
         match route {
@@ -93,12 +85,10 @@ impl Destination {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::Destination;
     use std::collections::HashSet;
-
     #[test]
     fn every_destination_has_a_unique_label() {
         let labels = Destination::PRIMARY

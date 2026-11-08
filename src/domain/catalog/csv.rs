@@ -1,5 +1,4 @@
 #![cfg_attr(not(feature = "server"), allow(dead_code))]
-
 //! Create-only CSV import planning for the provider catalogs.
 //!
 //! The planner is pure: the service supplies the existing identities and
@@ -7,16 +6,13 @@
 //! the normalized drafts that would be inserted. The apply path re-runs the
 //! same planner against fresh database state, so the preview and the import
 //! cannot disagree about names, slugs, or categories.
-
-use std::collections::{BTreeSet, HashSet};
-
 use crate::domain::catalog::{
     normalize_brand_color, normalize_name, normalize_slug, slugify, CatalogCategory,
     CatalogImportPreview, CatalogImportRowPreview, CatalogImportRowStatus, CatalogKind,
     CatalogTypeDraft, CustodyModel, NormalizedCatalogTypeDraft, WalletPlatform,
 };
 use crate::domain::csv::parse_csv_text;
-
+use std::collections::{BTreeSet, HashSet};
 /// Largest catalog CSV accepted by the importer.
 pub const MAX_IMPORT_BYTES: usize = 1024 * 1024;
 /// Largest number of data rows accepted by the importer.
@@ -24,14 +20,12 @@ pub const MAX_IMPORT_ROWS: usize = 5_000;
 /// Rows included in the preview table. The import still processes every
 /// valid row.
 pub const MAX_PREVIEW_ROWS: usize = 10;
-
 /// Preview plus the normalized rows that a successful import would insert.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogImportPlan {
     pub preview: CatalogImportPreview,
     pub drafts: Vec<NormalizedCatalogTypeDraft>,
 }
-
 impl CatalogImportPlan {
     fn fatal(message: impl Into<String>) -> Self {
         Self {
@@ -50,7 +44,6 @@ impl CatalogImportPlan {
         }
     }
 }
-
 /// Build the import preview and the drafts to insert.
 ///
 /// `existing_names` and `existing_slugs` must be normalized (lowercase names,
@@ -66,7 +59,6 @@ pub fn plan_import(
     if text.len() > MAX_IMPORT_BYTES {
         return CatalogImportPlan::fatal("The CSV file is too large.");
     }
-
     let document = match parse_csv_text(text) {
         Ok(document) => document,
         Err(error) => return CatalogImportPlan::fatal(error),
@@ -76,7 +68,6 @@ pub fn plan_import(
             "The CSV file contains more than {MAX_IMPORT_ROWS} rows."
         ));
     }
-
     let mut fields = Columns::default();
     for header in &document.headers {
         let Some(field) = canonical_header(header) else {
@@ -91,7 +82,6 @@ pub fn plan_import(
     let Some(name_header) = fields.name.clone() else {
         return CatalogImportPlan::fatal("The CSV file is missing the required `name` column.");
     };
-
     let mut preview = CatalogImportPreview {
         rows: Vec::new(),
         total_rows: document.rows.len(),
@@ -107,7 +97,6 @@ pub fn plan_import(
     let mut seen_names = HashSet::new();
     let mut seen_slugs = HashSet::new();
     let mut unknown_categories = BTreeSet::new();
-
     for (index, row) in document.rows.iter().enumerate() {
         let row_number = index + 1;
         let raw_name = value(row, &Some(name_header.clone()));
@@ -116,7 +105,6 @@ pub fn plan_import(
         let raw_custody = value(row, &fields.custody);
         let raw_platform = value(row, &fields.platform);
         let raw_color = value(row, &fields.brand_color);
-
         let name = match normalize_name(raw_name) {
             Ok(name) => name,
             Err(error) => {
@@ -131,7 +119,6 @@ pub fn plan_import(
                 continue;
             }
         };
-
         let slug = match non_empty(raw_slug) {
             Some(raw) => match normalize_slug(&raw) {
                 Ok(slug) => slug,
@@ -165,7 +152,6 @@ pub fn plan_import(
                 derived
             }
         };
-
         let custody_model = match non_empty(raw_custody) {
             Some(raw) => match CustodyModel::parse(&raw) {
                 Some(model) => Some(model),
@@ -185,7 +171,6 @@ pub fn plan_import(
             },
             None => None,
         };
-
         let platform = match non_empty(raw_platform) {
             Some(raw) => match WalletPlatform::parse(&raw) {
                 Some(platform) if kind == CatalogKind::Wallet => Some(platform),
@@ -218,7 +203,6 @@ pub fn plan_import(
             },
             None => None,
         };
-
         let brand_color = match normalize_brand_color(non_empty(raw_color).as_deref()) {
             Ok(color) => color,
             Err(error) => {
@@ -233,7 +217,6 @@ pub fn plan_import(
                 continue;
             }
         };
-
         let category_id = non_empty(raw_category).and_then(|raw| {
             categories
                 .iter()
@@ -245,7 +228,6 @@ pub fn plan_import(
                 unknown_categories.insert(raw);
             }
         }
-
         let draft = CatalogTypeDraft {
             name: name.clone(),
             slug: Some(slug.clone()),
@@ -268,7 +250,6 @@ pub fn plan_import(
                 continue;
             }
         };
-
         let name_key = normalized.name.to_lowercase();
         if existing_names.contains(&name_key) || !seen_names.insert(name_key) {
             preview.duplicate_rows += 1;
@@ -297,7 +278,6 @@ pub fn plan_import(
             });
             continue;
         }
-
         preview.valid_rows += 1;
         if category_id.is_none() {
             preview.uncategorized_rows += 1;
@@ -311,14 +291,11 @@ pub fn plan_import(
         });
         drafts.push(normalized);
     }
-
     preview.unknown_categories = unknown_categories.into_iter().collect();
     preview.rows_truncated = preview.rows.len() > MAX_PREVIEW_ROWS;
     preview.rows.truncate(MAX_PREVIEW_ROWS);
-
     CatalogImportPlan { preview, drafts }
 }
-
 /// Header columns of the catalog import file, in their original spelling.
 #[derive(Debug, Default)]
 struct Columns {
@@ -329,7 +306,6 @@ struct Columns {
     platform: Option<String>,
     brand_color: Option<String>,
 }
-
 impl Columns {
     /// Record the header of one canonical field; returns `false` when the
     /// field was already provided by another column.
@@ -350,7 +326,6 @@ impl Columns {
         true
     }
 }
-
 fn canonical_header(header: &str) -> Option<&'static str> {
     match header
         .trim()
@@ -367,7 +342,6 @@ fn canonical_header(header: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
 fn value<'a>(
     row: &'a std::collections::BTreeMap<String, String>,
     header: &Option<String>,
@@ -378,7 +352,6 @@ fn value<'a>(
         .map(String::as_str)
         .unwrap_or("")
 }
-
 fn non_empty(value: &str) -> Option<String> {
     let value = value.trim();
     if value.is_empty() {
@@ -387,11 +360,9 @@ fn non_empty(value: &str) -> Option<String> {
         Some(value.to_string())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn categories() -> Vec<CatalogCategory> {
         vec![
             CatalogCategory {
@@ -406,18 +377,15 @@ mod tests {
             },
         ]
     }
-
     fn plan(kind: CatalogKind, text: &str) -> CatalogImportPlan {
         plan_import(kind, text, &HashSet::new(), &HashSet::new(), &categories())
     }
-
     #[test]
     fn valid_rows_become_drafts_with_resolved_categories() {
         let text = "name,slug,category,custody_model,platform,brand_color\n\
                     \"Binance\",binance,Centralized exchange,custodial,,\n\
                     Ledger,,Hardware wallet,self-custody,hardware,#abc\n";
         let plan = plan(CatalogKind::Wallet, text);
-
         assert_eq!(plan.preview.total_rows, 2);
         assert_eq!(plan.preview.valid_rows, 2);
         assert_eq!(plan.preview.invalid_rows, 0);
@@ -433,18 +401,15 @@ mod tests {
         assert_eq!(plan.drafts[1].platform, Some(WalletPlatform::Hardware));
         assert_eq!(plan.drafts[1].brand_color, Some("#AABBCC".to_string()));
     }
-
     #[test]
     fn unknown_categories_fall_back_to_uncategorized() {
         let text = "name,category\nAcme,Unknown category\n";
         let plan = plan(CatalogKind::Exchange, text);
-
         assert_eq!(plan.preview.valid_rows, 1);
         assert_eq!(plan.preview.uncategorized_rows, 1);
         assert_eq!(plan.drafts[0].category_id, None);
         assert_eq!(plan.preview.unknown_categories, ["Unknown category"]);
     }
-
     #[test]
     fn duplicates_against_the_database_and_the_file_are_skipped() {
         let mut names = HashSet::new();
@@ -457,12 +422,10 @@ mod tests {
             &HashSet::new(),
             &categories(),
         );
-
         assert_eq!(plan.preview.valid_rows, 1);
         assert_eq!(plan.preview.duplicate_rows, 2);
         assert_eq!(plan.drafts[0].slug, "acme");
     }
-
     #[test]
     fn invalid_values_are_reported_per_row() {
         let text = "name,platform,brand_color\n\
@@ -470,20 +433,20 @@ mod tests {
                     ,hardware,\n\
                     Trezor,,\n";
         let plan = plan(CatalogKind::Wallet, text);
-
         assert_eq!(plan.preview.total_rows, 3);
         assert_eq!(plan.preview.valid_rows, 1);
         assert_eq!(plan.preview.invalid_rows, 2);
         assert!(matches!(
             &plan.preview.rows[0].status,
-            CatalogImportRowStatus::Invalid(message) if message.contains("platform")
-        ));
+            CatalogImportRowStatus::Invalid(message)
+            if message.contains("platform")
+        ),);
         assert!(matches!(
             &plan.preview.rows[1].status,
-            CatalogImportRowStatus::Invalid(message) if message.contains("name")
-        ));
+            CatalogImportRowStatus::Invalid(message)
+            if message.contains("name")
+        ),);
     }
-
     #[test]
     fn platform_is_rejected_for_exchange_rows() {
         let text = "name,platform\nBinance,software\n";
@@ -491,10 +454,10 @@ mod tests {
         assert_eq!(plan.preview.invalid_rows, 1);
         assert!(matches!(
             &plan.preview.rows[0].status,
-            CatalogImportRowStatus::Invalid(message) if message.contains("wallet")
-        ));
+            CatalogImportRowStatus::Invalid(message)
+            if message.contains("wallet")
+        ),);
     }
-
     #[test]
     fn missing_name_column_is_fatal() {
         let plan = plan(CatalogKind::Exchange, "slug,category\nbinance,Broker\n");
@@ -502,13 +465,11 @@ mod tests {
         assert!(plan.preview.rows.is_empty());
         assert!(plan.drafts.is_empty());
     }
-
     #[test]
     fn duplicate_columns_are_fatal() {
         let plan = plan(CatalogKind::Exchange, "name,provider\nBinance,Binance\n");
         assert!(plan.preview.fatal_error.is_some());
     }
-
     #[test]
     fn the_preview_is_truncated_but_every_valid_row_is_planned() {
         let mut text = String::from("name\n");

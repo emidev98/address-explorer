@@ -24,15 +24,11 @@
 //! that has shipped MUST NOT be edited in place, and entries MUST NOT be
 //! reordered, because a shipped database tracks progress through a single
 //! `user_version` counter.
-
-use rusqlite::{Connection, Transaction};
-
 use super::seeds;
 use super::DatabaseError;
-
+use rusqlite::{Connection, Transaction};
 /// A data migration entry: a function applied only to on-disk databases.
 type MigrationSeed = fn(&Connection) -> Result<(), DatabaseError>;
-
 /// One ordered migration step.
 pub(crate) enum Migration {
     /// A checked-in SQL file, applied with `execute_batch`.
@@ -40,7 +36,6 @@ pub(crate) enum Migration {
     /// A Rust seed importing an on-disk reference dataset.
     Seed(MigrationSeed),
 }
-
 /// All migrations in one linear order, consolidated per table. The
 /// `user_version` of an entry is its 1-based position in this list, and every
 /// name repeats that position as a four-digit prefix starting at `0001`, so
@@ -124,11 +119,7 @@ pub(crate) const MIGRATIONS: &[(&str, Migration)] = &[
         "0018_fiat_exchange_rates",
         Migration::Sql(include_str!("migrations/0018_fiat_exchange_rates.sql")),
     ),
-    // The address catalog runs after the exchange tables because importing it
-    // refreshes every provider's ledger balance anchor.
     ("0019_addresses_data", Migration::Seed(seeds::addresses)),
-    // Backfills provider brand colors for databases seeded before the colors
-    // were added; see the file header.
     (
         "0020_provider_brand_colors",
         Migration::Sql(include_str!("migrations/0020_provider_brand_colors.sql")),
@@ -144,16 +135,13 @@ pub(crate) const MIGRATIONS: &[(&str, Migration)] = &[
         )),
     ),
 ];
-
 /// `user_version` of a database with every migration applied.
 pub(crate) const CURRENT_SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
-
 /// Logical name of a migration, without its `00NN_` version prefix.
 #[cfg(test)]
 pub(crate) fn logical_name(name: &str) -> &str {
     name.split_once('_').map_or(name, |(_, rest)| rest)
 }
-
 /// SQL file of a table's schema migration, without its `00NN_` prefix. Used by
 /// tests and seed tests that build one table in isolation.
 #[cfg(test)]
@@ -165,7 +153,6 @@ pub(crate) fn schema_sql(table: &str) -> Option<&'static str> {
             _ => None,
         })
 }
-
 /// Apply pending migrations in order.
 ///
 /// `include_seeds` is set for on-disk databases; in-memory test databases skip
@@ -177,20 +164,17 @@ pub(crate) fn run_migrations(
     let current_version: i32 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(DatabaseError::from)?;
-
     if current_version > CURRENT_SCHEMA_VERSION {
         return Err(DatabaseError::new(format!(
             "database schema version {current_version} is newer than this build supports \
-             ({CURRENT_SCHEMA_VERSION})"
+             ({CURRENT_SCHEMA_VERSION})",
         )));
     }
-
     for (index, (_name, migration)) in MIGRATIONS.iter().enumerate() {
         let version = index as i32 + 1;
         if current_version >= version {
             continue;
         }
-
         let transaction: Transaction<'_> = connection
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(DatabaseError::from)?;
@@ -209,21 +193,17 @@ pub(crate) fn run_migrations(
             .map_err(DatabaseError::from)?;
         transaction.commit().map_err(DatabaseError::from)?;
     }
-
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::Database;
-
     /// SQL of a named migration; the upgrade tests only apply SQL entries,
     /// never the on-disk seed imports.
     fn sql_of(table: &str) -> &'static str {
         schema_sql(table).unwrap_or_else(|| panic!("missing SQL migration for {table}"))
     }
-
     /// Apply every SQL entry (skipping the Rust seeds) in order, without
     /// touching `user_version`. Used to simulate a fully migrated database.
     fn apply_sql(connection: &Connection) {
@@ -233,7 +213,6 @@ mod tests {
             }
         }
     }
-
     /// Apply the SQL entries up to and including `version`.
     fn apply_sql_through(connection: &Connection, version: i32) {
         for (index, (_, migration)) in MIGRATIONS.iter().enumerate() {
@@ -245,20 +224,17 @@ mod tests {
             }
         }
     }
-
     /// Stamp the version of a database built by [`apply_sql`].
     fn stamp(connection: &Connection, version: i32) {
         connection
             .pragma_update(None, "user_version", version)
             .unwrap();
     }
-
     fn user_version(connection: &Connection) -> i32 {
         connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .unwrap()
     }
-
     fn table_names(connection: &Connection) -> Vec<String> {
         connection
             .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -268,7 +244,6 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap()
     }
-
     fn column_names(connection: &Connection, table: &str) -> Vec<String> {
         connection
             .prepare("SELECT name FROM pragma_table_info(?1) ORDER BY cid")
@@ -278,14 +253,11 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap()
     }
-
     #[test]
     fn fresh_database_applies_every_migration() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
-
         let tables = table_names(&connection);
         for table in [
             "addresses",
@@ -307,33 +279,28 @@ mod tests {
                 "missing table {table}"
             );
         }
-
-        // The smoke-test table was removed; a fresh database never creates it.
         assert!(!tables.iter().any(|name| name == "hello_world"));
     }
-
     #[test]
     fn migration_names_are_numbered_from_one() {
         let mut names = std::collections::BTreeSet::new();
         for (index, (name, _)) in MIGRATIONS.iter().enumerate() {
             assert!(names.insert(*name), "duplicate migration name {name}");
-
             let position = index as i32 + 1;
             let prefix = name.split_once('_').map(|(prefix, _)| prefix).unwrap();
             assert_eq!(prefix.len(), 4, "migration {name} needs a 00NN_ prefix");
             assert_eq!(
                 prefix.parse::<i32>().ok(),
                 Some(position),
-                "migration {name} must be prefixed with its position {position:04}"
+                "migration {name} must be prefixed with its position {position:04}",
             );
-
             let logical = logical_name(name);
             if let Some(table) = logical.strip_suffix("_data") {
                 assert!(
                     MIGRATIONS
                         .iter()
                         .any(|(other, _)| logical_name(other) == table),
-                    "migration {name} does not name a consolidated table migration"
+                    "migration {name} does not name a consolidated table migration",
                 );
             }
         }
@@ -341,38 +308,32 @@ mod tests {
         assert_eq!(MIGRATIONS[0].0, "0001_setting");
         assert_eq!(
             MIGRATIONS[MIGRATIONS.len() - 1].0,
-            "0022_exchange_transactions_btc_fee_sats"
+            "0022_exchange_transactions_btc_fee_sats",
         );
         assert_eq!(CURRENT_SCHEMA_VERSION, MIGRATIONS.len() as i32);
     }
-
     #[test]
     fn consolidated_sql_is_repeatable() {
         let connection = Connection::open_in_memory().unwrap();
         apply_sql(&connection);
         apply_sql(&connection);
-
         let exchange_rows: i64 = connection
             .query_row("SELECT COUNT(*) FROM exchanges_types", [], |row| row.get(0))
             .unwrap();
         assert_eq!(exchange_rows, 16);
-
         let wallet_rows: i64 = connection
             .query_row("SELECT COUNT(*) FROM wallets_types", [], |row| row.get(0))
             .unwrap();
         assert_eq!(wallet_rows, 18);
     }
-
     #[test]
     fn historical_prices_migration_creates_table() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         assert_eq!(
             column_names(&connection, "historical_prices"),
-            ["close_time", "close", "symbol"]
+            ["close_time", "close", "symbol"],
         );
-
         let index_count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master
@@ -383,23 +344,19 @@ mod tests {
             .unwrap();
         assert_eq!(index_count, 1);
     }
-
     #[test]
     fn setting_table_migration_runs() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         let setting_rows: i64 = connection
             .query_row("SELECT COUNT(*) FROM setting", [], |row| row.get(0))
             .unwrap();
         assert_eq!(setting_rows, 0);
     }
-
     #[test]
     fn transaction_migration_creates_tables_and_address_lookup_indexes() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         for index in [
             "idx_transaction_inputs_prevout_scriptpubkey_address",
             "idx_transaction_outputs_scriptpubkey_address",
@@ -414,7 +371,6 @@ mod tests {
             assert_eq!(count, 1, "missing index {index}");
         }
     }
-
     #[test]
     fn flow_indexes_are_present_and_idempotent() {
         let database = Database::open_in_memory().unwrap();
@@ -433,13 +389,10 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 1, "missing index {index}");
         }
-        // Every migration is idempotent; re-running the index file must not
-        // fail or duplicate the indexes.
         connection
             .execute_batch(include_str!("migrations/0021_flow_indexes.sql"))
             .unwrap();
     }
-
     #[test]
     fn btc_fee_migration_normalizes_legacy_fees_and_rebuilds_balances() {
         let connection = Connection::open_in_memory().unwrap();
@@ -467,13 +420,11 @@ mod tests {
                       2.5, 'EUR', '{}', 'unmatched', 0, 0);",
             )
             .unwrap();
-
         connection
             .execute_batch(include_str!(
                 "migrations/0022_exchange_transactions_btc_fee_sats.sql"
             ))
             .unwrap();
-
         let fee: f64 = connection
             .query_row(
                 "SELECT fee FROM exchange_transactions WHERE id = 1",
@@ -495,12 +446,9 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-
         assert_eq!(fee, 10_000.0);
         assert_eq!(fiat_fee, 2.5);
         assert_eq!(balance, 99_990_000);
-
-        // The repair and the derived balance are idempotent.
         connection
             .execute_batch(include_str!(
                 "migrations/0022_exchange_transactions_btc_fee_sats.sql"
@@ -523,7 +471,6 @@ mod tests {
         assert_eq!(fee_after, 10_000.0);
         assert_eq!(balance_after, 99_990_000);
     }
-
     #[test]
     fn btc_fee_triggers_reject_fractional_fees() {
         let database = Database::open_in_memory().unwrap();
@@ -547,17 +494,14 @@ mod tests {
                 rusqlite::params![format!("{fee}-{currency}"), fee, currency],
             )
         };
-
         assert!(insert(0.0001, "BTC").is_err());
         assert!(insert(10_000.0, "BTC").is_ok());
         assert!(insert(2.5, "EUR").is_ok());
     }
-
     #[test]
     fn addresses_schema_keeps_the_existing_column_order() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         assert_eq!(
             column_names(&connection, "addresses"),
             [
@@ -577,9 +521,8 @@ mod tests {
                 "wallet_id",
                 "tx_index_rate_limited",
                 "exchange_balance_sats",
-            ]
+            ],
         );
-
         assert_eq!(
             column_names(&connection, "exchanges_types"),
             [
@@ -589,7 +532,7 @@ mod tests {
                 "category_id",
                 "custody_model",
                 "brand_color"
-            ]
+            ],
         );
         assert_eq!(
             column_names(&connection, "wallets_types"),
@@ -601,15 +544,13 @@ mod tests {
                 "custody_model",
                 "platform",
                 "brand_color",
-            ]
+            ],
         );
     }
-
     #[test]
     fn exchange_and_wallet_type_migration_seeds_reference_data() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         let exchange_names: Vec<String> = connection
             .prepare("SELECT name FROM exchanges_types ORDER BY id")
             .unwrap()
@@ -636,9 +577,8 @@ mod tests {
                 "Gemini",
                 "Bitfinex",
                 "Robinhood",
-            ]
+            ],
         );
-
         let wallet_names: Vec<String> = connection
             .prepare("SELECT name FROM wallets_types ORDER BY id")
             .unwrap()
@@ -667,15 +607,13 @@ mod tests {
                 "Muun",
                 "Wasabi Wallet",
                 "Blockchain.com Wallet",
-            ]
+            ],
         );
     }
-
     #[test]
     fn seeded_providers_carry_a_hex_brand_color() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         let colors = |sql: &str| -> Vec<String> {
             connection
                 .prepare(sql)
@@ -685,19 +623,16 @@ mod tests {
                 .collect::<Result<_, _>>()
                 .unwrap()
         };
-
         let exchange_colors = colors("SELECT brand_color FROM exchanges_types ORDER BY id");
         let wallet_colors = colors("SELECT brand_color FROM wallets_types ORDER BY id");
-
         assert_eq!(exchange_colors.len(), 16);
         assert_eq!(wallet_colors.len(), 18);
-
         for color in exchange_colors.iter().chain(wallet_colors.iter()) {
             assert_eq!(color.len(), 7, "unexpected brand color {color}");
             assert!(color.starts_with('#'), "unexpected brand color {color}");
             assert!(
                 color[1..].chars().all(|c| c.is_ascii_hexdigit()),
-                "unexpected brand color {color}"
+                "unexpected brand color {color}",
             );
             assert_eq!(
                 color,
@@ -706,12 +641,10 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn address_owner_columns_enforce_reference_integrity() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         let insert = |address: &str, exchange_id: Option<i64>, wallet_id: Option<i64>| {
             connection.execute(
                 "INSERT INTO addresses (
@@ -724,29 +657,21 @@ mod tests {
                 rusqlite::params![address, exchange_id, wallet_id],
             )
         };
-
-        // Unknown owner ids must be rejected by the foreign keys.
         assert!(insert("bc1qexchange", Some(999), None).is_err());
         assert!(insert("bc1qwallet", None, Some(999)).is_err());
-
         insert("bc1qexchange", Some(1), None).unwrap();
         insert("bc1qwallet", None, Some(1)).unwrap();
         insert("bc1qplain", None, None).unwrap();
-
-        // An address may not belong to an exchange and a wallet at once.
         assert!(insert("bc1qboth", Some(1), Some(1)).is_err());
-
         let address_rows: i64 = connection
             .query_row("SELECT COUNT(*) FROM addresses", [], |row| row.get(0))
             .unwrap();
         assert_eq!(address_rows, 3);
     }
-
     #[test]
     fn exchange_migration_creates_tables_and_address_balance_column() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         connection
             .execute(
                 "INSERT INTO addresses (
@@ -767,12 +692,10 @@ mod tests {
             .unwrap();
         assert_eq!(balance, 0);
     }
-
     #[test]
     fn catalog_taxonomy_data_classifies_seeded_rows() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         let exchange_categories: i64 = connection
             .query_row("SELECT COUNT(*) FROM exchange_categories", [], |row| {
                 row.get(0)
@@ -785,7 +708,6 @@ mod tests {
             })
             .unwrap();
         assert_eq!(wallet_categories, 9);
-
         let (slug, category, custody): (String, String, String) = connection
             .query_row(
                 "SELECT t.slug, c.name, t.custody_model
@@ -799,7 +721,6 @@ mod tests {
         assert_eq!(slug, "binance");
         assert_eq!(category, "Centralized exchange");
         assert_eq!(custody, "custodial");
-
         let (slug, category, custody, platform): (String, String, String, String) = connection
             .query_row(
                 "SELECT t.slug, c.name, t.custody_model, t.platform
@@ -814,7 +735,6 @@ mod tests {
         assert_eq!(category, "Hardware wallet");
         assert_eq!(custody, "self_custody");
         assert_eq!(platform, "hardware");
-
         let duplicate_slugs: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM (
@@ -828,20 +748,14 @@ mod tests {
             .unwrap();
         assert_eq!(duplicate_slugs, 0);
     }
-
     #[test]
     fn complete_seed_sequence_runs_on_a_fresh_database() {
         let mut connection = Connection::open_in_memory().unwrap();
         connection
             .pragma_update(None, "foreign_keys", true)
             .unwrap();
-
         run_migrations(&mut connection, true).unwrap();
-
         assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
-
-        // The address catalog refreshes provider balances, which reads the
-        // exchange tables, so its position in the sequence matters.
         let exchange_addresses: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
@@ -850,7 +764,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(exchange_addresses, 296);
-
         let prices: i64 = connection
             .query_row("SELECT COUNT(*) FROM historical_prices", [], |row| {
                 row.get(0)
@@ -861,13 +774,11 @@ mod tests {
             "unexpectedly few imported prices: {prices}"
         );
     }
-
     #[test]
     fn partially_migrated_database_resumes_without_losing_data() {
         let mut connection = Connection::open_in_memory().unwrap();
         apply_sql(&connection);
         stamp(&connection, 15);
-
         connection
             .execute(
                 "INSERT INTO addresses (
@@ -893,13 +804,8 @@ mod tests {
                 [],
             )
             .unwrap();
-
         run_migrations(&mut connection, true).unwrap();
-
         assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
-
-        // Only the entries above the stored version run, so user rows and user
-        // edits survive untouched.
         let (description, exchange_balance): (String, i64) = connection
             .query_row(
                 "SELECT description, exchange_balance_sats FROM addresses
@@ -910,7 +816,6 @@ mod tests {
             .unwrap();
         assert_eq!(description, "My wallet");
         assert_eq!(exchange_balance, 0);
-
         let setting: String = connection
             .query_row(
                 "SELECT value FROM setting WHERE key = 'default_fiat_currency'",
@@ -919,17 +824,12 @@ mod tests {
             )
             .unwrap();
         assert_eq!(setting, "EUR");
-
-        // The price seed is already applied and must not re-run.
         let prices: i64 = connection
             .query_row("SELECT COUNT(*) FROM historical_prices", [], |row| {
                 row.get(0)
             })
             .unwrap();
         assert_eq!(prices, 1);
-
-        // The address seed is newer than the stored version, so it runs and
-        // stays idempotent.
         let seeded_addresses: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
@@ -939,18 +839,14 @@ mod tests {
             .unwrap();
         assert!(
             seeded_addresses > 0,
-            "the address seed should run above the stored version"
+            "the address seed should run above the stored version",
         );
     }
-
     #[test]
     fn provider_brand_colors_are_backfilled_for_existing_rows() {
         let mut connection = Connection::open_in_memory().unwrap();
         apply_sql(&connection);
         stamp(&connection, 19);
-
-        // Simulate a catalog seeded before the brand colors existed and a
-        // color the user chose themselves.
         connection
             .execute("UPDATE exchanges_types SET brand_color = NULL", [])
             .unwrap();
@@ -963,11 +859,8 @@ mod tests {
                 [],
             )
             .unwrap();
-
         run_migrations(&mut connection, false).unwrap();
-
         assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
-
         let (binance, kraken): (String, String) = connection
             .query_row(
                 "SELECT
@@ -979,7 +872,6 @@ mod tests {
             .unwrap();
         assert_eq!(binance, "#F0B90B");
         assert_eq!(kraken, "#5741D9");
-
         let (ledger, metamask): (String, String) = connection
             .query_row(
                 "SELECT
@@ -992,31 +884,25 @@ mod tests {
         assert_eq!(ledger, "#123456", "a user color must be preserved");
         assert_eq!(metamask, "#F6851B");
     }
-
     #[test]
     fn newer_database_fails_loudly() {
         let mut connection = Connection::open_in_memory().unwrap();
         apply_sql(&connection);
         stamp(&connection, CURRENT_SCHEMA_VERSION + 1);
-
         let error = run_migrations(&mut connection, false).unwrap_err();
         assert!(
             error.to_string().contains("newer than this build"),
-            "unexpected error: {error}"
+            "unexpected error: {error}",
         );
     }
-
     #[test]
     fn in_memory_databases_advance_past_the_seed_versions() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         assert_eq!(user_version(&connection), CURRENT_SCHEMA_VERSION);
         assert!(column_names(&connection, "addresses")
             .iter()
-            .any(|column| column == "tx_index_rate_limited"));
-
-        // Seed imports are skipped in memory, but their versions advanced.
+            .any(|column| column == "tx_index_rate_limited"),);
         let prices: i64 = connection
             .query_row("SELECT COUNT(*) FROM historical_prices", [], |row| {
                 row.get(0)
@@ -1032,12 +918,11 @@ mod tests {
             .unwrap();
         assert_eq!(seeded_addresses, 0);
     }
-
     #[test]
     fn sql_migration_lookup_returns_the_table_file() {
         assert!(sql_of("addresses").contains("CREATE TABLE IF NOT EXISTS addresses"));
         assert!(
-            sql_of("historical_prices").contains("CREATE TABLE IF NOT EXISTS historical_prices")
+            sql_of("historical_prices").contains("CREATE TABLE IF NOT EXISTS historical_prices"),
         );
     }
 }

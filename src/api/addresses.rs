@@ -1,16 +1,12 @@
 //! Address endpoints.
-
-use dioxus::prelude::*;
-
-use crate::domain::address::{
-    AddressOverview, AddressOverviewQuery, AddressSaveOutcome, StoredAddress,
-};
-
 #[cfg(feature = "server")]
 use super::open_database;
 #[cfg(feature = "server")]
 use crate::application::addresses::{self, AddressService, AddressServiceError};
-
+use crate::domain::address::{
+    AddressOverview, AddressOverviewQuery, AddressSaveOutcome, StoredAddress,
+};
+use dioxus::prelude::*;
 /// Addresses overview: every listed row sorted and scope-filtered in the
 /// backend for the KPI cards and the holdings chart, the requested table
 /// page, and the global KPI totals of the addresses page.
@@ -23,7 +19,6 @@ pub async fn addresses_overview_api(
         .addresses_overview(&query)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Validate and canonicalize an address without storing it.
 ///
 /// The import dialog calls this before pasting a clipboard value so invalid
@@ -33,7 +28,6 @@ pub async fn addresses_overview_api(
 pub async fn validate_address_api(address: String) -> Result<String, ServerFnError> {
     addresses::validate_address(&address).map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Import an address and index its transaction history.
 ///
 /// The import is create-only: an address that is already stored yields
@@ -51,18 +45,19 @@ pub async fn save_address_api(
     let result = AddressService::connect(open_database()?)
         .import_address_and_sync(&address, description.as_deref(), exchange_id, wallet_id)
         .await;
-
     match result {
         Ok(imported) => Ok(AddressSaveOutcome::Imported(Box::new(imported))),
         Err(AddressServiceError::AlreadyExists) => Ok(AddressSaveOutcome::Duplicate),
         Err(error) => Err(ServerFnError::new(error.to_string())),
     }
 }
-
 /// Update the description and owner classification of a stored address.
 ///
-/// This is the dialog's modify mode: only the editable details change; the
-/// mempool statistics and the indexed transactions are untouched.
+/// This is the dialog's modify mode: the editable details change without
+/// touching the mempool statistics. Changing the owner to an exchange
+/// deletes the address's previously indexed on-chain transactions in the
+/// same transaction; the provider-wide reverse search rebuilds only the
+/// related ones.
 #[server]
 #[put("/api/addresses/:address")]
 pub async fn update_address_api(
@@ -75,7 +70,6 @@ pub async fn update_address_api(
         .update_address(&address, description.as_deref(), exchange_id, wallet_id)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Delete several stored addresses and their cascaded transactions in one
 /// transaction. Returns the number of deleted rows.
 #[server]

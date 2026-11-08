@@ -3,9 +3,7 @@
 //! The persisted values live in the `setting` key/value table. A missing or
 //! malformed row always falls back to [`InterfaceSettings::default`], so a
 //! fresh database does not need a dedicated migration.
-
 use serde::{Deserialize, Serialize};
-
 /// Where the application shell places its primary navigation on wide screens.
 ///
 /// Every variant uses the compact top bar and slide-in drawer on phones. The
@@ -22,10 +20,8 @@ pub enum NavigationPosition {
     /// Use the side panel on tablet and wider windows.
     Side,
 }
-
 impl NavigationPosition {
     pub const ALL: [Self; 3] = [Self::Auto, Self::Top, Self::Side];
-
     /// Stable value used in SQLite and in the shell's `data-nav-position`.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -34,7 +30,6 @@ impl NavigationPosition {
             Self::Side => "side",
         }
     }
-
     /// User-facing option name.
     pub const fn label(self) -> &'static str {
         match self {
@@ -43,10 +38,7 @@ impl NavigationPosition {
             Self::Side => "Side navigation",
         }
     }
-
     /// Parse a value previously written by [`Self::as_str`].
-    // Only the server-side repository parses stored values; unit tests also
-    // exercise this method in client-only builds.
     #[cfg_attr(not(feature = "server"), allow(dead_code))]
     pub fn from_value(value: &str) -> Option<Self> {
         Self::ALL
@@ -54,7 +46,6 @@ impl NavigationPosition {
             .find(|position| position.as_str() == value)
     }
 }
-
 /// Presentation preferences shared by the application shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceSettings {
@@ -72,11 +63,9 @@ pub struct InterfaceSettings {
     #[serde(default = "default_confirm_destructive_actions")]
     pub confirm_destructive_actions: bool,
 }
-
 fn default_confirm_destructive_actions() -> bool {
     true
 }
-
 impl Default for InterfaceSettings {
     fn default() -> Self {
         Self {
@@ -87,11 +76,9 @@ impl Default for InterfaceSettings {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn defaults_are_hidden_support_auto_navigation_and_expanded_side_panel() {
         let settings = InterfaceSettings::default();
@@ -100,25 +87,22 @@ mod tests {
         assert!(!settings.side_nav_collapsed);
         assert!(settings.confirm_destructive_actions);
     }
-
     #[test]
     fn navigation_position_values_round_trip() {
         for position in NavigationPosition::ALL {
             assert_eq!(
                 NavigationPosition::from_value(position.as_str()),
-                Some(position)
+                Some(position),
             );
         }
         assert_eq!(NavigationPosition::from_value("unknown"), None);
     }
-
     #[test]
     fn navigation_position_labels_are_user_facing() {
         assert_eq!(NavigationPosition::Auto.label(), "Auto");
         assert_eq!(NavigationPosition::Top.label(), "Top app bar");
         assert_eq!(NavigationPosition::Side.label(), "Side navigation");
     }
-
     #[test]
     fn missing_serialized_navigation_position_defaults_to_auto() {
         let settings: InterfaceSettings =

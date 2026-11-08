@@ -1,5 +1,4 @@
 use super::*;
-
 /// Convert the stored USD history of `[from_time, to_time]` into `symbol`
 /// and persist it, in one transaction.
 ///
@@ -37,11 +36,10 @@ pub async fn sync_prices_bulk(
         return Err(PriceError::InvalidData(format!(
             "the start of the sync range ({}) must not be after its end ({})",
             civil_time::format_date(from_time),
-            civil_time::format_date(to_time)
+            civil_time::format_date(to_time),
         ))
         .into());
     }
-
     let source = price_repository::list_prices_in_range(database, USD_SYMBOL, from_time, to_time)?;
     let source_rows = source.len() as u64;
     let mut summary = BulkSyncSummary {
@@ -55,16 +53,12 @@ pub async fn sync_prices_bulk(
     if source.is_empty() {
         return Ok(summary);
     }
-
-    // One network round trip for the whole range; the series comes back as
-    // ISO `YYYY-MM-DD` dates, which sort lexicographically.
     let mut rates = fetch_fx_series(
         civil_time::format_date(from_time),
         civil_time::format_date(to_time),
     )
     .await?;
     rates.sort_by(|left, right| left.0.cmp(&right.0));
-
     let mut prices = Vec::with_capacity(source.len());
     for row in &source {
         let day = civil_time::format_date(row.close_time);
@@ -80,11 +74,9 @@ pub async fn sync_prices_bulk(
             close,
         });
     }
-
     summary.stored = price_repository::store_prices_bulk(database, &prices)?;
     Ok(summary)
 }
-
 /// Ensure the stored USD price history also exists in `symbol`.
 ///
 /// This is the automatic preparation behind the default fiat currency
@@ -111,7 +103,6 @@ pub async fn ensure_currency_history(
     if symbol == USD_SYMBOL {
         return Ok(summary);
     }
-
     let Some((source_first, source_last)) =
         price_repository::price_series_range(database, USD_SYMBOL)?
     else {
@@ -128,7 +119,6 @@ pub async fn ensure_currency_history(
     else {
         return Ok(summary);
     };
-
     match sync_prices_bulk(
         database,
         &symbol,
@@ -145,7 +135,7 @@ pub async fn ensure_currency_history(
             if bulk.skipped > 0 {
                 summary.warning = Some(format!(
                     "{} source prices had no FX rate for their day and were skipped.",
-                    bulk.skipped
+                    bulk.skipped,
                 ));
             }
         }
@@ -154,6 +144,5 @@ pub async fn ensure_currency_history(
             summary.warning = Some(format!("Could not convert historical prices: {error}"));
         }
     }
-
     Ok(summary)
 }

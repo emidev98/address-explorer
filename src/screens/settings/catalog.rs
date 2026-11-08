@@ -1,8 +1,5 @@
 //! Wallet Types / Exchange Types sub-settings: the provider table, filters,
 //! KPIs, CRUD dialogs, cascade deletion, and CSV import.
-
-use dioxus::prelude::*;
-
 use crate::api::catalogs::{
     catalog_types_delete_preview_api, delete_catalog_types_api, list_catalog_categories_api,
     list_catalog_types_api,
@@ -18,28 +15,25 @@ use crate::domain::catalog::{
     CatalogTypePage,
 };
 use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
-
+use dioxus::prelude::*;
 #[component]
 pub fn SettingsWalletTypes() -> Element {
     rsx! {
         CatalogSettingsPage { kind: CatalogKind::Wallet }
     }
 }
-
 #[component]
 pub fn SettingsExchangeTypes() -> Element {
     rsx! {
         CatalogSettingsPage { kind: CatalogKind::Exchange }
     }
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DeleteRequest {
     title: String,
     ids: Vec<i64>,
     preview: CatalogDeletePreview,
 }
-
 #[component]
 fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     let mut toast = use_toast();
@@ -52,7 +46,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
     let mut delete_request = use_signal(|| Option::<DeleteRequest>::None);
     let deleting = use_signal(|| false);
     let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
-
     let mut categories = use_resource(move || async move {
         list_catalog_categories_api(kind.as_str().to_string())
             .await
@@ -64,7 +57,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
         Some(Err(error)) => (Vec::new(), Some(error.clone())),
         None => (Vec::new(), None),
     };
-
     let mut list = use_resource(move || {
         let query = table.query(DEFAULT_PAGE_SIZE);
         async move {
@@ -73,9 +65,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 .map_err(|error| error.to_string())
         }
     });
-
-    // A deletion can empty the current page while earlier pages still have
-    // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = list() {
             if data.page.items.is_empty() && table.page() > 0 {
@@ -83,7 +72,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
             }
         }
     });
-
     let state = list();
     let loading = state.is_none();
     let totals = match &state {
@@ -96,7 +84,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
         totals.map(|totals| totals.classified_addresses.to_string()),
         totals.map(|totals| totals.uncategorized.to_string()),
     ];
-
     let items = match &state {
         Some(Ok(data)) => data.page.items.clone(),
         _ => Vec::new(),
@@ -113,11 +100,10 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 kind.singular_label()
             } else {
                 kind.plural_label()
-            }
+            },
         )
     };
     let all_selected = selection.all_selected(&page_ids);
-
     let confirm_delete = move |_| {
         if let Some(request) = delete_request() {
             perform_delete(
@@ -132,21 +118,28 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
             );
         }
     };
-
     let content = match &state {
-        None => rsx! {
-            p { class: "text-body-medium text-on-surface-variant", "Loading {kind.plural_label()}..." }
-        },
-        Some(Err(error)) => rsx! {
-            p { class: "text-body-medium text-on-surface-variant",
-                "Error loading {kind.plural_label()}: {error}"
+        None => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "Loading {kind.plural_label()}..."
+                }
             }
-        },
-        Some(Ok(_)) if items.is_empty() => rsx! {
-            p { class: "text-body-medium text-on-surface-variant",
-                "No {kind.plural_label()} yet. Create one or import a CSV."
+        }
+        Some(Err(error)) => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "Error loading {kind.plural_label()}: {error}"
+                }
             }
-        },
+        }
+        Some(Ok(_)) if items.is_empty() => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "No {kind.plural_label()} yet. Create one or import a CSV."
+                }
+            }
+        }
         Some(Ok(data)) => {
             let total = data.page.total;
             let selectable_ids = page_ids.clone();
@@ -157,9 +150,10 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                             tr {
                                 TableSelectionHeader {
                                     all_selected,
-                                    indeterminate: selection.some_selected(&page_ids)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    && !all_selected,
-                                    select_all_label: "Select all types on this page".to_string(),
+                                    indeterminate: selection.some_selected(& page_ids) && !
+                                                                                                                                                                all_selected,
+                                    select_all_label: "Select all types on this page"
+                                                                                                                                                                .to_string(),
                                     disabled: page_ids.is_empty(),
                                     on_toggle_all: move |checked| {
                                         selection.set_many(&selectable_ids, checked);
@@ -197,7 +191,8 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                     }
                                 }
                                 SortableHeader {
-                                    label: "Name".to_string(),
+                                    label: "Name"
+                                                                                                                                                                .to_string(),
                                     active_direction: table.direction_for("name"),
                                     on_sort: move |_| {
                                         table.sort("name", SortDirection::Asc);
@@ -214,7 +209,8 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 }
                                 SortableHeader {
                                     label: "Custody".to_string(),
-                                    active_direction: table.direction_for("custody"),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("custody"),
                                     on_sort: move |_| {
                                         table.sort("custody", SortDirection::Asc);
                                         selection.clear();
@@ -226,7 +222,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                         active_direction: table.direction_for("platform"),
                                         on_sort: move |_| {
                                             table.sort("platform", SortDirection::Asc);
-                                        selection.clear();
+                                            selection.clear();
                                         },
                                     }
                                 }
@@ -259,7 +255,8 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                             TableSelectionCell {
                                                 checked: row_checked,
                                                 label: format!("Select {row_name}"),
-                                                on_change: move |checked| selection.set(row_id, checked),
+                                                on_change: move |
+                                                                                                                                                                                                                checked | selection.set(row_id, checked),
                                             }
                                             td {
                                                 div { class: "md3-table-actions",
@@ -344,15 +341,14 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
             }
         }
     };
-
     rsx! {
-        PageHeader {
-            title: kind.label().to_string(),
+        PageHeader { title: kind.label().to_string(),
             div { class: "md3-page-actions",
                 button {
                     r#type: "button",
                     class: "md3-button-tonal",
-                    onclick: move |_| show_categories.set(true),
+                    onclick: move | _ |
+                                                                                        show_categories.set(true),
                     "Manage categories"
                 }
                 button {
@@ -372,7 +368,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 }
             }
         }
-
         div { class: "md3-kpi-grid",
             Kpi {
                 title: kind.label().to_string(),
@@ -395,13 +390,10 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 loading,
             }
         }
-
         if let Some(error) = categories_error {
             p { class: "text-body-small md3-settings-error", "Could not load categories: {error}" }
         }
-
         {content}
-
         if show_type_dialog() {
             CatalogTypeDialog {
                 kind,
@@ -420,7 +412,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 },
             }
         }
-
         if show_categories() {
             CatalogCategoriesDialog {
                 kind,
@@ -437,7 +428,6 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 },
             }
         }
-
         if show_import() {
             CatalogImportDialog {
                 kind,
@@ -448,20 +438,19 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 },
             }
         }
-
         if let Some(request) = delete_request() {
             CatalogDeleteDialog {
                 title: request.title,
                 kind,
                 preview: request.preview,
                 busy: deleting(),
-                on_cancel: move |_| delete_request.set(None),
+                on_cancel: move | _ |
+                                                                        delete_request.set(None),
                 on_confirm: confirm_delete,
             }
         }
     }
 }
-
 #[allow(clippy::too_many_arguments)]
 fn start_delete(
     kind: CatalogKind,
@@ -501,7 +490,6 @@ fn start_delete(
         }
     });
 }
-
 #[allow(clippy::too_many_arguments)]
 fn perform_delete(
     kind: CatalogKind,

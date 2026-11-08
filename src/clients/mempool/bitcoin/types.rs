@@ -1,5 +1,4 @@
 use serde::Deserialize;
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct StatsInfo {
     pub funded_txo_count: i64,
@@ -8,14 +7,12 @@ pub struct StatsInfo {
     pub spent_txo_sum: i64,
     pub tx_count: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Address {
     pub address: String,
     pub chain_stats: StatsInfo,
     pub mempool_stats: StatsInfo,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct AddressTxsUtxo {
     pub txid: String,
@@ -23,7 +20,6 @@ pub struct AddressTxsUtxo {
     pub status: TxStatus,
     pub value: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Vout {
     pub scriptpubkey: String,
@@ -33,7 +29,6 @@ pub struct Vout {
     pub scriptpubkey_address: Option<String>,
     pub value: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct TxStatus {
     pub confirmed: bool,
@@ -42,7 +37,6 @@ pub struct TxStatus {
     pub block_hash: Option<String>,
     pub block_time: Option<i64>,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Tx {
     pub txid: String,
@@ -55,7 +49,6 @@ pub struct Tx {
     pub fee: i64,
     pub status: TxStatus,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct TxVin {
     pub txid: String,
@@ -67,14 +60,12 @@ pub struct TxVin {
     pub is_coinbase: bool,
     pub sequence: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct TxMerkleProof {
     pub block_height: i64,
     pub merkle: Vec<String>,
     pub pos: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct TxOutspend {
     pub spent: bool,
@@ -82,7 +73,6 @@ pub struct TxOutspend {
     pub vin: i64,
     pub status: TxStatus,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Block {
     pub id: String,
@@ -100,14 +90,12 @@ pub struct Block {
     pub difficulty: f64,
     pub extras: serde_json::Value,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlockStatus {
     pub in_best_chain: bool,
     pub height: i64,
     pub next_best: String,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Adjustment {
     #[serde(rename = "progressPercent")]
@@ -131,14 +119,12 @@ pub struct Adjustment {
     #[serde(rename = "expectedBlocks")]
     pub expected_blocks: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct HashRateData {
     pub timestamp: i64,
     #[serde(rename = "avgHashrate")]
     pub avg_hashrate: f64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct DifficultyData {
     pub time: i64,
@@ -146,7 +132,6 @@ pub struct DifficultyData {
     pub difficulty: f64,
     pub adjustment: f64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Hashrate {
     pub hashrates: Vec<HashRateData>,
@@ -156,7 +141,6 @@ pub struct Hashrate {
     #[serde(rename = "currentDifficulty")]
     pub current_difficulty: f64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct FeesMempoolBlocks {
     #[serde(rename = "blockSize")]
@@ -172,7 +156,6 @@ pub struct FeesMempoolBlocks {
     #[serde(rename = "feeRange")]
     pub fee_range: Vec<f64>,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct FeesRecommended {
     #[serde(rename = "fastestFee")]
@@ -184,7 +167,6 @@ pub struct FeesRecommended {
     #[serde(rename = "minimumFee")]
     pub minimum_fee: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Mempool {
     pub count: i64,
@@ -192,7 +174,6 @@ pub struct Mempool {
     pub total_fee: i64,
     pub fee_histogram: Vec<f64>,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct MempoolRecent {
     pub txid: String,
@@ -200,8 +181,6 @@ pub struct MempoolRecent {
     pub vsize: i64,
     pub value: i64,
 }
-
-// Lightning
 #[derive(Debug, Clone, Deserialize)]
 pub struct NetworkStatsEntry {
     pub added: String,
@@ -220,13 +199,11 @@ pub struct NetworkStatsEntry {
     pub total_capacity: i64,
     pub unannounced_nodes: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct NetworkStats {
     pub latest: NetworkStatsEntry,
     pub previous: NetworkStatsEntry,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Node {
     pub alias: String,
@@ -258,14 +235,12 @@ pub struct Node {
     pub opened_channel_count: Option<i64>,
     pub closed_channel_count: Option<i64>,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct NodeStats {
     pub added: i64,
     pub capacity: i64,
     pub channels: i64,
 }
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Channel {
     pub id: i64,
@@ -286,15 +261,11 @@ pub struct Channel {
     pub node_left: Node,
     pub node_right: Node,
 }
-
 #[cfg(test)]
 mod tests {
     use super::Tx;
-
     #[test]
     fn deserialize_unconfirmed_coinbase_with_op_return_output() {
-        // Mempool omits confirmation metadata for pending transactions, uses a
-        // null prevout for coinbase inputs, and omits the address for OP_RETURN.
         let json = r#"{
             "txid": "abc",
             "version": 1,
@@ -319,9 +290,7 @@ mod tests {
             "fee": 0,
             "status": { "confirmed": false }
         }"#;
-
         let transaction: Tx = serde_json::from_str(json).expect("transaction should deserialize");
-
         assert!(!transaction.status.confirmed);
         assert_eq!(transaction.status.block_height, None);
         assert!(transaction.vin[0].prevout.is_none());

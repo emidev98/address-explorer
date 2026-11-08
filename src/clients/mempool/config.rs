@@ -1,6 +1,5 @@
 use reqwest::header::HeaderMap;
 use std::time::Duration;
-
 #[derive(Clone, Debug)]
 pub struct MempoolConfig {
     pub hostname: String,
@@ -9,7 +8,6 @@ pub struct MempoolConfig {
     pub headers: Option<HeaderMap>,
     pub timeout: Option<Duration>,
 }
-
 impl Default for MempoolConfig {
     fn default() -> Self {
         Self {
@@ -21,7 +19,6 @@ impl Default for MempoolConfig {
         }
     }
 }
-
 impl MempoolConfig {
     pub fn bitcoin_base_url(&self) -> String {
         let protocol = self.protocol.clone().unwrap_or_else(|| {
@@ -38,7 +35,6 @@ impl MempoolConfig {
         };
         format!("{}://{}{}/api/", protocol, self.hostname, network_path)
     }
-
     pub fn liquid_base_url(&self) -> String {
         let protocol = self.protocol.clone().unwrap_or_else(|| {
             if self.hostname.contains("localhost") {
@@ -54,7 +50,6 @@ impl MempoolConfig {
         };
         format!("{}://{}{}/api/", protocol, self.hostname, network_path)
     }
-
     pub fn bitcoin_ws_endpoint(&self) -> String {
         ws_endpoint(
             &self.hostname,
@@ -63,7 +58,6 @@ impl MempoolConfig {
             true,
         )
     }
-
     pub fn liquid_ws_endpoint(&self) -> String {
         ws_endpoint(
             &self.hostname,
@@ -73,7 +67,6 @@ impl MempoolConfig {
         )
     }
 }
-
 fn ws_endpoint(hostname: &str, network: &str, protocol: Option<&str>, bitcoin: bool) -> String {
     let protocol = match protocol {
         None => {
@@ -86,7 +79,6 @@ fn ws_endpoint(hostname: &str, network: &str, protocol: Option<&str>, bitcoin: b
         Some("http") | Some("ws") => "ws",
         _ => "wss",
     };
-
     let network_path = if bitcoin {
         match network {
             "testnet" | "testnet4" | "signet" => format!("/{}", network),
@@ -98,20 +90,16 @@ fn ws_endpoint(hostname: &str, network: &str, protocol: Option<&str>, bitcoin: b
             _ => "/liquid".to_string(),
         }
     };
-
     format!("{}://{}{}/api/v1/ws", protocol, hostname, network_path)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn bitcoin_default_url() {
         let cfg = MempoolConfig::default();
         assert_eq!(cfg.bitcoin_base_url(), "https://mempool.space/api/");
     }
-
     #[test]
     fn bitcoin_testnet_url() {
         let cfg = MempoolConfig {
@@ -120,7 +108,6 @@ mod tests {
         };
         assert_eq!(cfg.bitcoin_base_url(), "https://mempool.space/testnet/api/");
     }
-
     #[test]
     fn liquid_default_url() {
         let cfg = MempoolConfig::default();

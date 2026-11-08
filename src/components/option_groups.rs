@@ -1,7 +1,5 @@
 //! Shared grouped-option ordering for the filter and catalog pickers.
-
 use std::collections::BTreeMap;
-
 /// Group options by their display group, keeping the last-label group at the
 /// end and ordering the other groups alphabetically.
 pub fn group_options<T: Clone>(
@@ -23,11 +21,9 @@ pub fn group_options<T: Clone>(
     });
     groups
 }
-
 #[cfg(test)]
 mod tests {
     use super::group_options;
-
     #[test]
     fn groups_are_alphabetical_and_the_last_label_goes_last() {
         let items = [
@@ -42,7 +38,7 @@ mod tests {
                 .into_iter()
                 .map(|(group, _)| group)
                 .collect::<Vec<_>>(),
-            ["Alpha", "Beta", "Gamma", "Unclassified"]
+            ["Alpha", "Beta", "Gamma", "Unclassified"],
         );
     }
 }

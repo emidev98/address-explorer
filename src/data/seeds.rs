@@ -17,32 +17,24 @@
 //!
 //! Seed migrations run only for on-disk databases (`open_path`,
 //! `open_default`); see `run_migrations` in `migrations.rs`.
-
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-
-use rusqlite::{params, Connection};
-
 use super::pricing_format;
 use super::DatabaseError;
 use crate::data::repositories::exchanges as exchange_repository;
-
+use rusqlite::{params, Connection};
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 /// Quote symbol of the imported price history.
 pub const BTC_USD_SYMBOL: &str = "USD";
-
 const PACKED_RELATIVE_PATH: &str = "assets/pricing/btc_usd.bin";
 const PACKED_ENV_VAR: &str = "ADDRESS_EXPLORER_PRICING_FILE";
-
 /// Researched exchange-wallet catalog imported by the `0019_addresses_data`
 /// seed migration. Every row is tagged by exchange name and existing addresses
 /// keep their user-edited description and owner.
-const EXCHANGE_ADDRESS_CATALOG_SQL: &str = include_str!("migrations/0019_addresses_data.sql");
-
+const EXCHANGE_ADDRESS_CATALOG_SQL: &str = include_str!("migrations/0019_addresses_data.sql",);
 /// Number of exchange wallets the catalog is expected to cover. Keep in sync
 /// with the SQL file; the seed fails loudly when a catalog name is missing.
 const EXCHANGE_ADDRESS_CATALOG_SIZE: i64 = 296;
-
 /// Data migration `0015_historical_prices_data` entry point.
 ///
 /// Fails loudly when the packed pricing file cannot be located or yields no
@@ -54,12 +46,11 @@ pub fn historical_prices(connection: &Connection) -> Result<(), DatabaseError> {
     if imported == 0 {
         return Err(DatabaseError::new(format!(
             "historical price import produced no rows from {}",
-            path.display()
+            path.display(),
         )));
     }
     Ok(())
 }
-
 /// Resolve the packed pricing file location: the
 /// `ADDRESS_EXPLORER_PRICING_FILE` environment variable takes precedence,
 /// then the workspace checkout and the directory next to the executable (for
@@ -80,7 +71,6 @@ fn packed_pricing_path() -> Result<PathBuf, DatabaseError> {
             path.display()
         )));
     }
-
     let mut candidates = vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(PACKED_RELATIVE_PATH)];
     if let Ok(executable) = std::env::current_exe() {
         if let Some(directory) = executable.parent() {
@@ -98,11 +88,10 @@ fn packed_pricing_path() -> Result<PathBuf, DatabaseError> {
                 .collect();
             DatabaseError::new(format!(
                 "packed pricing file not found; searched: {}; set {PACKED_ENV_VAR}",
-                searched.join(", ")
+                searched.join(", "),
             ))
         })
 }
-
 /// Parse the packed pricing file at `path` and insert one row per decoded
 /// record into `historical_prices`. Returns the number of rows attempted
 /// (including rows rejected by the primary key, which keeps the first
@@ -114,7 +103,6 @@ pub fn import_packed_prices(connection: &Connection, path: &Path) -> Result<usiz
         "INSERT OR IGNORE INTO historical_prices (close_time, close, symbol)
          VALUES (?1, ?2, ?3)",
     )?;
-
     let mut imported = 0usize;
     for record in &records {
         statement.execute(params![
@@ -126,7 +114,6 @@ pub fn import_packed_prices(connection: &Connection, path: &Path) -> Result<usiz
     }
     Ok(imported)
 }
-
 /// Data migration `0019_addresses_data` entry point.
 ///
 /// Imports the researched catalog. The migration is idempotent and never
@@ -134,7 +121,6 @@ pub fn import_packed_prices(connection: &Connection, path: &Path) -> Result<usiz
 pub fn addresses(connection: &Connection) -> Result<(), DatabaseError> {
     exchange_address_catalog(connection)
 }
-
 /// Imports the researched exchange-wallet catalog from
 /// `migrations/0019_addresses_data.sql`.
 ///
@@ -149,22 +135,20 @@ pub fn exchange_address_catalog(connection: &Connection) -> Result<(), DatabaseE
         |row| row.get(0),
     )?;
     if stored < EXCHANGE_ADDRESS_CATALOG_SIZE {
-        return Err(DatabaseError::new(format!(
-            "exchange address catalog stored {stored} rows, expected at least {EXCHANGE_ADDRESS_CATALOG_SIZE}"
-        )));
+        return Err(
+            DatabaseError::new(
+                format!(
+                    "exchange address catalog stored {stored} rows, expected at least {EXCHANGE_ADDRESS_CATALOG_SIZE}",
+                ),
+            ),
+        );
     }
-
-    // Adding addresses can change the alphabetically first address that holds
-    // a provider's stored ledger balance. Refresh every provider's anchor
-    // inside the same migration transaction so the invariant from 0012 stays
-    // true for the whole catalog, not only the originally seeded providers.
     let exchange_ids = exchange_type_ids(connection)?;
     for id in exchange_ids.values() {
         exchange_repository::refresh_provider_balance(connection, *id)?;
     }
     Ok(())
 }
-
 /// Map of the exchange catalog names to their `exchanges_types` ids.
 fn exchange_type_ids(connection: &Connection) -> Result<BTreeMap<String, i64>, DatabaseError> {
     let mut statement = connection.prepare("SELECT id, name FROM exchanges_types")?;
@@ -176,7 +160,6 @@ fn exchange_type_ids(connection: &Connection) -> Result<BTreeMap<String, i64>, D
     }
     Ok(ids)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,9 +167,7 @@ mod tests {
     use crate::data::Database;
     use crate::domain::address::validate_bitcoin_address;
     use crate::domain::civil_time::epoch_seconds;
-
     struct TempPricingFile(PathBuf);
-
     impl TempPricingFile {
         fn write(contents: &str) -> Self {
             let path = std::env::temp_dir().join(format!(
@@ -195,19 +176,17 @@ mod tests {
                 unique = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|duration| duration.as_nanos())
-                    .unwrap_or(0)
+                    .unwrap_or(0),
             ));
             fs::write(&path, contents).unwrap();
             Self(path)
         }
     }
-
     impl Drop for TempPricingFile {
         fn drop(&mut self) {
             let _ = fs::remove_file(&self.0);
         }
     }
-
     fn fresh_connection() -> Connection {
         let connection = Connection::open_in_memory().unwrap();
         let schema = migrations::schema_sql("historical_prices")
@@ -215,15 +194,11 @@ mod tests {
         connection.execute_batch(schema).unwrap();
         connection
     }
-
     #[test]
     fn import_writes_close_time_close_and_usd_symbol() {
-        // 2018-01-01 00:14:59 UTC close of $13,556.15 in packed form.
         let packed = TempPricingFile::write("201801010014591355615,");
         let connection = fresh_connection();
-
         assert_eq!(import_packed_prices(&connection, &packed.0).unwrap(), 1);
-
         let (close_time, close, symbol): (i64, f64, String) = connection
             .query_row(
                 "SELECT close_time, close, symbol FROM historical_prices",
@@ -235,16 +210,11 @@ mod tests {
         assert_eq!(close, 13556.15);
         assert_eq!(symbol, BTC_USD_SYMBOL);
     }
-
     #[test]
     fn import_keeps_the_first_row_of_a_duplicate_close_time() {
-        // Mis-stamped duplicates in the source export appear *after* the
-        // genuine rows; the first occurrence must win.
         let packed = TempPricingFile::write("20180707061459659290,2018070706145910811555,");
         let connection = fresh_connection();
-
         assert_eq!(import_packed_prices(&connection, &packed.0).unwrap(), 2);
-
         let close: f64 = connection
             .query_row(
                 "SELECT close FROM historical_prices WHERE symbol = 'USD'",
@@ -254,16 +224,13 @@ mod tests {
             .unwrap();
         assert_eq!(close, 6592.9);
     }
-
     #[test]
     fn import_skips_malformed_records() {
         let packed = TempPricingFile::write(
             "201801010014591355615,not-a-record,201813010014591355615,20180101001459,",
         );
         let connection = fresh_connection();
-
         assert_eq!(import_packed_prices(&connection, &packed.0).unwrap(), 1);
-
         let count: i64 = connection
             .query_row("SELECT COUNT(*) FROM historical_prices", [], |row| {
                 row.get(0)
@@ -271,22 +238,19 @@ mod tests {
             .unwrap();
         assert_eq!(count, 1);
     }
-
     #[test]
     fn import_fails_for_a_missing_file() {
         let connection = fresh_connection();
         assert!(import_packed_prices(
             &connection,
-            Path::new("/nonexistent/definitely-missing.bin")
+            Path::new("/nonexistent/definitely-missing.bin"),
         )
-        .is_err());
+        .is_err(),);
     }
-
     #[test]
     fn full_migration_imports_the_workspace_pricing_file() {
         let connection = fresh_connection();
         historical_prices(&connection).unwrap();
-
         let count: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM historical_prices WHERE symbol = 'USD'",
@@ -295,18 +259,12 @@ mod tests {
             )
             .unwrap();
         assert!(count > 290_000, "unexpectedly few rows imported: {count}");
-
-        // The packed file starts with the SRK daily closes, so the earliest
-        // row predates the 15-minute export that used to be the source.
         let first: i64 = connection
             .query_row("SELECT MIN(close_time) FROM historical_prices", [], |row| {
                 row.get(0)
             })
             .unwrap();
         assert_eq!(first, epoch_seconds(2013, 4, 29, 23, 59, 59));
-
-        // The 15-minute export follows the daily closes; its first candle is
-        // still present with its original close.
         let close: f64 = connection
             .query_row(
                 "SELECT close FROM historical_prices WHERE close_time = ?1",
@@ -316,14 +274,11 @@ mod tests {
             .unwrap();
         assert_eq!(close, 13556.15);
     }
-
     #[test]
     fn exchange_address_catalog_imports_verified_wallets_idempotently() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
         exchange_address_catalog(&connection).unwrap();
-        // A user-edited description must survive a catalog re-run.
         connection
             .execute(
                 "UPDATE addresses SET description = 'Wallet 1'
@@ -331,10 +286,8 @@ mod tests {
                 [],
             )
             .unwrap();
-
         exchange_address_catalog(&connection).unwrap();
         exchange_address_catalog(&connection).unwrap();
-
         let counts = ["Binance", "Crypto.com", "Revolut"]
             .into_iter()
             .map(|name| {
@@ -350,7 +303,6 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(counts, [70, 7, 5]);
-
         let total: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
@@ -359,7 +311,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(total, 296);
-
         let description: String = connection
             .query_row(
                 "SELECT description FROM addresses
@@ -369,7 +320,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(description, "Wallet 1");
-
         let mut statement = connection
             .prepare(
                 "SELECT address, description FROM addresses
@@ -387,19 +337,15 @@ mod tests {
             assert_eq!(validate_bitcoin_address(&address).unwrap(), address);
             assert!(description
                 .as_deref()
-                .is_some_and(|value| !value.trim().is_empty()));
+                .is_some_and(|value| !value.trim().is_empty()),);
         }
     }
-
     #[test]
     fn addresses_seed_imports_the_catalog_idempotently() {
         let database = Database::open_in_memory().unwrap();
         let connection = database.connection().unwrap();
-
-        // Re-running the consolidated entry must not duplicate a row.
         addresses(&connection).unwrap();
         addresses(&connection).unwrap();
-
         let total: i64 = connection
             .query_row(
                 "SELECT COUNT(*) FROM addresses WHERE exchange_id IS NOT NULL",
@@ -408,8 +354,6 @@ mod tests {
             )
             .unwrap();
         assert_eq!(total, EXCHANGE_ADDRESS_CATALOG_SIZE);
-
-        // The catalog supplies the description for a fresh database.
         let description: String = connection
             .query_row(
                 "SELECT description FROM addresses
@@ -420,7 +364,6 @@ mod tests {
             .unwrap();
         assert_eq!(description, "Binance BTCB reserve");
     }
-
     #[test]
     fn exchange_address_catalog_moves_the_provider_balance_to_the_new_anchor() {
         let database = Database::open_in_memory().unwrap();
@@ -444,9 +387,7 @@ mod tests {
                 [account_id],
             )
             .unwrap();
-
         addresses(&connection).unwrap();
-
         let (address, balance): (String, i64) = connection
             .query_row(
                 "SELECT address, exchange_balance_sats FROM addresses

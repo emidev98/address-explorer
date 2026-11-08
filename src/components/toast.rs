@@ -5,14 +5,10 @@
 //! mounted once at the root, shows the current toast above everything else —
 //! including modal dialogs — and dismisses it automatically after a few
 //! seconds.
-
-use dioxus::prelude::*;
-
 use super::icon::{Icon, IconName};
-
+use dioxus::prelude::*;
 /// How long a toast stays visible before it is dismissed automatically.
 const TOAST_DURATION_MS: u32 = 4_000;
-
 /// Visual and semantic tone of a toast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToastKind {
@@ -23,7 +19,6 @@ pub enum ToastKind {
     /// Neutral information, e.g. an operation paused or found nothing.
     Info,
 }
-
 /// One toast currently on screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ToastMessage {
@@ -33,8 +28,7 @@ struct ToastMessage {
     kind: ToastKind,
     text: String,
 }
-
-/// App-wide toast channel, provided once in `App` via [`provide_toast`] and
+/// App-wide toast channel, provided once in `App` via [`use_toast_provider`] and
 /// consumed with [`use_toast`]. The copyable handle is cheap to capture in
 /// event handlers and spawned tasks; the signals inside stay shared.
 #[derive(Debug, Clone, Copy)]
@@ -42,7 +36,6 @@ pub struct Toast {
     current: Signal<Option<ToastMessage>>,
     next_id: Signal<u64>,
 }
-
 impl Toast {
     /// Show a toast, replacing any toast currently visible.
     pub fn show(&mut self, kind: ToastKind, text: impl Into<String>) {
@@ -54,43 +47,37 @@ impl Toast {
             text: text.into(),
         }));
     }
-
     /// Show a success toast.
     pub fn success(&mut self, text: impl Into<String>) {
         self.show(ToastKind::Success, text);
     }
-
     /// Show an error toast.
     pub fn error(&mut self, text: impl Into<String>) {
         self.show(ToastKind::Error, text);
     }
 }
-
 /// Create the app-wide toast channel and provide it to the component tree.
 /// Called once by the root component.
-pub fn provide_toast() {
+///
+/// Named as a hook (`use_*`) because it calls `use_signal` and
+/// `use_context_provider`: the name is what tells `dx check` that a hook may
+/// be called here, and it must only ever be invoked from a component body.
+pub fn use_toast_provider() {
     let toast = Toast {
         current: use_signal(|| None),
         next_id: use_signal(|| 0),
     };
     use_context_provider(|| toast);
 }
-
 /// Access the app-wide toast channel.
 pub fn use_toast() -> Toast {
     use_context::<Toast>()
 }
-
 /// Renders the current toast, if any. Mounted once by the root component,
 /// after the router so it layers above page content and modal dialogs.
 #[component]
 pub fn ToastHost() -> Element {
     let mut toast = use_toast();
-
-    // Auto-dismiss the current toast after a few seconds. The timer runs in
-    // the webview because tokio timers do not run on wasm (the same pattern
-    // as the clipboard helpers); the id check keeps the timer of an old
-    // toast from clearing the toast that replaced it.
     use_effect(move || {
         let Some(message) = toast.current.read().clone() else {
             return;
@@ -114,11 +101,9 @@ pub fn ToastHost() -> Element {
             }
         });
     });
-
     let Some(message) = toast.current.read().clone() else {
         return rsx! {};
     };
-
     let (tone_class, role, live, icon) = match message.kind {
         ToastKind::Success => (
             "md3-toast-success",
@@ -134,7 +119,6 @@ pub fn ToastHost() -> Element {
         ),
         ToastKind::Info => ("md3-toast-info", "status", "polite", IconName::InfoCircle),
     };
-
     rsx! {
         div { class: "md3-toast-host",
             div { class: "md3-toast {tone_class}", role, aria_live: live,

@@ -1,7 +1,3 @@
-use std::collections::BTreeMap;
-
-use dioxus::prelude::*;
-
 use crate::api::prices::{
     delete_prices_api, ensure_currency_history_api, list_prices_api, price_conversions_api,
     price_series_api,
@@ -20,7 +16,8 @@ use crate::domain::price::{
     USD_SYMBOL,
 };
 use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
-
+use dioxus::prelude::*;
+use std::collections::BTreeMap;
 /// Reactive state of the bidirectional binding between the date-range
 /// calendar and the trend chart: the raw input texts, the applied bounds
 /// (a bound of `0` leaves that side open), the requested chart window
@@ -43,7 +40,6 @@ struct DateRangeState {
     /// visible window even when the requested window does not change.
     zoom_reset: Signal<u64>,
 }
-
 /// Fetch state of the other-symbol conversions of one close time, loaded the
 /// first time a row's info button is hovered or focused.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,7 +48,6 @@ enum ConversionState {
     Loaded(Vec<Price>),
     Failed(String),
 }
-
 /// Historical Prices screen: the zoomable trend chart of the stored history
 /// at the top, and below it the paginated content of the `historical_prices`
 /// table for the default fiat currency configured in Settings (USD until
@@ -73,10 +68,6 @@ enum ConversionState {
 pub fn HistoricalPrices() -> Element {
     let mut toast = use_toast();
     let fiat = use_fiat_currency();
-
-    // The table and chart only ever show stored rows. Before querying them,
-    // make sure the selected currency has been prepared from the stored USD
-    // history; the server call is a cheap no-op once that has happened.
     let mut prepared = use_resource(move || {
         let symbol = fiat.code();
         async move {
@@ -94,7 +85,6 @@ pub fn HistoricalPrices() -> Element {
                 .map_err(|error| error.to_string())
         }
     });
-
     let mut table = use_table_state(SortDirection::Desc);
     let date_selection = use_signal(DateSelection::default);
     let from_time = use_signal(|| 0_i64);
@@ -107,20 +97,11 @@ pub fn HistoricalPrices() -> Element {
     let mut delete_target = use_signal(|| Option::<Vec<i64>>::None);
     let deleting = use_signal(|| false);
     let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
-
-    // (0, 0) requests the full stored span. `chart_window` is the requested
-    // window driving both the series fetch and — through the mirror effect
-    // below — the calendar and the table filter. `applied_window` is the
-    // window of the series currently on screen, so the chart never mixes
-    // the axis of a new window with the points of the previous one.
-    // `full_span` is the stored history's own span, learned from the first
-    // series response.
     let chart_window = use_signal(|| (0_i64, 0_i64));
     let mut applied_window = use_signal(|| (0_i64, 0_i64));
     let mut zoom_in_flight = use_signal(|| false);
     let mut full_span = use_signal(|| (0_i64, 0_i64));
     let zoom_reset = use_signal(|| 0_u64);
-
     let date_filter = DateRangeState {
         selection: date_selection,
         from_time,
@@ -132,9 +113,7 @@ pub fn HistoricalPrices() -> Element {
         table_selection: selection,
         zoom_reset,
     };
-
     let mut prices = use_resource(move || {
-        // Read the reactive inputs synchronously so the resource tracks them.
         let ready = prepared().is_some();
         let symbol = fiat.code();
         let from = from_time();
@@ -155,7 +134,6 @@ pub fn HistoricalPrices() -> Element {
                 .map_err(|error| error.to_string())
         }
     });
-
     let mut series = use_resource(move || {
         let ready = prepared().is_some();
         let symbol = fiat.code();
@@ -170,11 +148,8 @@ pub fn HistoricalPrices() -> Element {
                 .map_err(|error| error.to_string());
             if let Ok(Some(series)) = &result {
                 applied_window.set(window);
-                // `first_close_time`/`last_close_time` describe the full
-                // stored span regardless of the requested window.
                 full_span.set((series.first_close_time, series.last_close_time));
             } else if matches!(&result, Ok(None)) {
-                // Deleting every stored row leaves no span to filter against.
                 applied_window.set((0, 0));
                 full_span.set((0, 0));
             }
@@ -182,17 +157,10 @@ pub fn HistoricalPrices() -> Element {
             result
         }
     });
-
-    // Checked rows belong to the currency that was on display when they were
-    // selected; switching currencies replaces every row, so drop the stale
-    // selection instead of letting it target rows that are no longer shown.
     let selection_symbol = fiat.code();
     use_effect(use_reactive((&selection_symbol,), move |(_symbol,)| {
         selection.clear();
     }));
-
-    // A deletion can empty the current page while earlier pages still have
-    // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(Some(data))) = prices() {
             if data.items.is_empty() && table.page() > 0 {
@@ -201,13 +169,6 @@ pub fn HistoricalPrices() -> Element {
             }
         }
     });
-
-    // The bidirectional binding: the calendar mirrors the chart window, and
-    // the table filter follows the same day-aligned boundaries. The effect
-    // never reads what it writes, so editing the calendar never re-triggers
-    // it; calendar edits flow back in through `apply_date_filter`, which
-    // sets the chart window. A (0, 0) window prefills the calendar with the
-    // full range — but never over a filter the user already applied.
     use_effect(move || {
         let DateRangeState {
             mut selection,
@@ -239,15 +200,18 @@ pub fn HistoricalPrices() -> Element {
         to_time.set(end_of_day(to));
         table.reset_page();
     });
-
     let symbol = fiat.code();
     let preparation = prepared();
     let preparing = preparation.is_none();
     let preparation_warning = match &preparation {
         Some(Ok(summary)) => summary.warning.clone(),
-        Some(Err(error)) => Some(format!(
-            "Could not prepare {symbol} price history: {error}. Stored prices are shown; use Sync Prices to retry."
-        )),
+        Some(Err(error)) => {
+            Some(
+                format!(
+                    "Could not prepare {symbol} price history: {error}. Stored prices are shown; use Sync Prices to retry.",
+                ),
+            )
+        }
         None => None,
     };
     let stored_span = full_span();
@@ -257,17 +221,17 @@ pub fn HistoricalPrices() -> Element {
             IsoDate::from_epoch(stored_span.1),
         )
     });
-
     rsx! {
         section { id: "prices", class: "md3-screen",
-            PageHeader {
-                title: "Historical Prices".to_string(),
+            PageHeader { title: "Historical Prices".to_string(),
                 section { class: "md3-date-filter-bar",
                     DatePicker {
                         id: "prices-date-range".to_string(),
-                        label: "Date range".to_string(),
+                        label: "Date range"
+                                                                                                        .to_string(),
                         value: date_selection(),
-                        min_date: date_bounds.as_ref().map(|(min, _)| *min),
+                        min_date: date_bounds.as_ref().map(|
+                                                                                                        (min, _) | * min),
                         max_date: date_bounds.as_ref().map(|(_, max)| *max),
                         popup_align_end: true,
                         on_change: move |value: DateSelection| {
@@ -286,12 +250,12 @@ pub fn HistoricalPrices() -> Element {
                     button {
                         r#type: "button",
                         class: "md3-button-tonal",
-                        onclick: move |_| sync_open.set(true),
+                        onclick: move | _ |
+                                                                                                        sync_open.set(true),
                         "Sync Prices"
                     }
                 }
             }
-
             if preparing {
                 p {
                     class: "text-body-small text-on-surface-variant",
@@ -303,7 +267,6 @@ pub fn HistoricalPrices() -> Element {
             if let Some(warning) = preparation_warning {
                 p { class: "text-body-small md3-exchange-warning", "{warning}" }
             }
-
             section { class: "md3-chart-card",
                 div { class: "md3-chart-header",
                     h3 { class: "text-title-medium leading-title-medium text-on-surface",
@@ -324,7 +287,6 @@ pub fn HistoricalPrices() -> Element {
                     }
                 }
             }
-
             match prices() {
                 None => rsx! {
                     p { class: "text-body-medium text-on-surface-variant", "Loading prices..." }
@@ -369,8 +331,10 @@ pub fn HistoricalPrices() -> Element {
                                     tr {
                                         TableSelectionHeader {
                                             all_selected,
-                                            indeterminate: selection.some_selected(&page_ids) && !all_selected,
-                                            select_all_label: "Select all prices on this page".to_string(),
+                                            indeterminate: selection.some_selected(&
+                                                                                                                                                                                        page_ids) && ! all_selected,
+                                            select_all_label: "Select all prices on this page"
+                                                                                                                                                                                        .to_string(),
                                             disabled: page_ids.is_empty() || deleting(),
                                             on_toggle_all: move |checked| {
                                                 selection.set_many(&selectable_ids, checked);
@@ -378,7 +342,8 @@ pub fn HistoricalPrices() -> Element {
                                             button {
                                                 r#type: "button",
                                                 class: "md3-icon-button md3-icon-button-danger",
-                                                disabled: selection.is_empty() || deleting(),
+                                                disabled: selection
+                                                                                                                                                                                                        .is_empty() || deleting(),
                                                 title: "{delete_action_label}",
                                                 aria_label: "{delete_action_label}",
                                                 onclick: move |_| {
@@ -413,7 +378,8 @@ pub fn HistoricalPrices() -> Element {
                                         }
                                         SortableHeader {
                                             label: format!("Price ({symbol})"),
-                                            active_direction: table.direction_for("price"),
+                                            active_direction: table
+                                                                                                                                                                                        .direction_for("price"),
                                             on_sort: move |_| {
                                                 table.sort("price", SortDirection::Desc);
                                                 selection.clear();
@@ -473,7 +439,8 @@ pub fn HistoricalPrices() -> Element {
                                                                 class: "md3-icon-button",
                                                                 title: "Modify price",
                                                                 aria_label: "Modify the price at {format_datetime(close_time)}",
-                                                                onclick: move |_| edit_target.set(Some(edit_row.clone())),
+                                                                onclick: move | _ |
+                                                                                                                                                                                                                                                                        edit_target.set(Some(edit_row.clone())),
                                                                 Icon { name: IconName::Edit, size: 20 }
                                                             }
                                                         }
@@ -509,7 +476,8 @@ pub fn HistoricalPrices() -> Element {
                             }
                         }
                         TablePagination {
-                            page: table.page(),
+                            page: table
+                                                                                                                        .page(),
                             page_size: DEFAULT_PAGE_SIZE,
                             total: page_data.total,
                             on_page: move |next_page| {
@@ -520,11 +488,11 @@ pub fn HistoricalPrices() -> Element {
                     }
                 }
             }
-
             if let Some(target) = edit_target() {
                 EditPriceDialog {
                     price: target,
-                    on_close: move |_| edit_target.set(None),
+                    on_close: move
+                                                                                        | _ | edit_target.set(None),
                     on_saved: move |updated: Price| {
                         edit_target.set(None);
                         toast
@@ -539,7 +507,6 @@ pub fn HistoricalPrices() -> Element {
                     },
                 }
             }
-
             if let Some(close_times) = delete_target() {
                 {
                     let count = close_times.len();
@@ -565,7 +532,8 @@ pub fn HistoricalPrices() -> Element {
                             message,
                             confirm_text: "Delete".to_string(),
                             cancel_text: "Cancel".to_string(),
-                            on_cancel: move |_| delete_target.set(None),
+                            on_cancel: move | _ | delete_target
+                                                                                                                        .set(None),
                             on_confirm: move |_| {
                                 let close_times = close_times.clone();
                                 delete_target.set(None);
@@ -583,13 +551,10 @@ pub fn HistoricalPrices() -> Element {
                     }
                 }
             }
-
             if sync_open() {
                 SyncPricesDialog {
                     on_close: move |_| sync_open.set(false),
                     on_synced: move |summary: PriceSyncSummary| {
-                        // The tooltip cache can hold stale conversions for
-                        // the synced close times; drop it so hovers refetch.
                         conversions.write().clear();
                         selection.clear();
                         let mut rows = summary.daily_stored + summary.granular_stored;
@@ -606,7 +571,6 @@ pub fn HistoricalPrices() -> Element {
         }
     }
 }
-
 /// Delete the selected price snapshots, refresh the table and chart, and
 /// report the outcome in a toast.
 ///
@@ -658,7 +622,6 @@ fn remove_prices(
         deleting.set(false);
     });
 }
-
 /// Chart card body: the trend chart itself plus its loading, error, and
 /// empty states (the chart component only renders data).
 fn chart_content(
@@ -671,25 +634,37 @@ fn chart_content(
     preparing: bool,
 ) -> Element {
     match series() {
-        None => rsx! {
-            p { class: "text-body-medium text-on-surface-variant", "Loading chart..." }
-        },
-        Some(Err(error)) => rsx! {
-            p { class: "text-body-medium text-on-surface-variant", "Error loading the chart: {error}" }
-        },
-        Some(Ok(None)) if preparing => rsx! {
-            p { class: "text-body-medium text-on-surface-variant", "Loading chart..." }
-        },
-        Some(Ok(None)) => rsx! {
-            p { class: "text-body-medium text-on-surface-variant",
-                "No prices stored for {symbol} yet."
+        None => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant", "Loading chart..." }
             }
-        },
-        Some(Ok(Some(series))) if series.points.is_empty() => rsx! {
-            p { class: "text-body-medium text-on-surface-variant",
-                "No prices stored for {symbol} yet."
+        }
+        Some(Err(error)) => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "Error loading the chart: {error}"
+                }
             }
-        },
+        }
+        Some(Ok(None)) if preparing => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant", "Loading chart..." }
+            }
+        }
+        Some(Ok(None)) => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "No prices stored for {symbol} yet."
+                }
+            }
+        }
+        Some(Ok(Some(series))) if series.points.is_empty() => {
+            rsx! {
+                p { class: "text-body-medium text-on-surface-variant",
+                    "No prices stored for {symbol} yet."
+                }
+            }
+        }
         Some(Ok(Some(series))) => {
             let (window_start, window_end) = if applied_window() == (0, 0) {
                 (series.first_close_time, series.last_close_time)
@@ -719,7 +694,6 @@ fn chart_content(
         }
     }
 }
-
 /// Map a zoom gesture (axis percentages) onto the window the chart currently
 /// displays and request the finer series for it. Events describing the full
 /// span are ignored: they fire programmatically after every option replace,
@@ -736,7 +710,6 @@ fn handle_chart_zoom(
     if (start_pct <= 0.0 && end_pct >= 100.0) || end_pct <= start_pct || *zoom_in_flight.read() {
         return;
     }
-
     let current = if applied_window() == (0, 0) {
         (series.first_close_time, series.last_close_time)
     } else {
@@ -746,17 +719,14 @@ fn handle_chart_zoom(
     if span <= 0.0 {
         return;
     }
-
     let from = current.0 + (span * start_pct / 100.0) as i64;
     let to = current.0 + (span * end_pct / 100.0) as i64;
     if to <= from || (from == current.0 && to == current.1) {
         return;
     }
-
     zoom_in_flight.set(true);
     chart_window.set((from, to));
 }
-
 /// Validate and apply a calendar edit: an empty side leaves the range open on
 /// that end, and the table restarts from the first page. The chart follows the
 /// same boundaries (the bidirectional binding): the window is resolved against
@@ -774,22 +744,14 @@ fn apply_date_filter(filter: DateRangeState) {
         mut table_selection,
         zoom_reset: _,
     } = filter;
-    // The user touched the calendar: the full-range prefill must not
-    // override their choice.
     touched.set(true);
     let (from, to) = selection().epoch_bounds();
-    // The table query uses 0 for an open side.
     let from = from.unwrap_or(0);
     let to = to.unwrap_or(0);
-
     from_time.set(from);
     to_time.set(to);
     table.reset_page();
     table_selection.clear();
-
-    // Move the chart to the same boundaries. An open side resolves against
-    // the stored span; until the span is known the chart keeps its current
-    // window (it shows the loading or empty state anyway).
     let (span_first, span_last) = full_span();
     if span_first > 0 {
         let window_from = if from > 0 {
@@ -805,7 +767,6 @@ fn apply_date_filter(filter: DateRangeState) {
         }
     }
 }
-
 /// Restore the full range: the calendar shows the first and last stored
 /// prices again, the table restarts from the first page, and the chart
 /// reopens to the full span. A no-op until the span is known. The
@@ -839,33 +800,39 @@ fn reset_date_filter(filter: DateRangeState) {
     chart_window.set((0, 0));
     zoom_reset.set(zoom_reset() + 1);
 }
-
 /// Tooltip body for the current fetch state of one close time's conversions.
 fn conversion_tooltip(state: Option<ConversionState>) -> Element {
     match state {
-        Some(ConversionState::Loaded(list)) if !list.is_empty() => rsx! {
-            for conversion in &list {
-                span { class: "md3-price-tooltip-row text-body-small",
-                    "{format_fiat(conversion.close, &conversion.symbol)}"
+        Some(ConversionState::Loaded(list)) if !list.is_empty() => {
+            rsx! {
+                for conversion in &list {
+                    span { class: "md3-price-tooltip-row text-body-small",
+                        "{format_fiat(conversion.close, &conversion.symbol)}"
+                    }
                 }
             }
-        },
-        Some(ConversionState::Loaded(_)) => rsx! {
-            span { class: "text-body-small text-on-surface-variant",
-                "No other conversions stored for this close time."
+        }
+        Some(ConversionState::Loaded(_)) => {
+            rsx! {
+                span { class: "text-body-small text-on-surface-variant",
+                    "No other conversions stored for this close time."
+                }
             }
-        },
-        Some(ConversionState::Failed(error)) => rsx! {
-            span { class: "text-body-small text-on-surface-variant",
-                "Could not load conversions: {error}"
+        }
+        Some(ConversionState::Failed(error)) => {
+            rsx! {
+                span { class: "text-body-small text-on-surface-variant",
+                    "Could not load conversions: {error}"
+                }
             }
-        },
-        _ => rsx! {
-            span { class: "text-body-small text-on-surface-variant", "Loading conversions..." }
-        },
+        }
+        _ => {
+            rsx! {
+                span { class: "text-body-small text-on-surface-variant", "Loading conversions..." }
+            }
+        }
     }
 }
-
 /// Fetch the conversions of one close time the first time they are requested;
 /// the result is cached for the lifetime of the screen.
 fn ensure_conversions(
@@ -879,7 +846,6 @@ fn ensure_conversions(
     conversions
         .write()
         .insert(close_time, ConversionState::Loading);
-
     spawn(async move {
         let state = match price_conversions_api(symbol, close_time).await {
             Ok(list) => ConversionState::Loaded(list),
@@ -888,5 +854,3 @@ fn ensure_conversions(
         conversions.write().insert(close_time, state);
     });
 }
-
-// Material icon paths (24px viewBox): edit and delete.

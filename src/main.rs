@@ -1,6 +1,5 @@
 //! Application entry point and composition root: module wiring, one-time
 //! database initialization, and the Dioxus launch.
-
 mod api;
 mod app;
 #[cfg(feature = "server")]
@@ -12,7 +11,6 @@ mod data;
 mod domain;
 mod navigation;
 mod screens;
-
 fn main() {
     #[cfg(feature = "server")]
     {
@@ -20,6 +18,5 @@ fn main() {
             eprintln!("database initialization failed: {error}");
         }
     }
-
     dioxus::launch(app::App);
 }

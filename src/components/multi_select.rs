@@ -3,9 +3,7 @@
 //! The control is presentational: it receives already-resolved options and
 //! reports the new selection through `on_change`. The screen owns the query
 //! state and the backend decides how the selection is applied.
-
 use dioxus::prelude::*;
-
 /// One option of a [`MultiSelect`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiSelectOption {
@@ -21,7 +19,6 @@ pub struct MultiSelectOption {
     /// Additional text matched by the search box (address, owner, slug…).
     pub search_text: String,
 }
-
 impl MultiSelectOption {
     pub fn matches(&self, needle: &str) -> bool {
         let needle = needle.trim().to_ascii_lowercase();
@@ -38,7 +35,6 @@ impl MultiSelectOption {
             || self.search_text.to_ascii_lowercase().contains(&needle)
     }
 }
-
 /// Searchable multi-select with grouped options, removable chips and keyboard
 /// dismissal.
 #[component]
@@ -74,7 +70,6 @@ pub fn MultiSelect(
         .iter()
         .filter(|id| options.iter().any(|option| &option.id == *id))
         .count();
-
     rsx! {
         div { class: "md3-filter-field",
             label {
@@ -116,12 +111,12 @@ pub fn MultiSelect(
                     }
                     span { class: "md3-multiselect-chevron", aria_hidden: "true", "⌄" }
                 }
-
                 if open() {
                     div {
                         class: "md3-multiselect-scrim",
                         role: "presentation",
-                        onclick: move |_| open.set(false),
+                        onclick: move | _ | open
+                                                                                                        .set(false),
                     }
                     div {
                         class: "md3-multiselect-popover",
@@ -149,7 +144,12 @@ pub fn MultiSelect(
                                     "No matching options."
                                 }
                             } else {
-                                for (group, entries) in super::option_groups::group_options(&filtered, |option| option.group.clone(), "Unclassified") {
+                                for (group, entries) in super::option_groups::group_options(
+                                    &filtered,
+                                    |option| option.group.clone(),
+                                    "Unclassified",
+                                )
+                                {
                                     div {
                                         class: "md3-multiselect-group",
                                         role: "group",
@@ -167,7 +167,8 @@ pub fn MultiSelect(
                                                         r#type: "button",
                                                         class: if is_selected { "md3-multiselect-option md3-multiselect-option-selected" } else { "md3-multiselect-option" },
                                                         role: "option",
-                                                        aria_selected: is_selected.to_string(),
+                                                        aria_selected: is_selected
+                                                                                                                                                                                                                                        .to_string(),
                                                         onclick: move |_| {
                                                             if is_selected {
                                                                 next.retain(|value| value != &option_id);
@@ -227,11 +228,9 @@ pub fn MultiSelect(
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn option(id: &str, label: &str, group: &str, text: &str) -> MultiSelectOption {
         MultiSelectOption {
             id: id.to_string(),
@@ -243,7 +242,6 @@ mod tests {
             search_text: text.to_string(),
         }
     }
-
     #[test]
     fn search_matches_label_description_and_search_text_case_insensitively() {
         let mut option = option("1", "Binance", "Exchange · Binance", "binance hot wallet");
@@ -253,7 +251,6 @@ mod tests {
         assert!(option.matches("centralized"));
         assert!(!option.matches("kraken"));
     }
-
     #[test]
     fn groups_are_sorted_and_unclassified_is_last() {
         let groups = super::super::option_groups::group_options(

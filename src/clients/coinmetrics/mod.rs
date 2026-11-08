@@ -53,13 +53,13 @@ pub mod streams;
 pub mod taxonomy;
 pub mod timeseries;
 pub mod types;
-
 pub use blockchain::Blockchain;
 pub use blockchain_metadata::BlockchainMetadata;
 pub use catalog::{Catalog, CatalogScope};
 pub use config::CoinMetricsConfig;
 pub use constituents::Constituents;
 pub use error::CoinMetricsError;
+use http::HttpClient;
 pub use jobs::Jobs;
 pub use profiles::Profiles;
 pub use reference_data::ReferenceData;
@@ -67,9 +67,6 @@ pub use security_master::SecurityMaster;
 pub use streams::Streams;
 pub use taxonomy::Taxonomy;
 pub use timeseries::Timeseries;
-
-use http::HttpClient;
-
 /// Client for the Coin Metrics API v4, grouped like the API's documentation:
 /// reference data, catalogs, time series, profiles, taxonomy, blockchain
 /// entities, jobs and WebSocket stream URL builders.
@@ -87,7 +84,6 @@ pub struct CoinMetrics {
     pub taxonomy: Taxonomy,
     pub timeseries: Timeseries,
 }
-
 impl CoinMetrics {
     /// Creates a client for the API described by `config`; the default targets
     /// the free Community API and needs no API key.

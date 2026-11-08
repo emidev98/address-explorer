@@ -1,10 +1,8 @@
 //! UTC civil-date conversions shared by the application. Pure integer
 //! algorithms (Howard Hinnant's days-from-civil) keep them dependency-free.
 #![allow(dead_code)]
-
 /// Seconds in one UTC day.
 pub const SECONDS_PER_DAY: i64 = 86_400;
-
 /// Days since 1970-01-01 for a proleptic Gregorian date.
 pub const fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = if month <= 2 { year - 1 } else { year };
@@ -15,7 +13,6 @@ pub const fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146097 + day_of_era - 719468
 }
-
 /// UTC epoch seconds for a civil date-time.
 pub const fn epoch_seconds(
     year: i64,
@@ -27,7 +24,6 @@ pub const fn epoch_seconds(
 ) -> i64 {
     days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second
 }
-
 /// Inverse of [`days_from_civil`].
 pub const fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
@@ -46,13 +42,11 @@ pub const fn civil_from_days(days: i64) -> (i64, i64, i64) {
     };
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
-
 /// Format the UTC calendar date of an epoch timestamp as `YYYY-MM-DD`.
 pub fn format_date(epoch_second: i64) -> String {
     let (year, month, day) = civil_from_days(epoch_second.div_euclid(86_400));
     format!("{year:04}-{month:02}-{day:02}")
 }
-
 /// Format an epoch timestamp as `YYYY-MM-DD HH:mm:ss` in UTC.
 ///
 /// This is the cell format of the "First tx received" and "Last tx sent"
@@ -67,17 +61,14 @@ pub fn format_datetime(epoch_second: i64) -> String {
         seconds_of_day % 60,
     )
 }
-
 /// Start of the UTC day containing `epoch_second`.
 pub fn start_of_day(epoch_second: i64) -> i64 {
     epoch_second.div_euclid(SECONDS_PER_DAY) * SECONDS_PER_DAY
 }
-
 /// End of the UTC day containing `epoch_second`, inclusive.
 pub fn end_of_day(epoch_second: i64) -> i64 {
     start_of_day(epoch_second) + SECONDS_PER_DAY - 1
 }
-
 /// Format an epoch timestamp as `YYYY-MM-DD HH:mm` in UTC.
 pub fn format_short_datetime(epoch_second: i64) -> String {
     format_datetime(epoch_second)
@@ -85,7 +76,6 @@ pub fn format_short_datetime(epoch_second: i64) -> String {
         .unwrap_or_default()
         .to_string()
 }
-
 /// Current UTC epoch seconds.
 pub fn now_epoch_seconds() -> i64 {
     #[cfg(target_arch = "wasm32")]
@@ -100,7 +90,6 @@ pub fn now_epoch_seconds() -> i64 {
             .unwrap_or(0)
     }
 }
-
 /// Format an epoch timestamp as an ISO 8601 UTC instant accepted by the
 /// Coin Metrics `start_time`/`end_time` parameters, e.g.
 /// `2026-10-30T18:05:00Z`.
@@ -114,7 +103,6 @@ pub fn format_iso_timestamp(epoch_second: i64) -> String {
         seconds_of_day % 60,
     )
 }
-
 /// Parse a UTC ISO 8601 date-time such as `2026-10-27T13:00:00.000000000Z`
 /// into epoch seconds, truncating sub-second precision.
 ///
@@ -134,7 +122,6 @@ pub fn parse_iso_timestamp(raw: &str) -> Option<i64> {
     if suffix.starts_with('.') && !suffix.ends_with('Z') {
         return None;
     }
-
     let day_start = parse_date(date)?;
     if time.get(2..3) != Some(":") || time.get(5..6) != Some(":") {
         return None;
@@ -145,10 +132,8 @@ pub fn parse_iso_timestamp(raw: &str) -> Option<i64> {
     if hour > 23 || minute > 59 || second > 60 {
         return None;
     }
-
     Some(day_start + hour * 3_600 + minute * 60 + second)
 }
-
 /// Parse a `YYYY-MM-DD` UTC calendar date into epoch seconds at the start of
 /// that day. Impossible dates such as `2026-02-30` are rejected.
 pub fn parse_date(raw: &str) -> Option<i64> {
@@ -159,20 +144,15 @@ pub fn parse_date(raw: &str) -> Option<i64> {
     let year: i64 = raw.get(0..4)?.parse().ok()?;
     let month: i64 = raw.get(5..7)?.parse().ok()?;
     let day: i64 = raw.get(8..10)?.parse().ok()?;
-
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
-
     let epoch = epoch_seconds(year, month, day, 0, 0, 0);
-    // Reject dates that normalize into another month, such as 2026-02-30.
     if civil_from_days(epoch.div_euclid(86_400)) != (year, month, day) {
         return None;
     }
-
     Some(epoch)
 }
-
 /// Parse the `Close time` cell of a Binance-style kline CSV row.
 ///
 /// Accepts `YYYY-MM-DD HH:MM:SS` with an optional sub-second fraction and an
@@ -186,21 +166,18 @@ pub fn parse_candle_timestamp(raw: &str) -> Option<i64> {
     let date = raw.get(..10)?;
     let rest = raw.get(10..)?.strip_prefix(' ')?;
     let time = rest.get(..8)?;
-
     if date.get(4..5) != Some("-") || date.get(7..8) != Some("-") {
         return None;
     }
     let year: i64 = date.get(0..4)?.parse().ok()?;
     let month: i64 = date.get(5..7)?.parse().ok()?;
     let day: i64 = date.get(8..10)?.parse().ok()?;
-
     if time.get(2..3) != Some(":") || time.get(5..6) != Some(":") {
         return None;
     }
     let hour: i64 = time.get(0..2)?.parse().ok()?;
     let minute: i64 = time.get(3..5)?.parse().ok()?;
     let second: i64 = time.get(6..8)?.parse().ok()?;
-
     if !(1..=12).contains(&month)
         || !(1..=31).contains(&day)
         || hour > 23
@@ -209,38 +186,31 @@ pub fn parse_candle_timestamp(raw: &str) -> Option<i64> {
     {
         return None;
     }
-
     Some(epoch_seconds(year, month, day, hour, minute, second))
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn epoch_zero_is_unix_epoch() {
         assert_eq!(epoch_seconds(1970, 1, 1, 0, 0, 0), 0);
         assert_eq!(days_from_civil(1970, 1, 1), 0);
     }
-
     #[test]
     fn epoch_format_date_round_trip() {
         let ts = epoch_seconds(2026, 6, 15, 23, 29, 59);
         assert_eq!(format_date(ts), "2026-06-15");
         assert_eq!(format_date(0), "1970-01-01");
     }
-
     #[test]
     fn format_datetime_renders_utc_civil_time() {
         assert_eq!(format_datetime(0), "1970-01-01 00:00:00");
         assert_eq!(
             format_datetime(epoch_seconds(2026, 6, 15, 23, 29, 59)),
-            "2026-06-15 23:29:59"
+            "2026-06-15 23:29:59",
         );
-        // Negative timestamps stay on the proleptic calendar.
         assert_eq!(format_datetime(-1), "1969-12-31 23:59:59");
     }
-
     #[test]
     fn day_bounds_and_short_datetime_use_utc_days() {
         let instant = epoch_seconds(2026, 6, 15, 23, 29, 59);
@@ -249,7 +219,6 @@ mod tests {
         assert_eq!(format_short_datetime(instant), "2026-06-15 23:29");
         assert_eq!(start_of_day(-1), epoch_seconds(1969, 12, 31, 0, 0, 0));
     }
-
     #[test]
     fn format_iso_timestamp_round_trips_through_the_parser() {
         let instant = epoch_seconds(2026, 10, 30, 18, 5, 42);
@@ -260,36 +229,32 @@ mod tests {
         );
         assert_eq!(format_iso_timestamp(0), "1970-01-01T00:00:00Z");
     }
-
     #[test]
     fn leap_year_rules_match_gregorian_calendar() {
-        // 2000 is a leap year, 1900 is not.
         assert_eq!(
             format_date(epoch_seconds(2000, 2, 29, 0, 0, 0) + 86_400),
-            "2000-03-01"
+            "2000-03-01",
         );
         assert_eq!(
             format_date(epoch_seconds(1900, 3, 1, 0, 0, 0) - 86_400),
-            "1900-02-28"
+            "1900-02-28",
         );
     }
-
     #[test]
     fn parses_csv_close_time_cells() {
         assert_eq!(
             parse_candle_timestamp("2018-01-01 00:14:59.999000 "),
-            Some(epoch_seconds(2018, 1, 1, 0, 14, 59))
+            Some(epoch_seconds(2018, 1, 1, 0, 14, 59)),
         );
         assert_eq!(
             parse_candle_timestamp("2026-06-16 23:59:59.999000 UTC"),
-            Some(epoch_seconds(2026, 6, 16, 23, 59, 59))
+            Some(epoch_seconds(2026, 6, 16, 23, 59, 59)),
         );
         assert_eq!(
             parse_candle_timestamp("2024-02-29 12:00:00"),
-            Some(epoch_seconds(2024, 2, 29, 12, 0, 0))
+            Some(epoch_seconds(2024, 2, 29, 12, 0, 0)),
         );
     }
-
     #[test]
     fn parses_iso_utc_timestamps() {
         let epoch = epoch_seconds(2026, 10, 27, 13, 45, 12);
@@ -300,7 +265,6 @@ mod tests {
         assert_eq!(parse_iso_timestamp("2026-10-27T13:45:12Z"), Some(epoch));
         assert_eq!(parse_iso_timestamp("2026-10-27T13:45:12"), Some(epoch));
     }
-
     #[test]
     fn rejects_non_utc_or_malformed_iso_timestamps() {
         for raw in [
@@ -315,7 +279,6 @@ mod tests {
             assert_eq!(parse_iso_timestamp(raw), None, "accepted {raw:?}");
         }
     }
-
     #[test]
     fn parses_date_input_values_at_day_start() {
         assert_eq!(
@@ -325,10 +288,9 @@ mod tests {
         assert_eq!(parse_date("1970-01-01"), Some(0));
         assert_eq!(
             parse_date(" 2024-02-29 "),
-            Some(epoch_seconds(2024, 2, 29, 0, 0, 0))
+            Some(epoch_seconds(2024, 2, 29, 0, 0, 0)),
         );
     }
-
     #[test]
     fn rejects_malformed_date_input_values() {
         for raw in [
@@ -345,7 +307,6 @@ mod tests {
             assert_eq!(parse_date(raw), None, "accepted {raw:?}");
         }
     }
-
     #[test]
     fn rejects_malformed_cells() {
         for raw in [

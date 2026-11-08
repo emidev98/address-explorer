@@ -4,19 +4,15 @@
 //! go through a persistent rate cache; network calls happen outside any
 //! SQLite guard and failures degrade to a warning rather than failing the
 //! page.
-
-use std::collections::{HashMap, HashSet};
-use std::time::Duration;
-
 use crate::clients::frankfurter::{Frankfurter, FrankfurterConfig, RatesQuery};
 use crate::data::repositories::{fiat_rates as rate_repository, settings as settings_repository};
 use crate::data::{Database, DatabaseError};
 use crate::domain::civil_time;
 use crate::domain::exchange::{csv, ExchangeKpiTransaction, ExchangeTransaction};
 use crate::domain::price::{normalize_default_symbol, USD_SYMBOL};
-
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 const MAX_RANGE_DAYS: i64 = 366;
-
 /// One fiat value that needs conversion.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FiatValue {
@@ -24,21 +20,18 @@ pub struct FiatValue {
     pub amount: f64,
     pub currency: String,
 }
-
 /// Which derived field of one transaction a conversion result belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FiatField {
     Amount,
     Fee,
 }
-
 /// Conversion service for exchange rows and CSV previews.
 #[derive(Clone)]
 pub struct ExchangeFiatService {
     database: Database,
     frankfurter: Frankfurter,
 }
-
 impl ExchangeFiatService {
     pub fn connect(database: Database) -> Self {
         Self {
@@ -49,13 +42,11 @@ impl ExchangeFiatService {
             }),
         }
     }
-
     /// The current default currency, falling back to USD.
     pub fn target_currency(&self) -> Result<String, DatabaseError> {
         let symbol = settings_repository::load_default_fiat_currency(&self.database)?;
         Ok(normalize_default_symbol(&symbol))
     }
-
     /// Convert values into `target`, returning one entry per input value.
     pub async fn convert_values(
         &self,
@@ -73,7 +64,6 @@ impl ExchangeFiatService {
         let mut warning: Option<String> = None;
         let mut rates: HashMap<(String, String), f64> = HashMap::new();
         let mut missing: HashSet<(String, String)> = HashSet::new();
-
         for value in values {
             let base = value.currency.trim().to_ascii_uppercase();
             if base.is_empty() {
@@ -96,7 +86,6 @@ impl ExchangeFiatService {
                 }
             }
         }
-
         if !missing.is_empty() {
             let mut bases: HashMap<String, Vec<String>> = HashMap::new();
             for (base, date) in &missing {
@@ -113,7 +102,7 @@ impl ExchangeFiatService {
                     .await
                 {
                     warning = Some(format!(
-                        "Some historical exchange rates could not be loaded: {error}"
+                        "Some historical exchange rates could not be loaded: {error}",
                     ));
                 }
                 for date in &dates {
@@ -124,9 +113,6 @@ impl ExchangeFiatService {
                     }
                 }
             }
-
-            // A range starting on a weekend can have no preceding cached
-            // row. Ask the single-pair endpoint for those dates.
             let still_missing = missing
                 .iter()
                 .filter(|(base, date)| !rates.contains_key(&(base.clone(), date.clone())))
@@ -162,13 +148,12 @@ impl ExchangeFiatService {
                     }
                     Err(error) => {
                         warning = Some(format!(
-                            "Some historical exchange rates could not be loaded: {error}"
+                            "Some historical exchange rates could not be loaded: {error}",
                         ));
                     }
                 }
             }
         }
-
         let converted = values
             .iter()
             .map(|value| {
@@ -185,7 +170,6 @@ impl ExchangeFiatService {
             .collect();
         (converted, warning)
     }
-
     async fn fetch_rate_ranges(
         &self,
         target: &str,
@@ -228,7 +212,6 @@ impl ExchangeFiatService {
         }
         Ok(())
     }
-
     /// Convert every fiat amount and fiat fee in place and return the warning,
     /// if any. BTC/XBT fees are left untouched: the table renders them as
     /// BTC, not as a fiat conversion.
@@ -243,7 +226,6 @@ impl ExchangeFiatService {
             transaction.converted_fee_amount = None;
             transaction.converted_fee_currency = None;
         }
-
         let mut values = Vec::new();
         let mut assignments = Vec::new();
         for (index, transaction) in transactions.iter().enumerate() {
@@ -274,7 +256,6 @@ impl ExchangeFiatService {
         if values.is_empty() {
             return None;
         }
-
         let (converted, warning) = self.convert_values(&target, &values).await;
         for ((index, field), value) in assignments.into_iter().zip(converted) {
             let Some(value) = value else {
@@ -293,7 +274,6 @@ impl ExchangeFiatService {
         }
         warning
     }
-
     /// Convert the fiat amounts and fiat fees of the lean KPI projection into
     /// `target` and return the warning, if any. BTC/XBT fees stay satoshis.
     pub async fn convert_kpi_transactions(
@@ -305,7 +285,6 @@ impl ExchangeFiatService {
             transaction.converted_fiat_amount = None;
             transaction.converted_fee_amount = None;
         }
-
         let mut values = Vec::new();
         let mut assignments = Vec::new();
         for (index, transaction) in transactions.iter().enumerate() {
@@ -336,45 +315,38 @@ impl ExchangeFiatService {
         if values.is_empty() {
             return None;
         }
-
         let (converted, warning) = self.convert_values(target, &values).await;
         for ((index, field), value) in assignments.into_iter().zip(converted) {
             let Some(value) = value else {
                 continue;
             };
             match field {
-                FiatField::Amount => transactions[index].converted_fiat_amount = Some(value),
+                FiatField::Amount => {
+                    transactions[index].converted_fiat_amount = Some(value);
+                }
                 FiatField::Fee => transactions[index].converted_fee_amount = Some(value),
             }
         }
         warning
     }
 }
-
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use super::*;
     use crate::data::repositories::fiat_rates as rate_repository;
     use crate::data::repositories::settings as settings_repository;
     use crate::domain::exchange::{ExchangeTxType, MatchState};
-
+    use std::collections::BTreeMap;
     fn block_on<F: std::future::Future>(future: F) -> F::Output {
         use std::task::{Context, RawWaker, RawWakerVTable, Waker};
-
         fn raw_waker() -> RawWaker {
             fn clone(_: *const ()) -> RawWaker {
                 raw_waker()
             }
             fn noop(_: *const ()) {}
-            // SAFETY: the vtable never dereferences the null data pointer.
             static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
             RawWaker::new(std::ptr::null(), &VTABLE)
         }
-
-        // SAFETY: `raw_waker` builds a `RawWaker` whose vtable upholds the
-        // contract documented above; the data pointer is never dereferenced.
         let waker = unsafe { Waker::from_raw(raw_waker()) };
         let mut context = Context::from_waker(&waker);
         let mut future = std::pin::pin!(future);
@@ -383,7 +355,6 @@ mod tests {
             std::task::Poll::Pending => panic!("test future must not pend"),
         }
     }
-
     fn transaction(
         timestamp: i64,
         fiat_amount: Option<f64>,
@@ -417,7 +388,6 @@ mod tests {
             is_intentional_duplicate: false,
         }
     }
-
     #[test]
     fn converts_fiat_amounts_and_fiat_fees_to_the_default_currency() {
         let database = Database::open_in_memory().unwrap();
@@ -425,28 +395,23 @@ mod tests {
         let timestamp = civil_time::epoch_seconds(2026, 3, 25, 12, 0, 0);
         let date = civil_time::format_date(timestamp);
         rate_repository::upsert_rate(&database, "EUR", "USD", &date, 1.1, 0).unwrap();
-
         let service = ExchangeFiatService::connect(database);
         let mut transaction =
             transaction(timestamp, Some(100.0), Some("EUR"), Some(2.0), Some("EUR"));
-
         let warning =
             block_on(service.convert_transactions(std::slice::from_mut(&mut transaction)));
-
         assert_eq!(warning, None);
         assert!((transaction.converted_fiat_amount.unwrap() - 110.0).abs() < 1e-9);
         assert_eq!(transaction.converted_fiat_currency.as_deref(), Some("USD"));
         assert!((transaction.converted_fee_amount.unwrap() - 2.2).abs() < 1e-9);
         assert_eq!(transaction.converted_fee_currency.as_deref(), Some("USD"));
     }
-
     #[test]
     fn converts_lean_kpi_rows_in_the_default_currency() {
         let database = Database::open_in_memory().unwrap();
         let timestamp = civil_time::epoch_seconds(2026, 3, 25, 12, 0, 0);
         let date = civil_time::format_date(timestamp);
         rate_repository::upsert_rate(&database, "EUR", "USD", &date, 1.1, 0).unwrap();
-
         let service = ExchangeFiatService::connect(database);
         let mut row = ExchangeKpiTransaction {
             timestamp,
@@ -460,24 +425,19 @@ mod tests {
             converted_fiat_amount: None,
             converted_fee_amount: None,
         };
-
         let warning =
             block_on(service.convert_kpi_transactions("USD", std::slice::from_mut(&mut row)));
-
         assert_eq!(warning, None);
         assert!((row.converted_fiat_amount.unwrap() - 110.0).abs() < 1e-9);
         assert!((row.converted_fee_amount.unwrap() - 2.2).abs() < 1e-9);
     }
-
     #[test]
     fn leaves_btc_fees_in_btc() {
         let database = Database::open_in_memory().unwrap();
         let service = ExchangeFiatService::connect(database);
         let mut transaction = transaction(1_000, None, None, Some(5_000.0), Some("BTC"));
-
         let warning =
             block_on(service.convert_transactions(std::slice::from_mut(&mut transaction)));
-
         assert_eq!(warning, None);
         assert_eq!(transaction.converted_fee_amount, None);
         assert_eq!(transaction.converted_fee_currency, None);

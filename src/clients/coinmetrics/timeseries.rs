@@ -13,7 +13,6 @@ use crate::clients::coinmetrics::types::{
     MiningPoolTipsSummary, PairCandle, PairMetricRow, ProtocolMetricRow,
 };
 use serde::Serialize;
-
 /// Query for `/timeseries/asset-metrics`. `assets` and `metrics` are required.
 ///
 /// `start_time`/`end_time` are mutually exclusive with
@@ -63,7 +62,6 @@ pub struct AssetMetricsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_forbidden_errors: Option<bool>,
 }
-
 /// Query for `/timeseries/exchange-metrics`. `exchanges` and `metrics` are
 /// required.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -90,7 +88,6 @@ pub struct ExchangeMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/exchange-asset-metrics`. `exchange_assets` and
 /// `metrics` are required.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -117,7 +114,6 @@ pub struct ExchangeAssetMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/exchange-pair-metrics`. `exchange_pairs` and
 /// `metrics` are required.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -141,7 +137,6 @@ pub struct ExchangePairMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/pair-metrics`. `pairs` and `metrics` are required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct PairMetricsQuery {
@@ -167,7 +162,6 @@ pub struct PairMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-metrics`. `markets` and `metrics` are
 /// required.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -198,7 +192,6 @@ pub struct MarketMetricsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_forbidden_errors: Option<bool>,
 }
-
 /// Query for `/timeseries/institution-metrics`. `institutions` and `metrics`
 /// are required.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -225,7 +218,6 @@ pub struct InstitutionMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/protocol-metrics`. `frequency` defaults to `1d` and
 /// is required by the API.
 #[derive(Debug, Clone, Serialize)]
@@ -257,7 +249,6 @@ pub struct ProtocolMetricsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 impl Default for ProtocolMetricsQuery {
     fn default() -> Self {
         Self {
@@ -271,7 +262,6 @@ impl Default for ProtocolMetricsQuery {
         }
     }
 }
-
 /// Query for `/timeseries/pair-candles`. `pairs` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct PairCandlesQuery {
@@ -290,7 +280,6 @@ pub struct PairCandlesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-trades`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketTradesQuery {
@@ -309,7 +298,6 @@ pub struct MarketTradesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-openinterest`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketOpenInterestQuery {
@@ -327,7 +315,6 @@ pub struct MarketOpenInterestQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-liquidations`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketLiquidationsQuery {
@@ -343,7 +330,6 @@ pub struct MarketLiquidationsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-funding-rates` and
 /// `/timeseries/market-funding-rates-predicted`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -360,7 +346,6 @@ pub struct MarketFundingRatesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-orderbooks`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketOrderBooksQuery {
@@ -386,7 +371,6 @@ pub struct MarketOrderBooksQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-quotes`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketQuotesQuery {
@@ -407,7 +391,6 @@ pub struct MarketQuotesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-candles`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketCandlesQuery {
@@ -430,7 +413,6 @@ pub struct MarketCandlesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore_forbidden_errors: Option<bool>,
 }
-
 /// Query for `/timeseries/market-contract-prices`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketContractPricesQuery {
@@ -448,7 +430,6 @@ pub struct MarketContractPricesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-implied-volatility`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketImpliedVolatilityQuery {
@@ -466,7 +447,6 @@ pub struct MarketImpliedVolatilityQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/market-greeks`. `markets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct MarketGreeksQuery {
@@ -484,7 +464,6 @@ pub struct MarketGreeksQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/index-candles`. `indexes` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct IndexCandlesQuery {
@@ -502,7 +481,6 @@ pub struct IndexCandlesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/index-levels`. `indexes` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct IndexLevelsQuery {
@@ -525,7 +503,6 @@ pub struct IndexLevelsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/index-constituents`. `indexes` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct IndexConstituentsQuery {
@@ -541,7 +518,6 @@ pub struct IndexConstituentsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/mining-pool-tips-summary`. `assets` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AssetTimeSeriesQuery {
@@ -555,7 +531,6 @@ pub struct AssetTimeSeriesQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/asset-alerts`. `assets` and `alerts` are required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AssetAlertsQuery {
@@ -577,7 +552,6 @@ pub struct AssetAlertsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Query for `/timeseries/defi-balance-sheets`. `defi_protocols` is required.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct DefiBalanceSheetsQuery {
@@ -595,19 +569,16 @@ pub struct DefiBalanceSheetsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// REST time-series endpoints for asset, market, exchange, pair, index,
 /// protocol, institution, mining and DeFi data.
 #[derive(Clone)]
 pub struct Timeseries {
     http: HttpClient,
 }
-
 impl Timeseries {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     pub async fn get_asset_metrics(
         &self,
         query: AssetMetricsQuery,
@@ -616,7 +587,6 @@ impl Timeseries {
             .get_query("/timeseries/asset-metrics", &query)
             .await
     }
-
     pub async fn get_exchange_metrics(
         &self,
         query: ExchangeMetricsQuery,
@@ -625,7 +595,6 @@ impl Timeseries {
             .get_query("/timeseries/exchange-metrics", &query)
             .await
     }
-
     pub async fn get_exchange_asset_metrics(
         &self,
         query: ExchangeAssetMetricsQuery,
@@ -634,7 +603,6 @@ impl Timeseries {
             .get_query("/timeseries/exchange-asset-metrics", &query)
             .await
     }
-
     pub async fn get_exchange_pair_metrics(
         &self,
         query: ExchangePairMetricsQuery,
@@ -643,7 +611,6 @@ impl Timeseries {
             .get_query("/timeseries/exchange-pair-metrics", &query)
             .await
     }
-
     pub async fn get_pair_metrics(
         &self,
         query: PairMetricsQuery,
@@ -652,7 +619,6 @@ impl Timeseries {
             .get_query("/timeseries/pair-metrics", &query)
             .await
     }
-
     pub async fn get_market_metrics(
         &self,
         query: MarketMetricsQuery,
@@ -661,7 +627,6 @@ impl Timeseries {
             .get_query("/timeseries/market-metrics", &query)
             .await
     }
-
     pub async fn get_institution_metrics(
         &self,
         query: InstitutionMetricsQuery,
@@ -670,7 +635,6 @@ impl Timeseries {
             .get_query("/timeseries/institution-metrics", &query)
             .await
     }
-
     pub async fn get_protocol_metrics(
         &self,
         query: ProtocolMetricsQuery,
@@ -679,7 +643,6 @@ impl Timeseries {
             .get_query("/timeseries/protocol-metrics", &query)
             .await
     }
-
     pub async fn get_pair_candles(
         &self,
         query: PairCandlesQuery,
@@ -688,7 +651,6 @@ impl Timeseries {
             .get_query("/timeseries/pair-candles", &query)
             .await
     }
-
     pub async fn get_market_trades(
         &self,
         query: MarketTradesQuery,
@@ -697,7 +659,6 @@ impl Timeseries {
             .get_query("/timeseries/market-trades", &query)
             .await
     }
-
     pub async fn get_market_openinterest(
         &self,
         query: MarketOpenInterestQuery,
@@ -706,7 +667,6 @@ impl Timeseries {
             .get_query("/timeseries/market-openinterest", &query)
             .await
     }
-
     pub async fn get_market_liquidations(
         &self,
         query: MarketLiquidationsQuery,
@@ -715,7 +675,6 @@ impl Timeseries {
             .get_query("/timeseries/market-liquidations", &query)
             .await
     }
-
     pub async fn get_market_funding_rates(
         &self,
         query: MarketFundingRatesQuery,
@@ -724,7 +683,6 @@ impl Timeseries {
             .get_query("/timeseries/market-funding-rates", &query)
             .await
     }
-
     pub async fn get_market_funding_rates_predicted(
         &self,
         query: MarketFundingRatesQuery,
@@ -733,7 +691,6 @@ impl Timeseries {
             .get_query("/timeseries/market-funding-rates-predicted", &query)
             .await
     }
-
     pub async fn get_market_orderbooks(
         &self,
         query: MarketOrderBooksQuery,
@@ -742,7 +699,6 @@ impl Timeseries {
             .get_query("/timeseries/market-orderbooks", &query)
             .await
     }
-
     pub async fn get_market_quotes(
         &self,
         query: MarketQuotesQuery,
@@ -751,7 +707,6 @@ impl Timeseries {
             .get_query("/timeseries/market-quotes", &query)
             .await
     }
-
     pub async fn get_market_candles(
         &self,
         query: MarketCandlesQuery,
@@ -760,7 +715,6 @@ impl Timeseries {
             .get_query("/timeseries/market-candles", &query)
             .await
     }
-
     pub async fn get_market_contract_prices(
         &self,
         query: MarketContractPricesQuery,
@@ -769,7 +723,6 @@ impl Timeseries {
             .get_query("/timeseries/market-contract-prices", &query)
             .await
     }
-
     pub async fn get_market_implied_volatility(
         &self,
         query: MarketImpliedVolatilityQuery,
@@ -778,7 +731,6 @@ impl Timeseries {
             .get_query("/timeseries/market-implied-volatility", &query)
             .await
     }
-
     pub async fn get_market_greeks(
         &self,
         query: MarketGreeksQuery,
@@ -787,7 +739,6 @@ impl Timeseries {
             .get_query("/timeseries/market-greeks", &query)
             .await
     }
-
     pub async fn get_index_candles(
         &self,
         query: IndexCandlesQuery,
@@ -796,7 +747,6 @@ impl Timeseries {
             .get_query("/timeseries/index-candles", &query)
             .await
     }
-
     pub async fn get_index_levels(
         &self,
         query: IndexLevelsQuery,
@@ -805,7 +755,6 @@ impl Timeseries {
             .get_query("/timeseries/index-levels", &query)
             .await
     }
-
     pub async fn get_index_constituents(
         &self,
         query: IndexConstituentsQuery,
@@ -814,7 +763,6 @@ impl Timeseries {
             .get_query("/timeseries/index-constituents", &query)
             .await
     }
-
     pub async fn get_mining_pool_tips_summary(
         &self,
         query: AssetTimeSeriesQuery,
@@ -823,7 +771,6 @@ impl Timeseries {
             .get_query("/timeseries/mining-pool-tips-summary", &query)
             .await
     }
-
     pub async fn get_asset_chains(
         &self,
         query: AssetTimeSeriesQuery,
@@ -832,7 +779,6 @@ impl Timeseries {
             .get_query("/timeseries/asset-chains", &query)
             .await
     }
-
     pub async fn get_mempool_feerates(
         &self,
         query: AssetTimeSeriesQuery,
@@ -841,7 +787,6 @@ impl Timeseries {
             .get_query("/timeseries/mempool-feerates", &query)
             .await
     }
-
     pub async fn get_asset_alerts(
         &self,
         query: AssetAlertsQuery,
@@ -850,7 +795,6 @@ impl Timeseries {
             .get_query("/timeseries/asset-alerts", &query)
             .await
     }
-
     pub async fn get_defi_balance_sheets(
         &self,
         query: DefiBalanceSheetsQuery,
@@ -860,12 +804,10 @@ impl Timeseries {
             .await
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
     #[test]
     fn serializes_asset_metric_queries() {
         let query = AssetMetricsQuery {
@@ -887,19 +829,13 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({
-                "assets": "btc,eth",
-                "metrics": "PriceUSD,AdrActCnt",
-                "frequency": "1d",
-                "status": "reviewed",
-                "start_time": "2024-01-01",
-                "end_time": "2024-01-31",
-                "page_size": 100,
-                "paging_from": "start"
-            })
+            json!(
+                { "assets" : "btc,eth", "metrics" : "PriceUSD,AdrActCnt", "frequency" :
+                "1d", "status" : "reviewed", "start_time" : "2024-01-01", "end_time" :
+                "2024-01-31", "page_size" : 100, "paging_from" : "start" }
+            ),
         );
     }
-
     #[test]
     fn serializes_market_candle_queries() {
         let query = MarketCandlesQuery {
@@ -913,22 +849,19 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({
-                "markets": "coinbase-btc-usd-spot",
-                "frequency": "5m",
-                "page_size": 2
-            })
+            json!(
+                { "markets" : "coinbase-btc-usd-spot", "frequency" : "5m", "page_size" :
+                2 }
+            ),
         );
     }
-
     #[test]
     fn protocol_frequency_defaults_to_daily() {
         assert_eq!(
             serde_json::to_value(ProtocolMetricsQuery::default()).unwrap(),
-            json!({"frequency": "1d"})
+            json!({ "frequency" : "1d" }),
         );
     }
-
     #[test]
     fn granularity_maps_to_api_values() {
         let query = MarketOpenInterestQuery {
@@ -938,10 +871,9 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(query).unwrap(),
-            json!({"markets": "binance-btc-usd-future", "granularity": "1h"})
+            json!({ "markets" : "binance-btc-usd-future", "granularity" : "1h" }),
         );
     }
-
     #[test]
     fn flattened_query_serializes_through_the_url_encoder() {
         let query = AssetMetricsQuery {
@@ -966,7 +898,9 @@ mod tests {
         let url = request.url();
         assert_eq!(
             url.query(),
-            Some("assets=btc&metrics=PriceUSD%2CAdrActCnt&frequency=1d&start_time=2024-01-01&page_size=2")
+            Some(
+                "assets=btc&metrics=PriceUSD%2CAdrActCnt&frequency=1d&start_time=2024-01-01&page_size=2",
+            ),
         );
     }
 }

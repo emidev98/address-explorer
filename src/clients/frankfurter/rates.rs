@@ -1,7 +1,6 @@
 use crate::clients::frankfurter::error::FrankfurterError;
 use crate::clients::frankfurter::http::HttpClient;
 use crate::clients::frankfurter::types::Rate;
-
 /// Downsample a date range by time period.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
@@ -10,7 +9,6 @@ pub enum Group {
     /// One record per calendar month.
     Month,
 }
-
 impl Group {
     pub fn as_param(&self) -> &'static str {
         match self {
@@ -19,14 +17,12 @@ impl Group {
         }
     }
 }
-
 /// Optional fields to expand per rate record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Expand {
     /// Adds a per-provider rate breakdown to each record.
     Providers,
 }
-
 impl Expand {
     pub fn as_param(&self) -> &'static str {
         match self {
@@ -34,7 +30,6 @@ impl Expand {
         }
     }
 }
-
 /// Optional filters for the `/rates` query. Fields left at their default are
 /// omitted from the request.
 ///
@@ -64,7 +59,6 @@ pub struct RatesQuery {
     /// Optional fields to expand per rate record.
     pub expand: Option<Expand>,
 }
-
 impl RatesQuery {
     pub(crate) fn to_params(&self) -> Vec<(&'static str, String)> {
         let mut params = Vec::new();
@@ -95,17 +89,14 @@ impl RatesQuery {
         params
     }
 }
-
 #[derive(Clone)]
 pub struct Rates {
     http: HttpClient,
 }
-
 impl Rates {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     /// Returns exchange rates blended across providers, as an array of
     /// [Rate] records where each record is a single currency pair. Without
     /// date parameters in `query` the latest rates are returned.
@@ -117,7 +108,6 @@ impl Rates {
     pub async fn get_rates(&self, query: RatesQuery) -> Result<Vec<Rate>, FrankfurterError> {
         self.http.get_query("/rates", &query.to_params()).await
     }
-
     /// Returns the blended exchange rate for a single currency pair. Without
     /// `date`, returns the latest rate. A same-currency pair returns the
     /// identity rate of 1.
@@ -139,17 +129,14 @@ impl Rates {
         self.http.get_query(&path, &params).await
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn default_query_sends_no_params() {
         let query = RatesQuery::default();
         assert!(query.to_params().is_empty());
     }
-
     #[test]
     fn dates_map_to_their_query_names() {
         let query = RatesQuery {
@@ -164,10 +151,9 @@ mod tests {
                 ("date", "2024-01-15".to_string()),
                 ("from", "2024-01-01".to_string()),
                 ("to", "2024-01-31".to_string()),
-            ]
+            ],
         );
     }
-
     #[test]
     fn filters_and_enums_map_to_api_values() {
         let query = RatesQuery {
@@ -186,10 +172,9 @@ mod tests {
                 ("providers", "ECB,TCMB".to_string()),
                 ("group", "month".to_string()),
                 ("expand", "providers".to_string()),
-            ]
+            ],
         );
     }
-
     #[test]
     fn group_and_expand_use_lowercase_params() {
         assert_eq!(Group::Week.as_param(), "week");

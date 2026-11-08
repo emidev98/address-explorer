@@ -6,11 +6,7 @@
 //! ranges never reach the screen. The popup follows the M3 docked date-picker
 //! anatomy, with quick preset chips above the calendar, while the compact field
 //! shows both endpoints in one input.
-
-use dioxus::prelude::*;
-
 use super::icon::{Icon, IconName};
-
 use super::interface_settings::use_interface_settings;
 use crate::domain::calendar::{
     clamp_day, first_selectable_in_month, full_date_label, month_grid, month_has_selectable,
@@ -22,14 +18,13 @@ use crate::domain::date_presets::{RangePreset, SingleDatePreset};
 use crate::domain::date_selection::{
     DateBounds, DateSelection, DateSelectionDraft, DateSelectionError, DateSelectionMode, IsoDate,
 };
-
+use dioxus::prelude::*;
 /// Which list menu is open above the calendar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CalendarMenu {
     Month,
     Year,
 }
-
 /// Signals owned by one picker instance.
 #[derive(Clone, Copy)]
 struct PickerSignals {
@@ -47,63 +42,49 @@ struct PickerSignals {
     focus_pending: Signal<bool>,
     menu_focus_pending: Signal<bool>,
 }
-
 impl PickerSignals {
     fn is_open(&self) -> bool {
         (self.open)()
     }
-
     fn typed_text(&self) -> String {
         (self.typed)()
     }
-
     fn typed_is_valid(&self) -> bool {
         (self.typed_valid)()
     }
-
     fn draft_value(&self) -> DateSelectionDraft {
         (self.draft)()
     }
-
     fn current_error(&self) -> Option<DateSelectionError> {
         (self.error)()
     }
-
     fn is_dirty(&self) -> bool {
         (self.dirty)()
     }
-
     fn focused_day(&self) -> Option<IsoDate> {
         (self.focused)()
     }
-
     fn view_month(&self) -> (i64, i64) {
         (self.view)()
     }
-
     fn hovered_day(&self) -> Option<IsoDate> {
         (self.hover)()
     }
-
     fn menu_value(&self) -> Option<CalendarMenu> {
         (self.menu)()
     }
-
     fn focus_pending_now(&self) -> bool {
         (self.focus_pending)()
     }
-
     fn menu_focus_pending_now(&self) -> bool {
         (self.menu_focus_pending)()
     }
-
     fn set_typed(self, raw: String, mode: DateSelectionMode, bounds: DateBounds) {
         let mut this = self;
         this.menu.set(None);
         this.menu_focus_pending.set(false);
         this.typed.set(raw.clone());
         this.dirty.set(true);
-
         match parse_and_validate(&raw, mode, &bounds) {
             Ok(selection) => {
                 this.typed_valid.set(true);
@@ -115,9 +96,6 @@ impl PickerSignals {
             }
             Err(error) => {
                 this.typed_valid.set(false);
-                // Avoid flashing an error on every intermediate keystroke;
-                // once the text is long enough to be a complete attempt, show
-                // the reason immediately.
                 if should_show_typed_error(&raw) {
                     this.error.set(Some(error));
                 } else {
@@ -126,7 +104,6 @@ impl PickerSignals {
             }
         }
     }
-
     fn sync_typed(self, mode: DateSelectionMode, bounds: DateBounds) {
         let mut this = self;
         match parse_and_validate(&this.typed_text(), mode, &bounds) {
@@ -144,7 +121,6 @@ impl PickerSignals {
             }
         }
     }
-
     #[allow(clippy::too_many_arguments)]
     fn commit_typed(
         self,
@@ -157,8 +133,6 @@ impl PickerSignals {
         focus_after: bool,
     ) -> bool {
         let mut this = self;
-        // When the field is idle, its visible text is derived from the
-        // controlled value, not from the older `typed` signal.
         let raw = if !this.is_dirty() && !this.is_open() {
             value.display(mode)
         } else {
@@ -176,7 +150,6 @@ impl PickerSignals {
             }
         }
     }
-
     fn open_popup(
         self,
         value: &DateSelection,
@@ -189,7 +162,6 @@ impl PickerSignals {
             this.cancel(value, mode, id);
             return;
         }
-
         if this.is_dirty() {
             match parse_and_validate(&this.typed_text(), mode, &bounds) {
                 Ok(selection) => {
@@ -200,9 +172,6 @@ impl PickerSignals {
                     this.dirty.set(false);
                 }
                 Err(_) => {
-                    // The field was in an incomplete or invalid typed state;
-                    // open the calendar from the last committed value instead
-                    // of trapping the user in the text field.
                     this.typed.set(value.display(mode));
                     this.typed_valid.set(true);
                     this.draft.set(DateSelectionDraft::new(*value));
@@ -211,15 +180,11 @@ impl PickerSignals {
                 }
             }
         } else {
-            // Props can change between renders (the screens prefill the full
-            // span once their data arrives), so always seed the popup from the
-            // committed value instead of trusting an older draft signal.
             this.typed.set(value.display(mode));
             this.typed_valid.set(value.validate(mode, &bounds).is_ok());
             this.error.set(None);
             this.draft.set(DateSelectionDraft::new(*value));
         }
-
         let selection = *this.draft_value().selection();
         let today = current_utc_date();
         this.today.set(today);
@@ -232,7 +197,6 @@ impl PickerSignals {
         this.focus_pending.set(true);
         this.open.set(true);
     }
-
     fn cancel(self, value: &DateSelection, mode: DateSelectionMode, id: &str) {
         let mut this = self;
         this.typed.set(value.display(mode));
@@ -245,7 +209,6 @@ impl PickerSignals {
         this.hover.set(None);
         focus_input(id);
     }
-
     fn select_day(
         self,
         value: DateSelection,
@@ -258,7 +221,6 @@ impl PickerSignals {
         if !bounds.contains(day) || !bounds.is_valid() {
             return;
         }
-
         let mut this = self;
         let mut draft = if this.is_dirty() {
             this.draft_value()
@@ -276,19 +238,14 @@ impl PickerSignals {
         this.focus_pending.set(true);
         this.menu.set(None);
         this.menu_focus_pending.set(false);
-
         let (year, month, _) = day.year_month_day();
         if (year, month) != this.view_month() {
             this.view.set((year, month));
         }
-
-        // A single date, or the second endpoint of a range, is a complete
-        // selection: apply it immediately instead of waiting for OK.
         if selection_is_complete(draft.selection(), mode) {
             this.commit_draft(value, mode, bounds, on_change, id);
         }
     }
-
     fn clear_from(self, value: DateSelection, mode: DateSelectionMode) {
         let mut this = self;
         let mut draft = if this.is_dirty() {
@@ -308,7 +265,6 @@ impl PickerSignals {
             this.focus_pending.set(true);
         }
     }
-
     fn clear_to(self, value: DateSelection, mode: DateSelectionMode) {
         let mut this = self;
         let mut draft = if this.is_dirty() {
@@ -328,7 +284,6 @@ impl PickerSignals {
             this.focus_pending.set(true);
         }
     }
-
     fn clear_all(
         self,
         mode: DateSelectionMode,
@@ -346,7 +301,6 @@ impl PickerSignals {
             id,
         );
     }
-
     fn commit_draft(
         self,
         value: DateSelection,
@@ -372,7 +326,6 @@ impl PickerSignals {
             }
         }
     }
-
     fn move_focus(self, target: IsoDate, bounds: DateBounds) {
         let mut this = self;
         let target = clamp_to_bounds(&target, &bounds);
@@ -384,7 +337,6 @@ impl PickerSignals {
             this.view.set((year, month));
         }
     }
-
     fn step_month(self, delta: i64, bounds: DateBounds) {
         let mut this = self;
         let (year, month) = this.view_month();
@@ -398,7 +350,6 @@ impl PickerSignals {
         this.menu.set(None);
         this.menu_focus_pending.set(false);
     }
-
     fn set_view(self, year: i64, month: i64, bounds: DateBounds) {
         let mut this = self;
         if let Some((year, month)) = nearest_selectable_month(year, month, &bounds) {
@@ -411,7 +362,6 @@ impl PickerSignals {
         this.menu.set(None);
         this.menu_focus_pending.set(false);
     }
-
     fn set_year(self, year: i64, preferred_month: i64, bounds: DateBounds) {
         let mut this = self;
         if let Some((year, month)) = nearest_selectable_month(year, preferred_month, &bounds) {
@@ -424,19 +374,16 @@ impl PickerSignals {
         this.menu.set(None);
         this.menu_focus_pending.set(false);
     }
-
     fn request_calendar_focus(self) {
         let mut this = self;
         this.focus_pending.set(true);
     }
-
     fn close_menu(self) {
         let mut this = self;
         this.menu.set(None);
         this.menu_focus_pending.set(false);
         this.focus_pending.set(true);
     }
-
     fn toggle_menu(self, menu: CalendarMenu) {
         let mut this = self;
         if this.menu_value() == Some(menu) {
@@ -448,7 +395,6 @@ impl PickerSignals {
         }
     }
 }
-
 /// Whether picking the current draft should apply it immediately: a single
 /// date in Single mode, or both endpoints in Range mode.
 fn selection_is_complete(selection: &DateSelection, mode: DateSelectionMode) -> bool {
@@ -457,7 +403,6 @@ fn selection_is_complete(selection: &DateSelection, mode: DateSelectionMode) -> 
         DateSelectionMode::Range => selection.from.is_some() && selection.to.is_some(),
     }
 }
-
 /// The text the single input shows. While the field is idle, the controlled
 /// `value` is authoritative; otherwise the user's typed/drafted text wins.
 fn displayed_selection_text(
@@ -472,7 +417,6 @@ fn displayed_selection_text(
         value.display(mode)
     }
 }
-
 fn parse_and_validate(
     raw: &str,
     mode: DateSelectionMode,
@@ -482,7 +426,6 @@ fn parse_and_validate(
     selection.validate(mode, bounds)?;
     Ok(selection)
 }
-
 fn should_show_typed_error(raw: &str) -> bool {
     let raw = raw.trim();
     raw.is_empty()
@@ -492,7 +435,6 @@ fn should_show_typed_error(raw: &str) -> bool {
         || raw.contains(" - ")
         || raw.contains(" to ")
 }
-
 fn apply_selection(
     state: PickerSignals,
     next: DateSelection,
@@ -518,18 +460,15 @@ fn apply_selection(
         focus_input(id);
     }
 }
-
 fn focus_element(id: &str) {
     let id = serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string());
     document::eval(&format!(
         "const el = document.getElementById({id}); if (el) el.focus();"
     ));
 }
-
 fn focus_input(id: &str) {
     focus_element(id);
 }
-
 fn show_selection(state: &mut PickerSignals, selection: &DateSelection) {
     if let Some(date) = selection.from.as_ref().or(selection.to.as_ref()) {
         let (year, month, _) = date.year_month_day();
@@ -540,7 +479,6 @@ fn show_selection(state: &mut PickerSignals, selection: &DateSelection) {
         state.focus_pending.set(false);
     }
 }
-
 fn clamp_to_bounds(date: &IsoDate, bounds: &DateBounds) -> IsoDate {
     if !bounds.is_valid() {
         return *date;
@@ -558,12 +496,10 @@ fn clamp_to_bounds(date: &IsoDate, bounds: &DateBounds) -> IsoDate {
     }
     date
 }
-
 fn nearest_selectable_month(year: i64, month: i64, bounds: &DateBounds) -> Option<(i64, i64)> {
     if month_has_selectable(year, month, bounds) {
         return Some((year, month));
     }
-
     for distance in 1..=12 {
         for candidate in [month - distance, month + distance] {
             if (1..=12).contains(&candidate) && month_has_selectable(year, candidate, bounds) {
@@ -573,11 +509,9 @@ fn nearest_selectable_month(year: i64, month: i64, bounds: &DateBounds) -> Optio
     }
     None
 }
-
 fn year_has_selectable(year: i64, bounds: &DateBounds) -> bool {
     (1..=12).any(|month| month_has_selectable(year, month, bounds))
 }
-
 fn initial_view_focus(
     selection: &DateSelection,
     bounds: &DateBounds,
@@ -585,7 +519,6 @@ fn initial_view_focus(
 ) -> ((i64, i64), IsoDate) {
     let preferred = selection.from.as_ref().or(selection.to.as_ref());
     let preferred_in_bounds = preferred.filter(|date| bounds.contains(date));
-
     let view = preferred_in_bounds
         .map(IsoDate::year_month_day)
         .map(|(year, month, _)| (year, month))
@@ -618,7 +551,6 @@ fn initial_view_focus(
             let (year, month, _) = today.year_month_day();
             (year, month)
         });
-
     let focus = preferred
         .filter(|date| {
             bounds.contains(date)
@@ -634,15 +566,12 @@ fn initial_view_focus(
         })
         .or_else(|| first_selectable_in_month(view.0, view.1, bounds))
         .unwrap_or_else(|| IsoDate::from_epoch_day(days_from_civil(view.0, view.1, 1)));
-
     (view, focus)
 }
-
 /// Today's UTC civil date from the runtime clock.
 pub(crate) fn current_utc_date() -> IsoDate {
     IsoDate::from_epoch(now_epoch_seconds())
 }
-
 /// Reusable Material 3 date field.
 ///
 /// `value` is the committed/default selection. While the user has not edited
@@ -692,7 +621,6 @@ pub fn DatePicker(
     let bounds = DateBounds::new(min_date, max_date);
     let today_value = current_utc_date();
     let (initial_view, initial_focus) = initial_view_focus(&value, &bounds, &today_value);
-
     let open = use_signal(|| false);
     let typed = use_signal(|| value.display(mode));
     let typed_valid = use_signal(|| value.validate(mode, &bounds).is_ok());
@@ -706,7 +634,6 @@ pub fn DatePicker(
     let today = use_signal(|| today_value);
     let focus_pending = use_signal(|| false);
     let menu_focus_pending = use_signal(|| false);
-
     let state = PickerSignals {
         open,
         typed,
@@ -722,9 +649,6 @@ pub fn DatePicker(
         focus_pending,
         menu_focus_pending,
     };
-
-    // Roving focus: only one day has tabindex=0 and key navigation moves the
-    // DOM focus there after the reactive render.
     let focus_effect_id = id.clone();
     let mut focus_effect_state = state;
     use_effect(move || {
@@ -741,9 +665,6 @@ pub fn DatePicker(
         ));
         focus_effect_state.focus_pending.set(false);
     });
-
-    // Move focus into the selected month/year when the menu opens, so
-    // Shift+M / Shift+Y work without a mouse.
     let menu_effect_id = id.clone();
     let mut menu_effect_state = state;
     use_effect(move || {
@@ -765,10 +686,6 @@ pub fn DatePicker(
         ));
         menu_effect_state.menu_focus_pending.set(false);
     });
-
-    // Until the user edits something, the controlled prop is authoritative.
-    // This is what keeps screen-provided defaults visible after data loads,
-    // even if the popup was already open.
     let working_draft = if state.is_dirty() {
         state.draft_value()
     } else {
@@ -864,7 +781,6 @@ pub fn DatePicker(
     } else {
         "md3-text-field md3-date-picker-field"
     };
-
     let input_state = state;
     let blur_state = state;
     let enter_state = state;
@@ -906,7 +822,6 @@ pub fn DatePicker(
         .map(ToString::to_string)
         .unwrap_or_else(|| "Open".to_string());
     let month_label_text = MONTH_NAMES[(view_month - 1) as usize];
-
     rsx! {
         div { class: "{field_class}",
             div { class: "md3-date-picker-label-row",
@@ -1016,8 +931,6 @@ pub fn DatePicker(
                         "{error}"
                     }
                 } else {
-                    // Keep the reason available to assistive technology while
-                    // the field's red invalid state carries the visual cue.
                     span {
                         id: "{id}-error",
                         class: "md3-date-picker-error md3-visually-hidden",
@@ -1032,14 +945,12 @@ pub fn DatePicker(
                     "{helper}"
                 }
             } else {
-                // Hidden visually but still described to assistive technology.
                 span {
                     id: "{id}-helper",
                     class: "md3-date-picker-helper md3-visually-hidden",
                     "{helper}"
                 }
             }
-
             if state.is_open() {
                 div {
                     class: "md3-date-picker-scrim",
@@ -1070,7 +981,8 @@ pub fn DatePicker(
                             class: "md3-icon-button",
                             aria_label: "Previous month",
                             disabled: !previous_enabled,
-                            onclick: move |_| prev_state.step_month(-1, bounds),
+                            onclick: move | _
+                                                                                                                        | prev_state.step_month(- 1, bounds),
                             Icon { name: IconName::ChevronLeft, size: 20 }
                         }
                         div { class: "md3-date-picker-heading",
@@ -1078,8 +990,7 @@ pub fn DatePicker(
                                 r#type: "button",
                                 class: "md3-date-picker-heading-button",
                                 aria_haspopup: "listbox",
-                                aria_expanded: (state.menu_value() == Some(CalendarMenu::Month))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
+                                aria_expanded: (state.menu_value() == Some(CalendarMenu::Month)).to_string(),
                                 onclick: move |_| {
                                     month_menu_state.toggle_menu(CalendarMenu::Month);
                                 },
@@ -1090,8 +1001,7 @@ pub fn DatePicker(
                                 r#type: "button",
                                 class: "md3-date-picker-heading-button",
                                 aria_haspopup: "listbox",
-                                aria_expanded: (state.menu_value() == Some(CalendarMenu::Year))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
+                                aria_expanded: (state.menu_value() == Some(CalendarMenu::Year)).to_string(),
                                 onclick: move |_| {
                                     year_menu_state.toggle_menu(CalendarMenu::Year);
                                 },
@@ -1108,7 +1018,6 @@ pub fn DatePicker(
                             Icon { name: IconName::ChevronRight, size: 20 }
                         }
                     }
-
                     match state.menu_value() {
                         Some(CalendarMenu::Month) => {
                             month_menu(state, view_year, view_month, bounds, &id)
@@ -1116,9 +1025,7 @@ pub fn DatePicker(
                         Some(CalendarMenu::Year) => year_menu(state, view_year, view_month, bounds, &id),
                         None => rsx! {},
                     }
-
                     {quick_presets_view(state, mode, bounds, today(), selection, on_change, &id)}
-
                     if mode == DateSelectionMode::Range {
                         div { class: "md3-date-picker-range-summary",
                             div { class: "md3-date-picker-range-item",
@@ -1149,7 +1056,6 @@ pub fn DatePicker(
                             }
                         }
                     }
-
                     div { class: "md3-date-picker-months",
                         {
                             month_grid_view(
@@ -1194,16 +1100,13 @@ pub fn DatePicker(
                             }
                         }
                     }
-
                     div {
                         class: "md3-visually-hidden",
                         role: "status",
                         aria_live: "polite",
                         "{announcement}"
                     }
-
                     div { class: "md3-date-picker-divider" }
-
                     div { class: "md3-date-picker-actions",
                         button {
                             r#type: "button",
@@ -1228,7 +1131,6 @@ pub fn DatePicker(
         }
     }
 }
-
 /// Quick preset chips shown above the range summary and calendar.
 fn quick_presets_view(
     state: PickerSignals,
@@ -1267,7 +1169,6 @@ fn quick_presets_view(
         DateSelectionMode::Range => "Quick date ranges",
         DateSelectionMode::Single => "Quick dates",
     };
-
     rsx! {
         div {
             class: "md3-chip-group md3-date-picker-quick-ranges",
@@ -1314,7 +1215,6 @@ fn quick_presets_view(
         }
     }
 }
-
 fn month_menu(
     state: PickerSignals,
     year: i64,
@@ -1327,7 +1227,6 @@ fn month_menu(
         .collect();
     let first_month = enabled_months.first().copied();
     let last_month = enabled_months.last().copied();
-
     rsx! {
         div {
             class: "md3-date-picker-menu",
@@ -1355,7 +1254,8 @@ fn month_menu(
                             r#type: "button",
                             class: if selected { "md3-date-picker-menu-item md3-date-picker-menu-item-selected" } else { "md3-date-picker-menu-item" },
                             role: "option",
-                            aria_selected: selected.to_string(),
+                            aria_selected: selected
+                                                                                                                        .to_string(),
                             aria_disabled: (!enabled).to_string(),
                             disabled: !enabled,
                             onclick: move |_| menu_state.set_view(year, month, bounds),
@@ -1380,7 +1280,6 @@ fn month_menu(
         }
     }
 }
-
 fn year_menu(
     state: PickerSignals,
     view_year: i64,
@@ -1396,7 +1295,6 @@ fn year_menu(
         .collect();
     let first_year = enabled_years.first().copied();
     let last_year = enabled_years.last().copied();
-
     rsx! {
         div {
             class: "md3-date-picker-menu md3-date-picker-menu-years",
@@ -1407,17 +1305,13 @@ fn year_menu(
                     let enabled = year_has_selectable(year, &bounds);
                     let selected = year == view_year;
                     let menu_state = state;
-                    let position = enabled_years
-                        .iter()
-                        .position(|candidate| *candidate == year);
+                    let position = enabled_years.iter().position(|candidate| *candidate == year);
                     let next_year = position
                         .and_then(|index| enabled_years.get(index + 1).copied())
                         .or_else(|| enabled_years.first().copied());
                     let previous_year = position
                         .and_then(|index| {
-                            index
-                                .checked_sub(1)
-                                .and_then(|index| enabled_years.get(index).copied())
+                            index.checked_sub(1).and_then(|index| enabled_years.get(index).copied())
                         })
                         .or_else(|| enabled_years.last().copied());
                     let menu_id = field_id.to_string();
@@ -1427,7 +1321,8 @@ fn year_menu(
                             r#type: "button",
                             class: if selected { "md3-date-picker-menu-item md3-date-picker-menu-item-selected" } else { "md3-date-picker-menu-item" },
                             role: "option",
-                            aria_selected: selected.to_string(),
+                            aria_selected: selected
+                                                                                                                        .to_string(),
                             aria_disabled: (!enabled).to_string(),
                             disabled: !enabled,
                             onclick: move |_| {
@@ -1454,7 +1349,6 @@ fn year_menu(
         }
     }
 }
-
 #[allow(clippy::too_many_arguments)]
 fn month_grid_view(
     field_id: &str,
@@ -1484,7 +1378,6 @@ fn month_grid_view(
     let grid_label = month_label(year, month);
     let key_value = *key_value;
     let key_id = key_id.to_string();
-
     rsx! {
         div { class: "{panel_class}",
             if !primary {
@@ -1516,7 +1409,8 @@ fn month_grid_view(
                         span {
                             class: "md3-date-picker-weekday",
                             role: "columnheader",
-                            aria_label: crate::domain::calendar::WEEKDAY_NAMES[index],
+                            aria_label: crate
+                                                                                                                        ::domain::calendar::WEEKDAY_NAMES[index],
                             "{WEEKDAYS[index]}"
                         }
                     }
@@ -1550,7 +1444,6 @@ fn month_grid_view(
         }
     }
 }
-
 #[allow(clippy::too_many_arguments)]
 fn day_cell(
     field_id: &str,
@@ -1578,7 +1471,6 @@ fn day_cell(
     let in_preview = preview.contains(&date);
     let pending = pending_start.is_some();
     let is_focused = primary && focused == Some(&date);
-
     let mut classes = String::from("md3-date-picker-day");
     if !day.in_month {
         classes.push_str(" md3-date-picker-day-outside");
@@ -1601,7 +1493,6 @@ fn day_cell(
     if pending && !selected_start && !selected_end && (preview_start || preview_end) {
         classes.push_str(" md3-date-picker-day-preview-edge");
     }
-
     let mut label = full_date_label(&date);
     if is_today {
         label = format!("Today, {label}");
@@ -1616,7 +1507,6 @@ fn day_cell(
     if !enabled {
         label = format!("Unavailable, {label}");
     }
-
     let tabindex = if is_focused { "0" } else { "-1" };
     let click_state = state;
     let click_on_change = on_change;
@@ -1626,7 +1516,6 @@ fn day_cell(
     let click_date = date;
     let hover_date = date;
     let focus_date = date;
-
     rsx! {
         button {
             id: "{field_id}-day-{panel}-{date}",
@@ -1637,7 +1526,8 @@ fn day_cell(
             aria_label: "{label}",
             aria_selected: (selected_start || selected_end || in_preview).to_string(),
             aria_current: if is_today { "date" } else { "false" },
-            aria_disabled: (!enabled).to_string(),
+            aria_disabled: (!
+                                                        enabled).to_string(),
             disabled: !enabled,
             onclick: move |_| {
                 click_state
@@ -1653,7 +1543,6 @@ fn day_cell(
         }
     }
 }
-
 fn handle_calendar_key(
     event: KeyboardEvent,
     state: PickerSignals,
@@ -1668,7 +1557,6 @@ fn handle_calendar_key(
     let (view_year, view_month) = state.view_month();
     let (current_year, current_month, current_day) = current.year_month_day();
     let shift = event.modifiers().contains(Modifiers::SHIFT);
-
     let target = match event.key() {
         Key::ArrowLeft => Some(IsoDate::from_epoch_day(current.epoch_day() - 1)),
         Key::ArrowRight => Some(IsoDate::from_epoch_day(current.epoch_day() + 1)),
@@ -1738,14 +1626,12 @@ fn handle_calendar_key(
         }
         _ => None,
     };
-
     if let Some(target) = target {
         event.prevent_default();
         event.stop_propagation();
         state.move_focus(target, bounds);
     }
 }
-
 /// Text announced for screen readers after range changes.
 fn selection_announcement(draft: &DateSelectionDraft, mode: DateSelectionMode) -> String {
     let selection = draft.selection();
@@ -1756,35 +1642,30 @@ fn selection_announcement(draft: &DateSelectionDraft, mode: DateSelectionMode) -
             .map(|date| format!("Date selected: {}.", full_date_label(date)))
             .unwrap_or_else(|| "No date selected.".to_string());
     }
-
     if let Some(start) = draft.pending_start() {
         return format!(
             "Start date selected: {}. Choose an end date.",
-            full_date_label(start)
+            full_date_label(start),
         );
     }
-
     match (&selection.from, &selection.to) {
-        (Some(from), Some(to)) => format!(
-            "Date range selected: {} through {}.",
-            full_date_label(from),
-            full_date_label(to)
-        ),
-        (Some(from), None) => format!("Open-ended range starting {}.", full_date_label(from)),
-        (None, Some(to)) => {
-            format!("Open-ended range ending {}.", full_date_label(to))
+        (Some(from), Some(to)) => {
+            format!(
+                "Date range selected: {} through {}.",
+                full_date_label(from),
+                full_date_label(to),
+            )
         }
+        (Some(from), None) => {
+            format!("Open-ended range starting {}.", full_date_label(from))
+        }
+        (None, Some(to)) => format!("Open-ended range ending {}.", full_date_label(to)),
         (None, None) => "No dates selected.".to_string(),
     }
 }
-
-// Material icon paths (24px viewBox): calendar_month, chevron_left,
-// chevron_right, close, arrow_drop_down.
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn typed_error_waits_for_a_complete_attempt() {
         assert!(!should_show_typed_error("2026-0"));
@@ -1792,7 +1673,6 @@ mod tests {
         assert!(should_show_typed_error("not a date"));
         assert!(should_show_typed_error("2026-01-01 –"));
     }
-
     #[test]
     fn initial_view_uses_today_when_no_value_or_bound_is_available() {
         let today = IsoDate::parse("2026-11-06").unwrap();
@@ -1801,7 +1681,6 @@ mod tests {
         assert_eq!(view, (2026, 11));
         assert_eq!(focus, today);
     }
-
     #[test]
     fn initial_view_prefers_the_selection_month() {
         let today = IsoDate::parse("2026-11-06").unwrap();
@@ -1813,26 +1692,24 @@ mod tests {
         assert_eq!(view, (2024, 2));
         assert_eq!(focus, IsoDate::parse("2024-02-10").unwrap());
     }
-
     #[test]
     fn a_complete_range_applies_immediately() {
         assert!(!selection_is_complete(
             &DateSelection::new(Some(IsoDate::parse("2026-01-01").unwrap()), None),
-            DateSelectionMode::Range
-        ));
+            DateSelectionMode::Range,
+        ),);
         assert!(selection_is_complete(
             &DateSelection::new(
                 Some(IsoDate::parse("2026-01-01").unwrap()),
-                Some(IsoDate::parse("2026-01-31").unwrap())
+                Some(IsoDate::parse("2026-01-31").unwrap()),
             ),
-            DateSelectionMode::Range
-        ));
+            DateSelectionMode::Range,
+        ),);
         assert!(selection_is_complete(
             &DateSelection::single(IsoDate::parse("2026-01-01").unwrap()),
-            DateSelectionMode::Single
-        ));
+            DateSelectionMode::Single,
+        ),);
     }
-
     #[test]
     fn controlled_default_value_wins_when_the_field_is_idle() {
         let selection = DateSelection::new(
@@ -1841,11 +1718,11 @@ mod tests {
         );
         assert_eq!(
             displayed_selection_text(&selection, DateSelectionMode::Range, "", false),
-            "2026-01-01 – 2026-01-31"
+            "2026-01-01 – 2026-01-31",
         );
         assert_eq!(
-            displayed_selection_text(&selection, DateSelectionMode::Range, "2026-02-01", true),
-            "2026-02-01"
+            displayed_selection_text(&selection, DateSelectionMode::Range, "2026-02-01", true,),
+            "2026-02-01",
         );
     }
 }

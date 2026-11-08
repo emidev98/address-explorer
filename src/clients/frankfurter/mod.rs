@@ -7,16 +7,13 @@ pub mod http;
 pub mod providers;
 pub mod rates;
 pub mod types;
-
 pub use config::FrankfurterConfig;
+use coverage::CoverageEndpoints;
 pub use currencies::{Currencies, CurrencyScope};
 pub use error::FrankfurterError;
+use http::HttpClient;
 pub use providers::{ProviderRatesQuery, Providers};
 pub use rates::{Expand, Group, Rates, RatesQuery};
-
-use coverage::CoverageEndpoints;
-use http::HttpClient;
-
 #[derive(Clone)]
 pub struct Frankfurter {
     pub currencies: Currencies,
@@ -24,7 +21,6 @@ pub struct Frankfurter {
     pub providers: Providers,
     pub rates: Rates,
 }
-
 impl Frankfurter {
     /// Creates a client for the Frankfurter exchange-rate API described in
     /// `config`; no API key is required by the public instance.

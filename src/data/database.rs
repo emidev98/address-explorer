@@ -2,23 +2,18 @@
 //!
 //! `Database` owns the single connection behind a mutex so repository calls
 //! stay serialized and blocking work never reaches the UI path.
-
+use super::migrations::run_migrations;
 use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
-
-use super::migrations::run_migrations;
-
 const APP_NAME: &str = "address-explorer";
 const DB_FILE_NAME: &str = "app.db";
-
 #[derive(Debug, Clone)]
 pub struct DatabaseError {
     message: String,
 }
-
 impl DatabaseError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
@@ -26,27 +21,22 @@ impl DatabaseError {
         }
     }
 }
-
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.message)
     }
 }
-
 impl std::error::Error for DatabaseError {}
-
 impl From<rusqlite::Error> for DatabaseError {
     fn from(value: rusqlite::Error) -> Self {
         Self::new(value.to_string())
     }
 }
-
 impl From<std::io::Error> for DatabaseError {
     fn from(value: std::io::Error) -> Self {
         Self::new(value.to_string())
     }
 }
-
 /// Connection metadata and thread-safe ownership wrapper.
 ///
 /// Cloning shares the same mutex-protected connection, so application
@@ -57,7 +47,6 @@ impl From<std::io::Error> for DatabaseError {
 pub struct Database {
     connection: std::sync::Arc<Mutex<Connection>>,
 }
-
 impl Database {
     /// Resolve the database file location.
     ///
@@ -74,7 +63,6 @@ impl Database {
                 return Ok(path);
             }
         }
-
         if cfg!(debug_assertions) {
             let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("target")
@@ -82,15 +70,11 @@ impl Database {
             fs::create_dir_all(&directory)?;
             return Ok(directory.join(DB_FILE_NAME));
         }
-
-        // Keep using a database created by an older build before moving to
-        // the platform application-data directory.
         if let Some(legacy) = dirs::home_dir().map(|home| home.join(APP_NAME).join(DB_FILE_NAME)) {
             if legacy.is_file() {
                 return Ok(legacy);
             }
         }
-
         let directory = dirs::data_dir()
             .or_else(dirs::home_dir)
             .map(|base| base.join(APP_NAME))
@@ -100,7 +84,6 @@ impl Database {
         fs::create_dir_all(&directory)?;
         Ok(directory.join(DB_FILE_NAME))
     }
-
     pub fn open_path(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {
         let mut connection = Connection::open(path)?;
         connection.pragma_update(None, "foreign_keys", true)?;
@@ -110,11 +93,9 @@ impl Database {
             connection: std::sync::Arc::new(Mutex::new(connection)),
         })
     }
-
     pub fn open_default() -> Result<Self, DatabaseError> {
         Self::open_path(Self::default_path()?)
     }
-
     /// Open an in-memory database with schema migrations applied. Seed
     /// migrations are intentionally skipped: they import on-disk reference
     /// datasets, so running them per test would make every database test
@@ -128,18 +109,15 @@ impl Database {
             connection: std::sync::Arc::new(Mutex::new(connection)),
         })
     }
-
     pub fn connection(&self) -> Result<std::sync::MutexGuard<'_, Connection>, DatabaseError> {
         self.connection
             .lock()
             .map_err(|_| DatabaseError::new("database connection lock was poisoned"))
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn dev_default_path_uses_target_db() {
         let path = Database::default_path().unwrap();

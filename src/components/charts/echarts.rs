@@ -4,21 +4,15 @@
 //! and pass the serialized option here. Only this module talks to the ECharts
 //! JavaScript API, so chart components never have to handle initialization,
 //! resizing, updates, or disposal themselves.
-
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use dioxus::prelude::*;
-
+use std::sync::atomic::{AtomicU64, Ordering};
 const ECHARTS_JS: Asset = asset!("/assets/vendor/echarts/echarts.min.js");
 const ECHARTS_LICENSE: Asset = asset!("/assets/vendor/echarts/LICENSE");
 const ECHARTS_D3_LICENSE: Asset = asset!("/assets/vendor/echarts/LICENSE-d3");
-
 static NEXT_CHART_ID: AtomicU64 = AtomicU64::new(1);
-
 fn next_chart_id() -> String {
     format!("echarts-{}", NEXT_CHART_ID.fetch_add(1, Ordering::Relaxed))
 }
-
 /// Render an ECharts option in a responsive container.
 ///
 /// `option` must be a valid ECharts option serialized as JSON. Chart
@@ -37,7 +31,6 @@ pub(crate) fn EChartsHost(
     let height_style = height
         .map(|height| format!("height: {height}; min-height: {height};"))
         .unwrap_or_default();
-
     use_effect(use_reactive((&option,), {
         let chart_id = chart_id.clone();
         let aria_label = aria_label.clone();
@@ -45,14 +38,12 @@ pub(crate) fn EChartsHost(
             document::eval(&render_script(&chart_id, &aria_label, &option));
         }
     }));
-
     use_drop({
         let chart_id = chart_id.clone();
         move || {
             document::eval(&dispose_script(&chart_id));
         }
     });
-
     rsx! {
         document::Script { src: ECHARTS_JS, defer: true }
         document::Link { rel: "license", href: ECHARTS_LICENSE }
@@ -63,18 +54,13 @@ pub(crate) fn EChartsHost(
             style: "{height_style}",
             role: "img",
             aria_label: "{aria_label}",
-            // ECharts replaces `aria-label` with its generated data
-            // description, so this attribute is the stable anchor the lookup
-            // uses after the first render.
             "data-chart-label": "{aria_label}",
         }
     }
 }
-
 fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
     let chart_id = serde_json::to_string(chart_id).unwrap_or_else(|_| "\"\"".to_string());
     let aria_label = serde_json::to_string(aria_label).unwrap_or_else(|_| "\"\"".to_string());
-
     format!(
         r#"
 (() => {{
@@ -367,10 +353,9 @@ fn render_script(chart_id: &str, aria_label: &str, option: &str) -> String {
     }}
   }}, 50);
 }})();
-"#
+"#,
     )
 }
-
 /// Zoom-capable variant of [`EChartsHost`]: identical rendering lifecycle,
 /// plus a persistent eval that forwards debounced ECharts `datazoom` events
 /// to Rust as `(start, end)` percentages of the current axis window. Chart
@@ -386,7 +371,6 @@ pub(crate) fn EChartsZoomHost(
     reset_zoom: u64,
 ) -> Element {
     let chart_id = use_hook(next_chart_id);
-
     use_effect(use_reactive((&option,), {
         let chart_id = chart_id.clone();
         let aria_label = aria_label.clone();
@@ -394,7 +378,6 @@ pub(crate) fn EChartsZoomHost(
             document::eval(&render_script(&chart_id, &aria_label, &option));
         }
     }));
-
     use_effect(use_reactive((&reset_zoom,), {
         let chart_id = chart_id.clone();
         move |(reset_zoom,)| {
@@ -403,11 +386,6 @@ pub(crate) fn EChartsZoomHost(
             }
         }
     }));
-
-    // One persistent eval per chart lifetime: it waits for the chart to
-    // appear in the registry, subscribes to `datazoom`, and stays alive so
-    // the channel keeps delivering. The handlers it captures are Copy
-    // handles (signals, resources), so running once is enough.
     use_effect({
         let chart_id = chart_id.clone();
         move || {
@@ -419,14 +397,12 @@ pub(crate) fn EChartsZoomHost(
             });
         }
     });
-
     use_drop({
         let chart_id = chart_id.clone();
         move || {
             document::eval(&dispose_script(&chart_id));
         }
     });
-
     rsx! {
         document::Script { src: ECHARTS_JS, defer: true }
         document::Link { rel: "license", href: ECHARTS_LICENSE }
@@ -436,20 +412,15 @@ pub(crate) fn EChartsZoomHost(
             class: "md3-chart",
             role: "img",
             aria_label: "{aria_label}",
-            // ECharts replaces `aria-label` with its generated data
-            // description, so this attribute is the stable anchor the lookup
-            // uses after the first render.
             "data-chart-label": "{aria_label}",
         }
     }
 }
-
 /// Subscribe to the chart's `datazoom` events and forward them, debounced, as
 /// `[start, end]` percentages. The trailing never-resolving promise keeps the
 /// eval task alive so its channel stays open for the lifetime of the chart.
 fn zoom_listener_script(chart_id: &str) -> String {
     let chart_id = serde_json::to_string(chart_id).unwrap_or_else(|_| "\"\"".to_string());
-
     format!(
         r#"
 (async () => {{
@@ -487,10 +458,9 @@ fn zoom_listener_script(chart_id: &str) -> String {
 
   await new Promise(() => {{}});
 }})();
-"#
+"#,
     )
 }
-
 /// Restore the chart's visible window to the full span, cancelling any zoom
 /// gesture still sitting in the debounce timer. ECharts applies `inside` and
 /// `slider` zooms client-side before the debounced event reaches Rust, so a
@@ -500,7 +470,6 @@ fn zoom_listener_script(chart_id: &str) -> String {
 /// span, which the Rust side already ignores.
 fn reset_zoom_script(chart_id: &str) -> String {
     let chart_id = serde_json::to_string(chart_id).unwrap_or_else(|_| "\"\"".to_string());
-
     format!(
         r#"
 (() => {{
@@ -522,13 +491,11 @@ fn reset_zoom_script(chart_id: &str) -> String {
   }}
   chart.dispatchAction({{ type: "dataZoom", start: 0, end: 100 }});
 }})();
-"#
+"#,
     )
 }
-
 fn dispose_script(chart_id: &str) -> String {
     let chart_id = serde_json::to_string(chart_id).unwrap_or_else(|_| "\"\"".to_string());
-
     format!(
         r#"
 (() => {{
@@ -564,141 +531,99 @@ fn dispose_script(chart_id: &str) -> String {
   delete registry.elements[id];
   delete registry.options[id];
 }})();
-"#
+"#,
     )
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn render_script_embeds_the_chart_id_and_option() {
         let script = render_script("echarts-7", "Test chart", r#"{"series":[]}"#);
-
         assert!(script.contains(r#"const id = "echarts-7";"#));
         assert!(script.contains(r#"const label = "Test chart";"#));
         assert!(script.contains(r#"const option = {"series":[]};"#));
         assert!(script.trim_start().starts_with("(() => {"));
         assert!(script.trim_end().ends_with("})();"));
     }
-
     #[test]
     fn render_script_anchors_the_lookup_on_the_stable_chart_label() {
         let script = render_script("echarts-7", "Test chart", "{}");
-
-        // Hydrated pages keep the SSR-rendered id, so the client-side id
-        // lookup may miss. `data-chart-label` is stable across both renders
-        // and, unlike `aria-label`, is not rewritten by ECharts' own
-        // accessibility output.
         assert!(script.contains("const findElement = () => {"));
-        assert!(script.contains("candidate.getAttribute(\"data-chart-label\") === label"));
+        assert!(script.contains("candidate.getAttribute(\"data-chart-label\") === label"),);
         assert!(!script.contains("getAttribute(\"aria-label\")"));
     }
-
     #[test]
     fn render_script_caches_the_element_so_later_options_reach_the_chart() {
         let script = render_script("echarts-7", "Test chart", "{}");
-
-        // Refreshed data must update the chart that already exists, so the
-        // element resolved for a chart is remembered between option updates.
         assert!(script.contains("const known = registry.elements[id];"));
         assert!(script.contains("registry.elements[id] = element;"));
     }
-
     #[test]
     fn render_script_resolves_theme_color_tokens_against_a_probe_element() {
         let script = render_script("echarts-7", "Test chart", "{}");
-
-        // Tokens are `var(--md-sys-color-*)` strings with an optional
-        // `~alpha` suffix, resolved through the computed `color` of a hidden
-        // probe element so `light-dark()` and `var()` chains become
-        // canvas-ready `rgb()` values.
-        assert!(script.contains("const MD3_TOKEN = /^var\\((--[\\w-]+)(?:~([0-9.]+))?\\)$/;"));
+        assert!(script.contains("const MD3_TOKEN = /^var\\((--[\\w-]+)(?:~([0-9.]+))?\\)$/;"),);
         assert!(script.contains("const resolveThemeColors = (node) => {"));
         assert!(script.contains("probe.style.display = \"none\";"));
         assert!(script.contains("getComputedStyle(registry.probe).color"));
         assert!(script.contains("resolveThemeColors(resolveThemeFonts("));
     }
-
     #[test]
     fn render_script_resolves_theme_font_tokens_against_a_probe_element() {
         let script = render_script("echarts-7", "Test chart", "{}");
-
-        // Font tokens are resolved through a hidden probe's computed
-        // `fontFamily`, because canvas text does not inherit document fonts.
         assert!(script.contains("const FONT_TOKEN = /^var\\((--[\\w-]+)\\)$/;"));
         assert!(script.contains("const resolveThemeFonts = (node) => {"));
         assert!(script.contains("getComputedStyle(registry.fontProbe).fontFamily"));
         assert!(script.contains("key === \"fontFamily\""));
         assert!(script.contains("document.fonts.ready.then"));
     }
-
     #[test]
     fn render_script_resolves_declarative_tooltip_formatters() {
         let script = render_script("echarts-7", "Funds flow", "{}");
-
         assert!(script.contains(r#""@flow-tooltip": (params) =>"#));
         assert!(script.contains("typeof data.tooltipText"));
         assert!(script.contains(r#"key === "formatter""#));
     }
-
     #[test]
     fn render_script_resolves_declarative_value_formatters() {
         let script = render_script("echarts-7", "Price trend", "{}");
-
         assert!(script.contains(r#""@two-decimals": (value) => {"#));
         assert!(script.contains("number.toFixed(2)"));
         assert!(script.contains("const resolveValueFormatters = (node) => {"));
         assert!(script.contains(r#"key === "valueFormatter""#));
     }
-
     #[test]
     fn render_script_reapplies_options_when_the_theme_changes() {
         let script = render_script("echarts-7", "Test chart", "{}");
-
         assert!(script.contains("new MutationObserver(reapplyTheme)"));
         assert!(script.contains("attributeFilter: [\"data-theme\", \"data-mode\"]"));
         assert!(!script.contains("prefers-color-scheme"));
     }
-
     #[test]
     fn dispose_script_embeds_the_chart_id() {
         let script = dispose_script("echarts-7");
-
         assert!(script.contains(r#"const id = "echarts-7";"#));
         assert!(script.contains("chart.dispose();"));
         assert!(script.contains("delete registry.elements[id];"));
     }
-
     #[test]
     fn zoom_listener_script_subscribes_and_forwards_debounced_events() {
         let script = zoom_listener_script("echarts-9");
-
         assert!(script.contains(r#"const id = "echarts-9";"#));
         assert!(script.contains(r#"chart.on("datazoom""#));
         assert!(script.contains("dioxus.send([start, end])"));
-        // The debounce timer lives in the registry so the reset-zoom script
-        // can cancel a gesture still pending when the reset arrives.
         assert!(script.contains("clearTimeout(registry.debounces[id])"));
         assert!(script.contains("registry.debounces[id] = setTimeout("));
-        // The task stays alive so the channel keeps delivering.
         assert!(script.contains("await new Promise(() => {});"));
     }
-
     #[test]
     fn reset_zoom_script_cancels_pending_gestures_and_restores_the_full_span() {
         let script = reset_zoom_script("echarts-9");
-
         assert!(script.contains(r#"const id = "echarts-9";"#));
-        // A gesture still sitting in the debounce timer must never reach
-        // Rust: it would re-apply the window the reset just left.
         assert!(script.contains("clearTimeout(registry.debounces[id])"));
         assert!(script.contains("delete registry.debounces[id]"));
-        // The visible window returns to the full span even when the option
-        // does not change, so no `setOption` would restore it otherwise.
         assert!(
-            script.contains(r#"chart.dispatchAction({ type: "dataZoom", start: 0, end: 100 });"#)
+            script.contains(r#"chart.dispatchAction({ type: "dataZoom", start: 0, end: 100 });"#,),
         );
     }
 }

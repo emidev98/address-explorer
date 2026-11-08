@@ -1,8 +1,6 @@
 use super::*;
-
 /// Owned future produced by a fetcher closure.
 type FetchFuture = Pin<Box<dyn Future<Output = Result<f64, PriceServiceError>> + Send>>;
-
 /// Daily BTC/USD close unavailable in the table: asks `fetch_usd` exactly
 /// once for the calendar day of the request and remembers the answer.
 async fn usd_close_at(
@@ -26,7 +24,6 @@ async fn usd_close_at(
     )?;
     Ok(close)
 }
-
 /// Resolve the BTC price in `symbol` at `timestamp` (UTC seconds).
 ///
 /// Resolution order for the bucketed close time:
@@ -55,13 +52,11 @@ pub async fn resolve_price(
     if timestamp <= 0 {
         return Err(PriceError::InvalidTimestamp(timestamp).into());
     }
-
     let bucket = if timestamp <= CSV_COVERAGE_END {
         fifteen_minute_close_time(timestamp)
     } else {
         daily_close_time(timestamp)
     };
-
     if timestamp > CSV_COVERAGE_END {
         if let Some(price) = price_repository::find_latest_price_between(
             database,
@@ -69,22 +64,16 @@ pub async fn resolve_price(
             timestamp - GRANULAR_RESOLUTION_LOOKBACK,
             timestamp,
         )? {
-            // Only a sub-daily observation outranks the daily bucket; a daily
-            // close from just before midnight must not replace the close of
-            // the requested day.
             if price.close_time != daily_close_time(price.close_time) {
                 return Ok(price);
             }
         }
     }
-
     if let Some(price) = price_repository::find_price(database, &symbol, bucket)? {
         return Ok(price);
     }
-
     let day_close_time = daily_close_time(timestamp);
     let date = civil_time::format_date(timestamp);
-
     if bucket != day_close_time {
         if let Some(price) = price_repository::find_price(database, &symbol, day_close_time)? {
             let price = Price {
@@ -95,7 +84,6 @@ pub async fn resolve_price(
             return Ok(price);
         }
     }
-
     let usd_close = usd_close_at(database, day_close_time, &date, fetch_usd).await?;
     let close = if symbol == USD_SYMBOL {
         usd_close
@@ -104,7 +92,6 @@ pub async fn resolve_price(
         validate_price_value(rate, &symbol, "Frankfurter USD rate")?;
         usd_close * rate
     };
-
     price_repository::store_price(
         database,
         &Price {
@@ -121,7 +108,6 @@ pub async fn resolve_price(
     price_repository::store_price(database, &price)?;
     Ok(price)
 }
-
 /// Largest page the listing endpoint serves; bigger requests are clamped
 /// instead of rejected so a misbehaving client cannot force a full-table
 /// Resolve the most recent BTC price in `symbol`.

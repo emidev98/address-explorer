@@ -1,12 +1,10 @@
 use crate::clients::mempool::error::MempoolError;
 use crate::clients::mempool::http::HttpClient;
 use crate::clients::mempool::liquid::types::{Tx, TxMerkleProof, TxOutspend, TxStatus};
-
 #[derive(Clone)]
 pub struct Transactions {
     http: HttpClient,
 }
-
 impl Transactions {
     pub fn new(http: HttpClient) -> Self {
         Self { http }

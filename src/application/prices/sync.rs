@@ -1,5 +1,4 @@
 use super::*;
-
 /// Availability of the BTC/USD series reported by the Coin Metrics catalogue.
 #[derive(Debug, Clone, Default)]
 pub struct BtcUsdCoverage {
@@ -9,7 +8,6 @@ pub struct BtcUsdCoverage {
     /// Finer reference-rate frequencies the source serves.
     pub reference: Vec<ReferenceCoverage>,
 }
-
 /// Time span of one finer reference-rate frequency.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReferenceCoverage {
@@ -18,7 +16,6 @@ pub struct ReferenceCoverage {
     pub min_time: i64,
     pub max_time: i64,
 }
-
 impl BtcUsdCoverage {
     /// Assumed coverage when the catalogue cannot be reached: the documented
     /// first daily day and the last seven days at both finer frequencies.
@@ -40,7 +37,6 @@ impl BtcUsdCoverage {
             ],
         }
     }
-
     /// Intersection of `[from_time, to_time]` with the coverage of the
     /// frequency behind `granularity`, when one exists.
     fn reference_window(
@@ -59,7 +55,6 @@ impl BtcUsdCoverage {
         (start <= end).then_some((start, end))
     }
 }
-
 /// Intraday stage resolved for one run of the unified sync.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PriceSyncPlan {
@@ -71,7 +66,6 @@ pub struct PriceSyncPlan {
     pub granular_from: Option<i64>,
     pub granular_to: Option<i64>,
 }
-
 impl PriceSyncPlan {
     pub(crate) fn daily(first_day: i64) -> Self {
         Self {
@@ -81,12 +75,10 @@ impl PriceSyncPlan {
             granular_to: None,
         }
     }
-
     fn granular_window(self) -> Option<(i64, i64)> {
         self.granular_from.zip(self.granular_to)
     }
 }
-
 /// Resolve the requested granularity against the source coverage.
 ///
 /// `Auto` walks the options from the finest to the coarsest and keeps the
@@ -106,7 +98,6 @@ pub fn plan_price_sync(
     if from > to || requested == SyncGranularity::Daily {
         return PriceSyncPlan::daily(first_day);
     }
-
     let candidates: Vec<SyncGranularity> = match requested {
         SyncGranularity::Auto => {
             vec![SyncGranularity::FifteenMinutes, SyncGranularity::Hourly]
@@ -123,7 +114,6 @@ pub fn plan_price_sync(
             };
         }
     }
-
     if requested.is_intraday() {
         PriceSyncPlan {
             granularity: requested,
@@ -135,7 +125,6 @@ pub fn plan_price_sync(
         PriceSyncPlan::daily(first_day)
     }
 }
-
 /// Sources the unified sync calls. Closures keep the network out of the
 /// orchestration so the workflow is testable without HTTP.
 pub struct PriceSyncSources<'a> {
@@ -143,7 +132,6 @@ pub struct PriceSyncSources<'a> {
     pub reference: &'a (dyn Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync),
     pub fx_series: &'a (dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync),
 }
-
 /// Synchronize the stored BTC price history of `symbol` for `[from_time,
 /// to_time]`.
 ///
@@ -182,21 +170,19 @@ pub async fn sync_prices_range(
         return Err(PriceError::InvalidData(format!(
             "the start of the sync range ({}) must not be after its end ({})",
             civil_time::format_date(from_time),
-            civil_time::format_date(to_time)
+            civil_time::format_date(to_time),
         ))
         .into());
     }
-
     let range_start = from_time.max(plan.first_day);
     let range_end = to_time.min(now);
     if range_start > range_end {
         return Err(PriceError::InvalidData(format!(
             "the sync range ends before the first day the source serves ({})",
-            civil_time::format_date(plan.first_day)
+            civil_time::format_date(plan.first_day),
         ))
         .into());
     }
-
     let mut summary = PriceSyncSummary {
         symbol: symbol.clone(),
         from_time: range_start,
@@ -212,9 +198,6 @@ pub async fn sync_prices_range(
         conversion: None,
         warnings: Vec::new(),
     };
-
-    // Daily stage: the reference series and the floor every other value
-    // derives from.
     let mut daily = (sources.daily)(range_start, range_end).await?;
     daily.retain(|price| {
         price.close_time >= daily_close_time(range_start)
@@ -228,9 +211,6 @@ pub async fn sync_prices_range(
     daily.dedup_by_key(|price| price.close_time);
     summary.daily_fetched = daily.len() as u64;
     summary.daily_stored = price_repository::store_prices_bulk(database, &daily)?;
-
-    // The in-progress day has no published daily close yet, so it is not
-    // counted as unavailable.
     let complete_through = range_end.min(civil_time::start_of_day(now) - 1);
     let fetched_complete = daily
         .iter()
@@ -238,8 +218,6 @@ pub async fn sync_prices_range(
         .count() as u64;
     summary.unavailable_days =
         count_daily_closes(range_start, complete_through).saturating_sub(fetched_complete);
-
-    // Intraday stage: only the newest slice of the range has a finer source.
     if let Some((granular_from, granular_to)) = plan.granular_window() {
         let frequency = plan
             .granularity
@@ -268,39 +246,34 @@ pub async fn sync_prices_range(
             Err(error @ PriceServiceError::Database(_)) => return Err(error),
             Err(error) => summary.warnings.push(format!(
                 "Could not fetch {} closes: {error}",
-                plan.granularity.resolution_label()
+                plan.granularity.resolution_label(),
             )),
         }
     } else if plan.granularity.is_intraday() {
         summary.warnings.push(format!(
             "No {} closes are available for the selected range; only daily closes were synced.",
-            plan.granularity.resolution_label()
+            plan.granularity.resolution_label(),
         ));
     }
-
-    // Conversion stage: every stored USD close time of the range, including
-    // the rows the stages above just inserted.
     if symbol != USD_SYMBOL {
         match sync_prices_bulk(database, &symbol, range_start, range_end, sources.fx_series).await {
             Ok(bulk) => {
                 if bulk.skipped > 0 {
                     summary.warnings.push(format!(
                         "{} source prices had no FX rate for their day and were skipped.",
-                        bulk.skipped
+                        bulk.skipped,
                     ));
                 }
                 summary.conversion = Some(bulk);
             }
             Err(error @ PriceServiceError::Database(_)) => return Err(error),
             Err(error) => summary.warnings.push(format!(
-                "Could not convert the stored prices into {symbol}: {error}"
+                "Could not convert the stored prices into {symbol}: {error}",
             )),
         }
     }
-
     Ok(summary)
 }
-
 /// Map reference-rate rows to stored USD observations.
 ///
 /// The source timestamps each observation at the start of its interval; the
@@ -322,7 +295,6 @@ pub(crate) fn reference_prices(granularity: SyncGranularity, rows: Vec<(i64, f64
         })
         .collect()
 }
-
 /// Number of daily close times (`23:59:59` UTC) within `[from_time,
 /// through]`, counting the close of the day containing `from_time`.
 fn count_daily_closes(from_time: i64, through: i64) -> u64 {

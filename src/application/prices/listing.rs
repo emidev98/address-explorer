@@ -1,10 +1,8 @@
 use super::*;
-
 /// Largest page the listing endpoint serves; bigger requests are clamped
 /// instead of rejected so a misbehaving client cannot force a full-table
 /// scan into one response.
 pub const MAX_PAGE_SIZE: u32 = 100;
-
 /// Read one page of the stored history of `symbol` matching `query` — the
 /// shared table contract of pagination and sorting — bounded to
 /// `[from_time, to_time]` (a bound of `0` or less leaves that side open).
@@ -31,7 +29,6 @@ pub fn list_price_page(
             query.sort_dir,
         )),
     };
-
     let items = price_repository::list_prices(
         database,
         &price_repository::PriceListQuery {
@@ -46,11 +43,9 @@ pub fn list_price_page(
     let total = price_repository::count_prices(database, &symbol, from_time, to_time)?;
     Ok(PricePage { items, total })
 }
-
 /// Number of time buckets a series request is downsampled into at most, so a
 /// chart never receives more points than it can meaningfully draw.
 pub const SERIES_MAX_POINTS: i64 = 1000;
-
 /// Read the stored price series of `symbol` for the trend chart: the full
 /// span of the history plus the closes of `[from_time, to_time]` (bounds of
 /// `0` or less fall back to the full span), downsampled to at most
@@ -70,14 +65,12 @@ pub fn price_series(
     let Some((first, last)) = price_repository::price_series_range(database, &symbol)? else {
         return Ok(None);
     };
-
     let from = if from_time > 0 {
         from_time.max(first)
     } else {
         first
     };
     let to = if to_time > 0 { to_time.min(last) } else { last };
-
     let points = if from <= to {
         let span = to - from + 1;
         let bucket_width = (span + SERIES_MAX_POINTS - 1) / SERIES_MAX_POINTS;
@@ -85,14 +78,12 @@ pub fn price_series(
     } else {
         Vec::new()
     };
-
     Ok(Some(PriceSeries {
         first_close_time: first,
         last_close_time: last,
         points,
     }))
 }
-
 /// Update the close of a stored price after validating the input like any
 /// external value. A missing `(symbol, close_time)` row is a not-found
 /// failure, never an insert: editing must not create history.
@@ -107,7 +98,6 @@ pub fn update_stored_price(
         return Err(PriceError::InvalidTimestamp(close_time).into());
     }
     let close = validate_price_value(close, &symbol, "manual price edit")?;
-
     let price = Price {
         symbol,
         close_time,
@@ -122,7 +112,6 @@ pub fn update_stored_price(
     }
     Ok(price)
 }
-
 /// Delete every stored price at the given close times in one batch.
 ///
 /// A close time identifies a whole price snapshot: every symbol stored at that
@@ -147,7 +136,6 @@ pub fn delete_stored_prices(
     }
     Ok(price_repository::delete_prices(database, &close_times)?)
 }
-
 /// Read the stored prices of the other symbols at the same close time: the
 /// conversions displayed when hovering a row of the historical prices table.
 /// Like [`list_price_page`], this is a pure read of the table.

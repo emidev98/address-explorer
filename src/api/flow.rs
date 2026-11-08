@@ -1,18 +1,14 @@
 //! Funds-flow endpoints.
-
-use dioxus::prelude::*;
-
+#[cfg(feature = "server")]
+use super::open_database;
+#[cfg(feature = "server")]
+use crate::application::flow::FlowService;
 use crate::domain::flow::{
     FlowEvidenceQuery, FlowEvidenceRow, FlowFilterOptions, FlowLinkTableQuery, FlowOverview,
     FlowQuery,
 };
 use crate::domain::table::TablePage;
-
-#[cfg(feature = "server")]
-use super::open_database;
-#[cfg(feature = "server")]
-use crate::application::flow::FlowService;
-
+use dioxus::prelude::*;
 #[server]
 #[get("/api/flow/filter-options")]
 pub async fn flow_filter_options_api() -> Result<FlowFilterOptions, ServerFnError> {
@@ -20,7 +16,6 @@ pub async fn flow_filter_options_api() -> Result<FlowFilterOptions, ServerFnErro
         .filter_options()
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/flow/overview")]
 pub async fn flow_overview_api(query: FlowQuery) -> Result<FlowOverview, ServerFnError> {
@@ -28,7 +23,6 @@ pub async fn flow_overview_api(query: FlowQuery) -> Result<FlowOverview, ServerF
         .overview(&query)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/flow/links")]
 pub async fn flow_link_table_api(
@@ -38,7 +32,6 @@ pub async fn flow_link_table_api(
         .link_table(&query)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 #[server]
 #[post("/api/flow/links/evidence")]
 pub async fn flow_link_evidence_api(

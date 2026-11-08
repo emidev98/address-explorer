@@ -1,12 +1,10 @@
 use crate::clients::mempool::error::MempoolError;
 use crate::clients::mempool::http::HttpClient;
 use crate::clients::mempool::liquid::types::{Mempool as MempoolInfo, MempoolRecent};
-
 #[derive(Clone)]
 pub struct MempoolEndpoints {
     http: HttpClient,
 }
-
 impl MempoolEndpoints {
     pub fn new(http: HttpClient) -> Self {
         Self { http }

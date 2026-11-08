@@ -17,7 +17,7 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
 1. **Prerequisites**
    - Rust (latest stable)
    - Cargo
-   - Dioxus CLI (if running locally)
+   - Dioxus CLI (version matching the pinned Dioxus dependency)
 
 2. **Clone the repository**
    ```bash
@@ -32,10 +32,10 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
 
 Or to build for production:
 ```bash
-cargo build --release
+dx build --release
 ```
 
-Then run the compiled binary.
+The CLI prints the location of the built application.
 
 ## Development
 

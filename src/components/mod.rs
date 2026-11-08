@@ -26,7 +26,6 @@ mod sync_prices_dialog;
 mod table_controls;
 pub mod theme;
 mod toast;
-
 pub use app_shell::AppShell;
 pub use catalog::{
     catalog_delete_summary_message, CatalogCategoriesDialog, CatalogDeleteDialog,
@@ -62,4 +61,4 @@ pub use table_controls::{
     use_table_selection, use_table_state, SortableHeader, TablePagination, TableSelection,
     TableSelectionCell, TableSelectionHeader, TableState,
 };
-pub use toast::{provide_toast, use_toast, Toast, ToastHost, ToastKind};
+pub use toast::{use_toast, use_toast_provider, Toast, ToastHost, ToastKind};

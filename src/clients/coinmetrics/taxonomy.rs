@@ -3,7 +3,6 @@ use crate::clients::coinmetrics::http::HttpClient;
 use crate::clients::coinmetrics::params::{comma_separated, Page};
 use crate::clients::coinmetrics::types::{ListResponse, TaxonomyAsset, TaxonomyMetadataAsset};
 use serde::Serialize;
-
 /// Filters for `/taxonomy/assets`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TaxonomyAssetsQuery {
@@ -41,7 +40,6 @@ pub struct TaxonomyAssetsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/taxonomy-metadata/assets`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TaxonomyMetadataQuery {
@@ -58,18 +56,15 @@ pub struct TaxonomyMetadataQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Asset taxonomy classification and taxonomy metadata endpoints.
 #[derive(Clone)]
 pub struct Taxonomy {
     http: HttpClient,
 }
-
 impl Taxonomy {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     /// Returns the taxonomy classification of assets.
     pub async fn get_assets(
         &self,
@@ -77,7 +72,6 @@ impl Taxonomy {
     ) -> Result<ListResponse<TaxonomyAsset>, CoinMetricsError> {
         self.http.get_query("/taxonomy/assets", &query).await
     }
-
     /// Returns taxonomy versions and their subsector metadata.
     pub async fn get_metadata(
         &self,

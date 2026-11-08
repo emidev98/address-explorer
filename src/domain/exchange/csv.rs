@@ -1,21 +1,15 @@
 #![cfg_attr(not(feature = "server"), allow(dead_code))]
-
 //! Exchange CSV parsing.
 //!
 //! The parser is deliberately independent from HTTP, SQLite, and Dioxus so
 //! the same rules can be unit-tested and reused by the import service. All
 //! naive timestamps are interpreted as UTC.
-
-use std::collections::BTreeMap;
-
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-
 use super::{ExchangeTxType, ImportDataMapping};
 #[allow(unused_imports)]
 pub use crate::domain::csv::{parse_csv_text, CsvDocument};
-
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use std::collections::BTreeMap;
 const SATOSHIS_PER_BTC: f64 = 100_000_000.0;
-
 /// One parsed ledger row before it is stored.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedExchangeTx {
@@ -36,14 +30,12 @@ pub struct ParsedExchangeTx {
     pub description: Option<String>,
     pub raw_data: BTreeMap<String, String>,
 }
-
 /// Stable parser identity shown by the import dialog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParserInfo {
     pub id: &'static str,
     pub name: &'static str,
 }
-
 /// Built-in CSV formats in detection priority order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParserKind {
@@ -57,7 +49,6 @@ pub enum ParserKind {
     Bybit,
     GenericTrade,
 }
-
 impl ParserKind {
     pub const ALL: [Self; 9] = [
         Self::CryptoCom,
@@ -70,7 +61,6 @@ impl ParserKind {
         Self::Bybit,
         Self::GenericTrade,
     ];
-
     pub fn info(self) -> ParserInfo {
         match self {
             Self::CryptoCom => ParserInfo {
@@ -112,12 +102,10 @@ impl ParserKind {
         }
     }
 }
-
 /// Whether an asset code is Bitcoin in either common spelling.
 pub fn is_bitcoin_currency(currency: &str) -> bool {
     matches!(currency.trim().to_ascii_uppercase().as_str(), "BTC" | "XBT")
 }
-
 /// Normalize a source amount: Bitcoin rows become integer satoshis.
 pub fn normalize_amount(amount: f64, currency: &str) -> f64 {
     if is_bitcoin_currency(currency) {
@@ -126,14 +114,12 @@ pub fn normalize_amount(amount: f64, currency: &str) -> f64 {
         amount
     }
 }
-
 /// Storage units of a fee: satoshis when `fee_currency` is BTC/XBT, the
 /// currency's own units otherwise. This is the single conversion applied at
 /// every import and save boundary.
 pub fn normalize_fee(fee: Option<f64>, fee_currency: Option<&str>) -> Option<f64> {
     fee.map(|value| normalize_amount(value, fee_currency.unwrap_or_default()))
 }
-
 /// Deterministic duplicate identity of one ledger row.
 pub fn build_fingerprint(
     timestamp: i64,
@@ -153,16 +139,14 @@ pub fn build_fingerprint(
     format!(
         "{timestamp}_{amount}_{}_{}",
         currency.trim().to_ascii_uppercase(),
-        tx_type.as_str()
+        tx_type.as_str(),
     )
 }
-
 fn has_headers(headers: &[String], required: &[&str]) -> bool {
     required
         .iter()
         .all(|required| headers.iter().any(|header| header == required))
 }
-
 /// Detect a built-in parser from its required headers.
 pub fn detect_parser(headers: &[String]) -> Option<ParserKind> {
     ParserKind::ALL.into_iter().find(|parser| {
@@ -190,7 +174,6 @@ pub fn detect_parser(headers: &[String]) -> Option<ParserKind> {
         has_headers(headers, required)
     })
 }
-
 /// Parse rows with one of the built-in formats.
 pub fn parse_rows(kind: ParserKind, rows: &[BTreeMap<String, String>]) -> Vec<ParsedExchangeTx> {
     rows.iter()
@@ -207,7 +190,6 @@ pub fn parse_rows(kind: ParserKind, rows: &[BTreeMap<String, String>]) -> Vec<Pa
         })
         .collect()
 }
-
 /// Parse rows with a user-defined mapping.
 pub fn parse_manual_rows(
     rows: &[BTreeMap<String, String>],
@@ -265,7 +247,6 @@ pub fn parse_manual_rows(
         })
         .collect()
 }
-
 fn value(row: &BTreeMap<String, String>, key: &str) -> Option<String> {
     if key.trim().is_empty() {
         return None;
@@ -274,15 +255,12 @@ fn value(row: &BTreeMap<String, String>, key: &str) -> Option<String> {
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
 }
-
 fn optional_field(row: &BTreeMap<String, String>, key: &str) -> Option<String> {
     value(row, key)
 }
-
 fn optional_field_number(row: &BTreeMap<String, String>, key: &str) -> Option<f64> {
     value(row, key).and_then(|value| parse_number(&value))
 }
-
 fn parse_number(raw: &str) -> Option<f64> {
     let cleaned = raw
         .trim()
@@ -295,11 +273,9 @@ fn parse_number(raw: &str) -> Option<f64> {
         .ok()
         .filter(|value| value.is_finite())
 }
-
 fn row_timestamp(row: &BTreeMap<String, String>, key: &str) -> Option<i64> {
     parse_timestamp_with_optional_format(value(row, key)?.as_str(), None)
 }
-
 /// Accept both chrono strftime formats and the dayjs-style tokens used by
 /// UTXO Utils (`YYYY-MM-DD HH:mm:ss`). A format containing `%` is treated as
 /// chrono unchanged.
@@ -343,7 +319,6 @@ fn translate_dayjs_format(format: &str) -> String {
     }
     translated
 }
-
 fn parse_timestamp_with_optional_format(raw: &str, format: Option<&str>) -> Option<i64> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -379,7 +354,6 @@ fn parse_timestamp_with_optional_format(raw: &str, format: Option<&str>) -> Opti
     }
     None
 }
-
 fn generic_trade_timestamp(raw: &str) -> Option<i64> {
     let normalized = pad_single_digit_day(raw);
     for format in [
@@ -393,16 +367,12 @@ fn generic_trade_timestamp(raw: &str) -> Option<i64> {
     }
     parse_timestamp_with_optional_format(raw, None)
 }
-
 fn pad_single_digit_day(raw: &str) -> String {
-    // "Jul 5, 2023, 08:00:00 AM" / "Jul 05, 2023..." are both accepted by
-    // chrono's `%d`, so only collapse repeated whitespace here.
     raw.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .replace(" ,", ",")
 }
-
 fn normalise_type(raw: &str) -> ExchangeTxType {
     let lower = raw.trim().to_ascii_lowercase();
     if lower.contains("purchase") || lower.contains("buy") {
@@ -423,7 +393,6 @@ fn normalise_type(raw: &str) -> ExchangeTxType {
         ExchangeTxType::Unknown
     }
 }
-
 fn parse_crypto_com(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     let timestamp = row_timestamp(row, "Timestamp (UTC)")?;
     let currency = value(row, "Currency")
@@ -487,7 +456,6 @@ fn parse_crypto_com(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> 
         raw_data: row.clone(),
     })
 }
-
 fn parse_revolut(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     if let Some(state) = value(row, "State") {
         if !state.eq_ignore_ascii_case("COMPLETED") {
@@ -536,7 +504,6 @@ fn parse_revolut(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
         raw_data: row.clone(),
     })
 }
-
 fn parse_binance(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     let timestamp = row_timestamp(row, "UTC_Time")?;
     let currency = value(row, "Coin").unwrap_or_default().to_ascii_uppercase();
@@ -598,7 +565,6 @@ fn parse_binance(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
         raw_data: row.clone(),
     })
 }
-
 fn parse_kraken(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     let timestamp = row_timestamp(row, "time")?;
     let raw_asset = value(row, "asset").unwrap_or_default();
@@ -646,7 +612,6 @@ fn parse_kraken(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
         raw_data: row.clone(),
     })
 }
-
 fn normalise_kraken_asset(asset: &str) -> String {
     match asset.trim() {
         "XXBT" | "XBT" => "BTC".to_string(),
@@ -663,7 +628,6 @@ fn normalise_kraken_asset(asset: &str) -> String {
         other => other.to_ascii_uppercase(),
     }
 }
-
 fn parse_coinbase(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     let timestamp = row_timestamp(row, "Timestamp")?;
     let tx_type_raw = value(row, "Transaction Type").unwrap_or_default();
@@ -708,7 +672,6 @@ fn parse_coinbase(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
         raw_data: row.clone(),
     })
 }
-
 fn parse_okx(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     let timestamp = row_timestamp(row, "Time")?;
     let currency = value(row, "Currency")
@@ -768,7 +731,6 @@ fn parse_okx(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
         raw_data: row.clone(),
     })
 }
-
 fn parse_bitget(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     if let Some(status) = value(row, "Status") {
         let status = status.to_ascii_lowercase();
@@ -810,7 +772,6 @@ fn parse_bitget(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
         raw_data: row.clone(),
     })
 }
-
 fn parse_bybit(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     let timestamp = row_timestamp(row, "Date(UTC)")?;
     let currency = value(row, "Asset").unwrap_or_default().to_ascii_uppercase();
@@ -861,7 +822,6 @@ fn parse_bybit(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
         raw_data: row.clone(),
     })
 }
-
 fn parse_generic_trade(row: &BTreeMap<String, String>) -> Option<ParsedExchangeTx> {
     let timestamp = generic_trade_timestamp(value(row, "Date")?.as_str())?;
     let currency = value(row, "Symbol")
@@ -901,14 +861,11 @@ fn parse_generic_trade(row: &BTreeMap<String, String>) -> Option<ParsedExchangeT
         raw_data: row.clone(),
     })
 }
-
 fn parse_money(raw: &str) -> (Option<f64>, Option<String>) {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return (None, None);
     }
-    // Ordered like the UTXO Utils symbol map so multi-character symbols win
-    // over the bare dollar sign.
     const SYMBOLS: &[(&str, &str)] = &[
         ("₿", "BTC"),
         ("BTC", "BTC"),
@@ -947,15 +904,12 @@ fn parse_money(raw: &str) -> (Option<f64>, Option<String>) {
         .collect();
     (amount.parse::<f64>().ok(), symbol)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn headers(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
     }
-
     #[test]
     fn detects_all_builtin_parsers() {
         let cases = [
@@ -1011,7 +965,6 @@ mod tests {
         }
         assert_eq!(detect_parser(&headers(&["Unknown"])), None);
     }
-
     #[test]
     fn binance_signed_change_and_operation_are_mapped() {
         let row = BTreeMap::from([
@@ -1027,7 +980,6 @@ mod tests {
         assert_eq!(parsed.amount, 50_000_000.0);
         assert_eq!(parsed.currency, "BTC");
     }
-
     #[test]
     fn coinbase_outgoing_rows_are_negative() {
         let row = BTreeMap::from([
@@ -1041,7 +993,6 @@ mod tests {
         assert_eq!(parsed.tx_type, ExchangeTxType::Withdrawal);
         assert_eq!(parsed.amount, -25_000_000.0);
     }
-
     #[test]
     fn manual_mapping_parses_optional_fields_and_timestamp_format() {
         let row = BTreeMap::from([
@@ -1068,12 +1019,9 @@ mod tests {
         };
         let parsed = parse_manual_rows(&[row], &mapping).remove(0);
         assert_eq!(parsed.amount, 10_000_000.0);
-        // Parsers keep the source unit; the import boundary normalizes BTC
-        // fees to satoshis with `normalize_fee`.
         assert_eq!(parsed.fee, Some(0.0001));
         assert_eq!(parsed.fiat_currency.as_deref(), Some("EUR"));
     }
-
     #[test]
     fn generic_trade_dates_and_money_symbols_parse() {
         let row = BTreeMap::from([
@@ -1093,7 +1041,6 @@ mod tests {
         assert_eq!(parsed.fee, Some(10.0));
         assert_eq!(parsed.fee_currency.as_deref(), Some("EUR"));
     }
-
     #[test]
     fn generic_trade_detects_btc_fee_money() {
         let row = BTreeMap::from([
@@ -1110,10 +1057,9 @@ mod tests {
         assert_eq!(parsed.fee_currency.as_deref(), Some("BTC"));
         assert_eq!(
             normalize_fee(parsed.fee, parsed.fee_currency.as_deref()),
-            Some(10_000.0)
+            Some(10_000.0),
         );
     }
-
     #[test]
     fn fee_normalization_is_btc_only() {
         assert_eq!(normalize_fee(Some(0.0001), Some("BTC")), Some(10_000.0));
@@ -1122,7 +1068,6 @@ mod tests {
         assert_eq!(normalize_fee(Some(2.5), None), Some(2.5));
         assert_eq!(normalize_fee(None, Some("BTC")), None);
     }
-
     #[test]
     fn manual_mapping_accepts_dayjs_style_timestamp_formats() {
         let row = BTreeMap::from([
@@ -1148,16 +1093,15 @@ mod tests {
         assert_eq!(normalize_amount(0.00000001, "BTC"), 1.0);
         assert!(is_bitcoin_currency("xbt"));
     }
-
     #[test]
     fn hashes_are_the_preferred_fingerprint() {
         assert_eq!(
             build_fingerprint(1, 2.0, "BTC", ExchangeTxType::Deposit, Some(" abc ")),
-            "txhash:abc"
+            "txhash:abc",
         );
         assert_eq!(
             build_fingerprint(1, 2.0, "btc", ExchangeTxType::Deposit, None),
-            "1_2_BTC_deposit"
+            "1_2_BTC_deposit",
         );
     }
 }

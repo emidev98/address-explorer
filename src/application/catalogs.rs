@@ -1,8 +1,5 @@
 //! Catalog service: CRUD, the category taxonomy, cascade deletion, and the
 //! create-only CSV import for the exchange and wallet provider catalogs.
-
-use std::collections::HashSet;
-
 use crate::data::repositories::catalogs as catalog_repository;
 use crate::data::repositories::catalogs::{CatalogListParams, CatalogTypeSortColumn};
 use crate::data::{Database, DatabaseError};
@@ -13,12 +10,11 @@ use crate::domain::catalog::{
     CatalogTypePage, NormalizedCatalogTypeDraft, MAX_NAME_LENGTH,
 };
 use crate::domain::table::{SortDirection, TableQuery};
-
+use std::collections::HashSet;
 /// Largest page a listing may request.
 const MAX_PAGE_SIZE: u32 = 100;
 /// Largest number of providers one delete may address.
 const MAX_DELETE_IDS: usize = 100;
-
 /// Failures of the catalog service.
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogServiceError {
@@ -33,17 +29,14 @@ pub enum CatalogServiceError {
     #[error("catalog access failed: {0}")]
     Database(#[from] DatabaseError),
 }
-
 /// Use cases of the provider catalogs of both kinds.
 pub struct CatalogService {
     database: Database,
 }
-
 impl CatalogService {
     pub fn connect(database: Database) -> Self {
         Self { database }
     }
-
     /// One page of providers plus the global KPI totals.
     pub fn list_types(
         &self,
@@ -65,13 +58,11 @@ impl CatalogService {
         let totals = catalog_repository::totals(&self.database, kind)?;
         Ok(CatalogTypePage { page, totals })
     }
-
     pub fn get_type(&self, kind: CatalogKind, id: i64) -> Result<CatalogType, CatalogServiceError> {
         catalog_repository::get_type(&self.database, kind, id)?.ok_or_else(|| {
             CatalogServiceError::NotFound(format!("The {} was not found.", kind.singular_label()))
         })
     }
-
     pub fn create_type(
         &self,
         kind: CatalogKind,
@@ -84,7 +75,6 @@ impl CatalogService {
         let id = catalog_repository::insert_type(&self.database, kind, &draft)?;
         self.get_type(kind, id)
     }
-
     pub fn update_type(
         &self,
         kind: CatalogKind,
@@ -99,7 +89,6 @@ impl CatalogService {
             .filter(|value| !value.is_empty())
             .is_none()
         {
-            // Omitting the slug on update means "keep the current one".
             draft.slug = Some(existing.slug.clone());
         }
         let draft = normalize_draft(kind, draft)?;
@@ -118,7 +107,6 @@ impl CatalogService {
         }
         self.get_type(kind, id)
     }
-
     /// Impact of deleting the given providers.
     pub fn delete_preview(
         &self,
@@ -135,7 +123,6 @@ impl CatalogService {
         }
         Ok(preview)
     }
-
     /// Delete providers. Without `cascade`, rows with related addresses,
     /// transactions, or exchange accounts ask for confirmation first.
     pub fn delete_types(
@@ -160,14 +147,12 @@ impl CatalogService {
         let summary = catalog_repository::delete_types(&self.database, kind, &ids)?;
         Ok(CatalogDeleteOutcome::Deleted(summary))
     }
-
     pub fn list_categories(
         &self,
         kind: CatalogKind,
     ) -> Result<Vec<CatalogCategory>, CatalogServiceError> {
         Ok(catalog_repository::list_categories(&self.database, kind)?)
     }
-
     pub fn create_category(
         &self,
         kind: CatalogKind,
@@ -182,7 +167,6 @@ impl CatalogService {
         let id = catalog_repository::insert_category(&self.database, kind, &name)?;
         self.get_category(kind, id)
     }
-
     pub fn rename_category(
         &self,
         kind: CatalogKind,
@@ -205,7 +189,6 @@ impl CatalogService {
         }
         self.get_category(kind, id)
     }
-
     /// Impact of deleting one category, including its providers and their
     /// related data.
     pub fn delete_category_preview(
@@ -221,7 +204,6 @@ impl CatalogService {
         }
         Ok(preview)
     }
-
     /// Delete a category. If it still has providers, the deletion cascades
     /// through them and requires `cascade = true`.
     pub fn delete_category(
@@ -239,12 +221,10 @@ impl CatalogService {
         let summary = catalog_repository::delete_category(&self.database, kind, id)?;
         Ok(CatalogDeleteOutcome::Deleted(summary))
     }
-
     /// Every provider of one kind for the pickers across the app.
     pub fn options(&self, kind: CatalogKind) -> Result<Vec<CatalogEntry>, CatalogServiceError> {
         Ok(catalog_repository::list_options(&self.database, kind)?)
     }
-
     pub fn preview_import(
         &self,
         kind: CatalogKind,
@@ -252,7 +232,6 @@ impl CatalogService {
     ) -> Result<CatalogImportPreview, CatalogServiceError> {
         Ok(self.plan_import(kind, csv_text)?.preview)
     }
-
     /// Create every valid row of a CSV file. Duplicate and invalid rows are
     /// skipped and reported in the summary.
     pub fn import_csv(
@@ -273,7 +252,6 @@ impl CatalogService {
             uncategorized_rows: plan.preview.uncategorized_rows,
         })
     }
-
     fn plan_import(
         &self,
         kind: CatalogKind,
@@ -295,7 +273,6 @@ impl CatalogService {
             &categories,
         ))
     }
-
     fn get_category(
         &self,
         kind: CatalogKind,
@@ -304,7 +281,6 @@ impl CatalogService {
         catalog_repository::get_category(&self.database, kind, id)?
             .ok_or_else(|| CatalogServiceError::NotFound("The category was not found.".to_string()))
     }
-
     fn ensure_name_available(
         &self,
         kind: CatalogKind,
@@ -319,7 +295,6 @@ impl CatalogService {
         }
         Ok(())
     }
-
     fn ensure_slug_available(
         &self,
         kind: CatalogKind,
@@ -334,7 +309,6 @@ impl CatalogService {
         }
         Ok(())
     }
-
     fn ensure_category(
         &self,
         kind: CatalogKind,
@@ -350,7 +324,6 @@ impl CatalogService {
         Ok(())
     }
 }
-
 fn normalize_draft(
     kind: CatalogKind,
     draft: CatalogTypeDraft,
@@ -359,7 +332,6 @@ fn normalize_draft(
         CatalogServiceError::Validation(format!("{}: {}", error.field.label(), error.message))
     })
 }
-
 /// Deduplicate and bound a delete id list.
 fn normalize_ids(ids: &[i64]) -> Result<Vec<i64>, CatalogServiceError> {
     let mut unique = ids.to_vec();
@@ -377,7 +349,6 @@ fn normalize_ids(ids: &[i64]) -> Result<Vec<i64>, CatalogServiceError> {
     }
     Ok(unique)
 }
-
 fn normalize_category_name(name: &str) -> Result<String, CatalogServiceError> {
     let name = name.trim();
     if name.is_empty() {
@@ -392,7 +363,6 @@ fn normalize_category_name(name: &str) -> Result<String, CatalogServiceError> {
     }
     Ok(name.to_string())
 }
-
 fn parse_sort(
     key: Option<&str>,
     direction: SortDirection,
@@ -410,7 +380,6 @@ fn parse_sort(
     }
     Ok(Some((column, direction)))
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,14 +387,12 @@ mod tests {
     use crate::domain::address::StoredAddress;
     use crate::domain::catalog::{CustodyModel, WalletPlatform};
     use crate::domain::table::TableQuery;
-
     fn query() -> TableQuery {
         TableQuery {
             page_size: 25,
             ..TableQuery::default()
         }
     }
-
     fn draft(name: &str, category_id: Option<i64>) -> CatalogTypeDraft {
         CatalogTypeDraft {
             name: name.to_string(),
@@ -433,18 +400,15 @@ mod tests {
             ..CatalogTypeDraft::default()
         }
     }
-
     #[test]
     fn create_and_update_validate_names_slugs_and_platforms() {
         let database = Database::open_in_memory().unwrap();
         let service = CatalogService::connect(database);
-
         let created = service
             .create_type(CatalogKind::Wallet, draft("Acme", Some(2)))
             .unwrap();
         assert_eq!(created.slug, "acme");
         assert_eq!(created.category_name.as_deref(), Some("Software wallet"));
-
         let duplicate = service
             .create_type(CatalogKind::Wallet, draft("acme", None))
             .unwrap_err();
@@ -452,7 +416,6 @@ mod tests {
             duplicate,
             CatalogServiceError::DuplicateName { .. }
         ));
-
         let duplicate_slug = service
             .create_type(
                 CatalogKind::Wallet,
@@ -467,7 +430,6 @@ mod tests {
             duplicate_slug,
             CatalogServiceError::DuplicateSlug { .. }
         ));
-
         let updated = service
             .update_type(
                 CatalogKind::Wallet,
@@ -485,7 +447,6 @@ mod tests {
         assert_eq!(updated.name, "Acme Renamed");
         assert_eq!(updated.slug, "acme");
         assert_eq!(updated.brand_color, Some("#AABBCC".to_string()));
-
         let locked = service
             .update_type(
                 CatalogKind::Wallet,
@@ -497,7 +458,6 @@ mod tests {
             )
             .unwrap_err();
         assert!(matches!(locked, CatalogServiceError::Validation(_)));
-
         let platform = service
             .create_type(
                 CatalogKind::Exchange,
@@ -510,19 +470,16 @@ mod tests {
             .unwrap_err();
         assert!(matches!(platform, CatalogServiceError::Validation(_)));
     }
-
     #[test]
     fn listings_reject_platform_sorting_for_exchanges_and_clamp_pages() {
         let database = Database::open_in_memory().unwrap();
         let service = CatalogService::connect(database);
-
         let mut exchange_query = query();
         exchange_query.sort_by = Some("platform".to_string());
         assert!(matches!(
             service.list_types(CatalogKind::Exchange, &exchange_query),
             Err(CatalogServiceError::Validation(_))
-        ));
-
+        ),);
         let mut wallet_query = query();
         wallet_query.page_size = 0;
         wallet_query.sort_by = Some("platform".to_string());
@@ -532,7 +489,6 @@ mod tests {
         assert_eq!(page.page.items.len(), 1);
         assert_eq!(page.totals.providers, 18);
     }
-
     #[test]
     fn deletion_requires_confirmation_only_when_related_rows_exist() {
         let database = Database::open_in_memory().unwrap();
@@ -540,12 +496,10 @@ mod tests {
         let created = service
             .create_type(CatalogKind::Wallet, draft("Acme", Some(2)))
             .unwrap();
-
         let outcome = service
             .delete_types(CatalogKind::Wallet, &[created.id], false)
             .unwrap();
         assert!(matches!(outcome, CatalogDeleteOutcome::Deleted(_)));
-
         address_repository::insert_address(
             &database,
             &StoredAddress {
@@ -563,12 +517,10 @@ mod tests {
             CatalogDeleteOutcome::ConfirmationRequired(_)
         ));
     }
-
     #[test]
     fn category_crud_and_cascade_preview() {
         let database = Database::open_in_memory().unwrap();
         let service = CatalogService::connect(database);
-
         let category = service
             .create_category(CatalogKind::Wallet, "Test category")
             .unwrap();
@@ -576,12 +528,10 @@ mod tests {
         assert!(service
             .create_category(CatalogKind::Wallet, "test CATEGORY")
             .is_err());
-
         let renamed = service
             .rename_category(CatalogKind::Wallet, category.id, "Renamed")
             .unwrap();
         assert_eq!(renamed.name, "Renamed");
-
         let preview = service
             .delete_category_preview(CatalogKind::Wallet, category.id)
             .unwrap();
@@ -592,7 +542,6 @@ mod tests {
             .unwrap();
         assert!(matches!(outcome, CatalogDeleteOutcome::Deleted(_)));
     }
-
     #[test]
     fn csv_preview_and_import_agree() {
         let database = Database::open_in_memory().unwrap();
@@ -601,20 +550,17 @@ mod tests {
                    Acme,Unknown category,self-custody,hardware,#abc\n\
                    Beta,Hardware wallet,self-custody,hardware,\n\
                    Acme,Unknown category,,\n";
-
         let preview = service.preview_import(CatalogKind::Wallet, csv).unwrap();
         assert_eq!(preview.total_rows, 3);
         assert_eq!(preview.valid_rows, 2);
         assert_eq!(preview.duplicate_rows, 1);
         assert_eq!(preview.uncategorized_rows, 1);
         assert_eq!(preview.unknown_categories, ["Unknown category"]);
-
         let summary = service.import_csv(CatalogKind::Wallet, csv).unwrap();
         assert_eq!(summary.created, 2);
         assert_eq!(summary.skipped_duplicates, 1);
         assert_eq!(summary.invalid_rows, 0);
         assert_eq!(summary.uncategorized_rows, 1);
-
         let page = service
             .list_types(
                 CatalogKind::Wallet,

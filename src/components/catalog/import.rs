@@ -1,6 +1,5 @@
 use super::*;
 use dioxus::prelude::*;
-
 /// CSV import dialog. The preview and the apply call both revalidate against
 /// fresh database state, so the counts shown here match the rows created.
 #[component]
@@ -17,7 +16,6 @@ pub fn CatalogImportDialog(
     let mut importing = use_signal(|| false);
     let mut summary = use_signal(|| Option::<CatalogImportSummary>::None);
     let mut error = use_signal(|| Option::<String>::None);
-
     let on_file = move |(name, text): (String, String)| {
         file_name.set(name);
         csv_text.set(text.clone());
@@ -36,7 +34,6 @@ pub fn CatalogImportDialog(
             validating.set(false);
         });
     };
-
     let start_import = move |_| {
         if *importing.read() || summary().is_some() {
             return;
@@ -57,7 +54,7 @@ pub fn CatalogImportDialog(
                             kind.singular_label()
                         } else {
                             kind.plural_label()
-                        }
+                        },
                     ));
                     summary.set(Some(result));
                     on_imported.call(result);
@@ -67,25 +64,22 @@ pub fn CatalogImportDialog(
             importing.set(false);
         });
     };
-
     let preview_state = preview();
     let can_import = summary().is_none()
         && preview_state
             .as_ref()
             .and_then(|result| result.as_ref().ok())
             .is_some_and(|preview| preview.fatal_error.is_none() && preview.valid_rows > 0);
-
     rsx! {
-    Modal {
-        title: format!("Import {}", kind.plural_label()),
-        title_id: "catalog-import-title".to_string(),
-        class: "md3-import-data-dialog".to_string(),
-        dismissible: !*importing.read(),
-        on_close: move |_| on_close.call(()),
-        p { class: "text-body-medium text-on-surface-variant",
-            "The import only creates new rows. Duplicate names or slugs are skipped, and invalid rows are reported without blocking the valid ones."
-        }
-
+        Modal {
+            title: format!("Import {}", kind.plural_label()),
+            title_id: "catalog-import-title".to_string(),
+            class: "md3-import-data-dialog".to_string(),
+            dismissible: !*importing.read(),
+            on_close: move |_| on_close.call(()),
+            p { class: "text-body-medium text-on-surface-variant",
+                "The import only creates new rows. Duplicate names or slugs are skipped, and invalid rows are reported without blocking the valid ones."
+            }
             details { class: "md3-import-format",
                 summary { "CSV format" }
                 p { class: "text-body-small text-on-surface-variant",
@@ -93,17 +87,15 @@ pub fn CatalogImportDialog(
                 }
                 code { "name,slug,category,custody_model,platform,brand_color" }
             }
-
             CsvDropzone {
                 file_name: file_name(),
-                disabled: *validating.read() || *importing.read() || summary().is_some(),
+                disabled: * validating.read() || * importing.read()
+                                                                        || summary().is_some(),
                 on_file,
             }
-
             if *validating.read() {
                 p { class: "text-body-medium text-on-surface-variant", "Validating..." }
             }
-
             if let Some(result) = preview_state {
                 match result {
                     Err(failure) => rsx! {
@@ -154,7 +146,8 @@ pub fn CatalogImportDialog(
                                                 td { "{row.name.clone().unwrap_or_default()}" }
                                                 td { "{row.slug.clone().unwrap_or_default()}" }
                                                 td { "{row.category.clone().unwrap_or_default()}" }
-                                                td { {import_status_chip(&row.status)} }
+                                                td { { import_status_chip(& row
+                                                                                                                                                                                                        .status) } }
                                             }
                                         }
                                     }
@@ -169,7 +162,6 @@ pub fn CatalogImportDialog(
                     },
                 }
             }
-
             if let Some(result) = summary() {
                 {
                     let noun = if result.created == 1 {
@@ -197,23 +189,23 @@ pub fn CatalogImportDialog(
                     }
                 }
             }
-
             if let Some(failure) = error() {
                 p { class: "text-body-small md3-settings-error", "{failure}" }
             }
-
             div { class: "md3-dialog-actions",
                 button {
                     r#type: "button",
                     class: "md3-button-text",
                     disabled: *importing.read(),
-                    onclick: move |_| on_close.call(()),
+                    onclick: move | _ |
+                                                                                        on_close.call(()),
                     "Close"
                 }
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
-                    disabled: !can_import || *importing.read() || *validating.read(),
+                    disabled: ! can_import || * importing.read() || *
+                                                                                        validating.read(),
                     onclick: start_import,
                     if *importing.read() {
                         "Importing..."
@@ -225,23 +217,28 @@ pub fn CatalogImportDialog(
         }
     }
 }
-
 fn import_status_chip(status: &crate::domain::catalog::CatalogImportRowStatus) -> Element {
     match status {
-        crate::domain::catalog::CatalogImportRowStatus::Create => rsx! {
-            span { class: "md3-status-chip md3-status-create", "Create" }
-        },
-        crate::domain::catalog::CatalogImportRowStatus::Duplicate(message) => rsx! {
-            span { class: "md3-status-cell",
-                span { class: "md3-status-chip md3-status-duplicate", "Duplicate" }
-                span { class: "text-body-small text-on-surface-variant", "{message}" }
+        crate::domain::catalog::CatalogImportRowStatus::Create => {
+            rsx! {
+                span { class: "md3-status-chip md3-status-create", "Create" }
             }
-        },
-        crate::domain::catalog::CatalogImportRowStatus::Invalid(message) => rsx! {
-            span { class: "md3-status-cell",
-                span { class: "md3-status-chip md3-status-invalid", "Invalid" }
-                span { class: "text-body-small text-on-surface-variant", "{message}" }
+        }
+        crate::domain::catalog::CatalogImportRowStatus::Duplicate(message) => {
+            rsx! {
+                span { class: "md3-status-cell",
+                    span { class: "md3-status-chip md3-status-duplicate", "Duplicate" }
+                    span { class: "text-body-small text-on-surface-variant", "{message}" }
+                }
             }
-        },
+        }
+        crate::domain::catalog::CatalogImportRowStatus::Invalid(message) => {
+            rsx! {
+                span { class: "md3-status-cell",
+                    span { class: "md3-status-chip md3-status-invalid", "Invalid" }
+                    span { class: "text-body-small text-on-surface-variant", "{message}" }
+                }
+            }
+        }
     }
 }

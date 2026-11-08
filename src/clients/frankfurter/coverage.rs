@@ -1,18 +1,15 @@
 use crate::clients::frankfurter::error::FrankfurterError;
 use crate::clients::frankfurter::http::HttpClient;
 use crate::clients::frankfurter::types::Coverage;
-
 /// Endpoints for `/coverage`.
 #[derive(Clone)]
 pub struct CoverageEndpoints {
     http: HttpClient,
 }
-
 impl CoverageEndpoints {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     /// Returns the first and last eligible observation dates at which
     /// `/rates` with the same base, quotes and providers returns at least one
     /// record. Defaults to the EUR-based daily blended feed.

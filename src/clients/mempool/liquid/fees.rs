@@ -1,12 +1,10 @@
 use crate::clients::mempool::error::MempoolError;
 use crate::clients::mempool::http::HttpClient;
 use crate::clients::mempool::liquid::types::{FeesMempoolBlocks, FeesRecommended};
-
 #[derive(Clone)]
 pub struct Fees {
     http: HttpClient,
 }
-
 impl Fees {
     pub fn new(http: HttpClient) -> Self {
         Self { http }

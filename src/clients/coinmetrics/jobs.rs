@@ -2,7 +2,6 @@ use crate::clients::coinmetrics::error::CoinMetricsError;
 use crate::clients::coinmetrics::http::HttpClient;
 use crate::clients::coinmetrics::types::{CreatedJob, JobsResponse};
 use serde::Serialize;
-
 /// Request body for `PUT /blockchain-job/account-balances`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct AccountBalancesJobRequest {
@@ -17,7 +16,6 @@ pub struct AccountBalancesJobRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub at_slot: Option<i64>,
 }
-
 /// Request body for `PUT /blockchain-job/balance-updates`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BalanceUpdatesJobRequest {
@@ -38,7 +36,6 @@ pub struct BalanceUpdatesJobRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_slot: Option<i64>,
 }
-
 /// Request body for `PUT /blockchain-job/transactions`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct TransactionsJobRequest {
@@ -47,18 +44,15 @@ pub struct TransactionsJobRequest {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub txids: Vec<String>,
 }
-
 /// Asynchronous blockchain export jobs and their status endpoint.
 #[derive(Clone)]
 pub struct Jobs {
     http: HttpClient,
 }
-
 impl Jobs {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     /// Creates a job returning account balances at a point in time.
     pub async fn create_account_balances_job(
         &self,
@@ -68,7 +62,6 @@ impl Jobs {
             .put_json("/blockchain-job/account-balances", &request)
             .await
     }
-
     /// Creates a job returning balance updates for an interval.
     pub async fn create_balance_updates_job(
         &self,
@@ -78,7 +71,6 @@ impl Jobs {
             .put_json("/blockchain-job/balance-updates", &request)
             .await
     }
-
     /// Creates a job returning transactions for the given txids.
     pub async fn create_transactions_job(
         &self,
@@ -88,7 +80,6 @@ impl Jobs {
             .put_json("/blockchain-job/transactions", &request)
             .await
     }
-
     /// Returns status, result URLs and warnings for the given job ids.
     pub async fn get_jobs(
         &self,
@@ -102,12 +93,10 @@ impl Jobs {
         self.http.get_query("/jobs", &query).await
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-
     #[test]
     fn job_requests_serialize_arrays_as_json() {
         let request = TransactionsJobRequest {
@@ -116,10 +105,9 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(request).unwrap(),
-            json!({"assets": ["btc"], "txids": ["abc", "def"]})
+            json!({ "assets" : ["btc"], "txids" : ["abc", "def"] }),
         );
     }
-
     #[test]
     fn account_balance_request_omits_unset_fields() {
         let request = AccountBalancesJobRequest {
@@ -130,10 +118,9 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(request).unwrap(),
-            json!({"assets": ["eth"], "accounts": ["0xabc"], "at_height": 100})
+            json!({ "assets" : ["eth"], "accounts" : ["0xabc"], "at_height" : 100 }),
         );
     }
-
     #[test]
     fn job_ids_query_serializes_as_repeated_parameters() {
         let query: Vec<(&str, String)> = vec![

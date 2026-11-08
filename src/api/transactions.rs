@@ -1,14 +1,10 @@
 //! Transaction endpoints.
-
-use dioxus::prelude::*;
-
-use crate::domain::transaction::{TransactionSyncBatchSummary, TransactionSyncSummary};
-
 #[cfg(feature = "server")]
 use super::open_database;
 #[cfg(feature = "server")]
 use crate::application::transactions::TransactionService;
-
+use crate::domain::transaction::{TransactionSyncBatchSummary, TransactionSyncSummary};
+use dioxus::prelude::*;
 /// Fetch and persist the transaction history for one stored address.
 #[server]
 #[post("/api/addresses/:address/transactions/sync")]
@@ -20,7 +16,6 @@ pub async fn sync_address_transactions_api(
         .await
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
-
 /// Fetch and persist the transaction history of several selected addresses.
 ///
 /// The selection is deduplicated and an empty one is rejected by the

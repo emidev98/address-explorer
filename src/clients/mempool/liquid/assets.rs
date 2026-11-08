@@ -1,12 +1,10 @@
 use crate::clients::mempool::error::MempoolError;
 use crate::clients::mempool::http::HttpClient;
 use crate::clients::mempool::liquid::types::Asset;
-
 #[derive(Clone)]
 pub struct Assets {
     http: HttpClient,
 }
-
 impl Assets {
     pub fn new(http: HttpClient) -> Self {
         Self { http }

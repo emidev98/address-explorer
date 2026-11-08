@@ -2,7 +2,6 @@ use crate::clients::frankfurter::error::FrankfurterError;
 use crate::clients::frankfurter::http::HttpClient;
 use crate::clients::frankfurter::rates::{Expand, Group};
 use crate::clients::frankfurter::types::{Provider, Rate};
-
 /// Optional filters for [`Providers::get_provider_rates`]. Fields left at
 /// their default are omitted from the request.
 ///
@@ -26,7 +25,6 @@ pub struct ProviderRatesQuery {
     /// Optional fields to expand per rate record.
     pub expand: Option<Expand>,
 }
-
 impl ProviderRatesQuery {
     pub(crate) fn to_params(&self) -> Vec<(&'static str, String)> {
         let mut params = Vec::new();
@@ -54,28 +52,23 @@ impl ProviderRatesQuery {
         params
     }
 }
-
 #[derive(Clone)]
 pub struct Providers {
     http: HttpClient,
 }
-
 impl Providers {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     /// Returns available exchange rate data providers with their publication
     /// coverage.
     pub async fn get_providers(&self) -> Result<Vec<Provider>, FrankfurterError> {
         self.http.get("/providers").await
     }
-
     /// Returns one entry from `/providers`, by key (case-insensitive).
     pub async fn get_provider(&self, provider: &str) -> Result<Provider, FrankfurterError> {
         self.http.get(&format!("/providers/{}", provider)).await
     }
-
     /// Returns one provider's rates as published, unblended. Identical to
     /// `/rates?providers={provider}`: same parameters, same records, same
     /// limits. Native-base records carry the provider's published digits;
@@ -88,7 +81,6 @@ impl Providers {
         let path = format!("/providers/{}/rates", provider);
         self.http.get_query(&path, &query.to_params()).await
     }
-
     /// Returns one provider's rate for a single currency pair. Identical to
     /// `/rate/{base}/{quote}?providers={provider}`. The pair may be published
     /// directly or derived from the provider's own rates for both currencies.
@@ -107,18 +99,15 @@ impl Providers {
         self.http.get_query(&path, &params).await
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::clients::frankfurter::rates::Group;
-
     #[test]
     fn default_query_sends_no_params() {
         let query = ProviderRatesQuery::default();
         assert!(query.to_params().is_empty());
     }
-
     #[test]
     fn fields_map_to_their_query_names_in_order() {
         let query = ProviderRatesQuery {
@@ -140,7 +129,7 @@ mod tests {
                 ("quotes", "USD".to_string()),
                 ("group", "week".to_string()),
                 ("expand", "providers".to_string()),
-            ]
+            ],
         );
     }
 }

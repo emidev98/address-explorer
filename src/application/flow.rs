@@ -1,9 +1,6 @@
 //! Flow service: validates filter input, loads the filtered dataset, chooses
 //! the exact transaction graph or a bounded summary, and paginates the
 //! evidence tables.
-
-use std::cmp::Ordering;
-
 use crate::data::repositories::flow as flow_repository;
 use crate::data::repositories::flow::{FlowEvidenceSortColumn, FlowLinkSortColumn};
 use crate::data::{Database, DatabaseError};
@@ -13,9 +10,8 @@ use crate::domain::flow::{
     FlowWarning, FlowWarningKind,
 };
 use crate::domain::table::{SortDirection, TablePage};
-
+use std::cmp::Ordering;
 const MAX_PAGE_SIZE: u32 = 100;
-
 #[derive(Debug, thiserror::Error)]
 pub enum FlowServiceError {
     #[error("{0}")]
@@ -25,29 +21,24 @@ pub enum FlowServiceError {
     #[error("database access failed: {0}")]
     Database(#[from] DatabaseError),
 }
-
 pub struct FlowService {
     database: Database,
 }
-
 impl FlowService {
     pub fn connect(database: Database) -> Self {
         Self { database }
     }
-
     pub fn filter_options(
         &self,
     ) -> Result<crate::domain::flow::FlowFilterOptions, FlowServiceError> {
         Ok(flow_repository::filter_options(&self.database)?)
     }
-
     pub fn overview(&self, query: &FlowQuery) -> Result<FlowOverview, FlowServiceError> {
         flow_repository::validate_query(query).map_err(FlowServiceError::Validation)?;
         let dataset = flow_repository::load_dataset(&self.database, query)?;
         let budget = FlowRenderBudget::default();
         let dataset_exceeded = dataset.transactions.len() > budget.max_transactions
             || dataset.output_count() > budget.max_outputs;
-
         let mut rendered_view = query.view;
         let mut auto_fallback = false;
         let mut graph = if query.view == FlowView::Transactions {
@@ -61,7 +52,6 @@ impl FlowService {
         } else {
             build_address_summary(&dataset)
         };
-
         let graph_exceeded =
             graph.stats.node_count > budget.max_nodes || graph.stats.link_count > budget.max_links;
         if query.view == FlowView::Transactions
@@ -73,35 +63,37 @@ impl FlowService {
             auto_fallback = true;
             graph = build_address_summary(&dataset);
         }
-
         let budget = FlowRenderBudget {
             exceeded: dataset_exceeded || graph_exceeded,
             ..budget
         };
         if auto_fallback {
-            graph.warnings.push(FlowWarning {
-                kind: FlowWarningKind::AutoFallback,
-                message: format!(
-                    "This selection contains {} transactions. The address summary is shown to keep the chart responsive; the transaction detail is still available.",
-                    dataset.transactions.len()
-                ),
-                count: dataset.transactions.len() as i64,
-                value_sats: 0,
-            });
+            graph
+                .warnings
+                .push(FlowWarning {
+                    kind: FlowWarningKind::AutoFallback,
+                    message: format!(
+                        "This selection contains {} transactions. The address summary is shown to keep the chart responsive; the transaction detail is still available.",
+                        dataset.transactions.len(),
+                    ),
+                    count: dataset.transactions.len() as i64,
+                    value_sats: 0,
+                });
         } else if graph_exceeded || (query.force_transactions && dataset_exceeded) {
-            graph.warnings.push(FlowWarning {
-                kind: FlowWarningKind::LargeGraph,
-                message: format!(
-                    "This transaction graph has {} nodes, {} links and {} transactions. Rendering may be slow; narrow the date range or filters for a lighter view.",
-                    graph.stats.node_count,
-                    graph.stats.link_count,
-                    graph.stats.transaction_count
-                ),
-                count: graph.stats.node_count as i64,
-                value_sats: 0,
-            });
+            graph
+                .warnings
+                .push(FlowWarning {
+                    kind: FlowWarningKind::LargeGraph,
+                    message: format!(
+                        "This transaction graph has {} nodes, {} links and {} transactions. Rendering may be slow; narrow the date range or filters for a lighter view.",
+                        graph.stats.node_count,
+                        graph.stats.link_count,
+                        graph.stats.transaction_count,
+                    ),
+                    count: graph.stats.node_count as i64,
+                    value_sats: 0,
+                });
         }
-
         Ok(FlowOverview {
             requested_view: query.view,
             rendered_view,
@@ -110,7 +102,6 @@ impl FlowService {
             auto_fallback,
         })
     }
-
     pub fn link_table(
         &self,
         query: &FlowLinkTableQuery,
@@ -131,7 +122,6 @@ impl FlowService {
             .collect();
         Ok(TablePage { items, total })
     }
-
     pub fn evidence(
         &self,
         query: &FlowEvidenceQuery,
@@ -168,7 +158,6 @@ impl FlowService {
         Ok(TablePage { items, total })
     }
 }
-
 fn link_rows(graph: &FlowGraph) -> Vec<FlowLinkRow> {
     let nodes = graph
         .nodes
@@ -211,7 +200,6 @@ fn link_rows(graph: &FlowGraph) -> Vec<FlowLinkRow> {
         })
         .collect()
 }
-
 fn sort_link_rows(
     rows: &mut [FlowLinkRow],
     column: Option<FlowLinkSortColumn>,
@@ -257,7 +245,6 @@ fn sort_link_rows(
         .then_with(|| left.target_id.cmp(&right.target_id))
     });
 }
-
 fn sort_evidence_rows(
     rows: &mut [FlowEvidenceRow],
     column: Option<FlowEvidenceSortColumn>,
@@ -279,7 +266,6 @@ fn sort_evidence_rows(
         .then_with(|| left.ledger_id.cmp(&right.ledger_id))
     });
 }
-
 fn compare_time(left: Option<i64>, right: Option<i64>) -> Ordering {
     match (left, right) {
         (Some(left), Some(right)) => left.cmp(&right),
@@ -288,14 +274,12 @@ fn compare_time(left: Option<i64>, right: Option<i64>) -> Ordering {
         (None, None) => Ordering::Equal,
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::flow::{
         FlowEvidenceRef, FlowGraphStats, FlowKpis, FlowLink, FlowLinkKind, FlowNode, FlowNodeKind,
     };
-
     fn node(id: &str, label: &str) -> FlowNode {
         FlowNode {
             id: id.to_string(),
@@ -313,7 +297,6 @@ mod tests {
             note: None,
         }
     }
-
     fn link(source: &str, target: &str, value_sats: i64) -> FlowLink {
         FlowLink {
             source: source.to_string(),
@@ -332,7 +315,6 @@ mod tests {
             }],
         }
     }
-
     fn graph() -> FlowGraph {
         FlowGraph {
             nodes: vec![node("a", "A"), node("b", "B")],
@@ -343,14 +325,12 @@ mod tests {
             warnings: Vec::new(),
         }
     }
-
     #[test]
     fn link_rows_have_a_share_of_the_rendered_total() {
         let rows = link_rows(&graph());
         assert_eq!(rows.len(), 1);
         assert!((rows[0].share - 100.0).abs() < f64::EPSILON);
     }
-
     #[test]
     fn link_rows_sort_with_a_deterministic_secondary_key() {
         let mut rows = link_rows(&graph());

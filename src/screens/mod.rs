@@ -4,7 +4,6 @@ mod exchanges;
 mod funds_flow;
 mod historical_prices;
 mod settings;
-
 pub use addresses::Addresses;
 pub use exchange_account_detail::ExchangeAccountDetail;
 pub use exchanges::Exchanges;

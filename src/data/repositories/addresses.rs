@@ -1,13 +1,10 @@
 //! SQL access to the `addresses` table.
-
-use rusqlite::{params, params_from_iter, OptionalExtension, TransactionBehavior};
-
 use super::exchanges as exchange_repository;
 use super::placeholders;
 use crate::data::{Database, DatabaseError};
 use crate::domain::address::{AddressScopeFilter, StoredAddress};
 use crate::domain::table::SortDirection;
-
+use rusqlite::{params, params_from_iter, OptionalExtension, TransactionBehavior};
 /// Sortable columns of the addresses overview table: the fixed allowlist
 /// the dynamic `ORDER BY` identifier is selected from. Client sort keys never reach SQL directly. The address
 /// type is not sortable: it derives from the address string at the domain
@@ -35,7 +32,6 @@ pub enum AddressSortColumn {
     /// `scope`.
     Scope,
 }
-
 impl AddressSortColumn {
     /// Parse the client-facing sort key; unknown keys are rejected by the
     /// caller at the service boundary.
@@ -52,7 +48,6 @@ impl AddressSortColumn {
             _ => None,
         }
     }
-
     /// `ORDER BY` expression of the column. Balances and counts are stored
     /// integers and transaction times epoch seconds, so ordering follows the
     /// typed storage class, never formatted display strings.
@@ -62,8 +57,8 @@ impl AddressSortColumn {
             Self::Label => "a.description",
             Self::ConfirmedTxCount => "confirmed_tx_count",
             Self::SpendableBalance | Self::CurrentPrice => SPENDABLE_BALANCE_SATS,
-            Self::FirstTxTime => "s.first_tx_time",
-            Self::LastTxTime => "s.last_tx_time",
+            Self::FirstTxTime => "first_tx_time",
+            Self::LastTxTime => "last_tx_time",
             Self::Scope => {
                 "CASE WHEN a.exchange_id IS NOT NULL THEN 0 \
                  WHEN a.wallet_id IS NOT NULL THEN 1 ELSE 2 END"
@@ -71,7 +66,6 @@ impl AddressSortColumn {
         }
     }
 }
-
 /// Sorting and scope filtering of a [`list_overview_rows`] call.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AddressOverviewFilter {
@@ -81,7 +75,6 @@ pub struct AddressOverviewFilter {
     /// Scope filter of the rows.
     pub scope: AddressScopeFilter,
 }
-
 /// Spendable balance expression shared by the overview listing, its balance
 /// sorting, and the KPI totals.
 ///
@@ -92,11 +85,12 @@ pub struct AddressOverviewFilter {
 const SPENDABLE_BALANCE_SATS: &str =
     "CASE WHEN a.exchange_id IS NOT NULL THEN a.exchange_balance_sats \
      ELSE a.chain_funded_txo_sum - a.chain_spent_txo_sum END";
-
 /// One row of [`list_overview_rows`]: the stored address, the resolved
-/// owner catalog names, its confirmed-transaction statistics (zero/none
-/// for unsynced addresses), and its reported spendable balance (the stored
-/// exchange ledger balance for exchange-scoped addresses).
+/// owner catalog names, its confirmed-transaction statistics (zero/none for
+/// unsynced addresses), and its reported spendable balance (the stored
+/// exchange ledger balance for exchange-scoped addresses). Exchange rows
+/// aggregate the confirmed-transaction statistics of the whole provider
+/// because only its balance anchor is listed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddressOverviewRow {
     pub entity: StoredAddress,
@@ -109,7 +103,6 @@ pub struct AddressOverviewRow {
     pub last_tx_time: Option<i64>,
     pub spendable_balance_sats: i64,
 }
-
 /// The `WHERE` fragment of the scope filter. This is a fixed allowlist
 /// value, never client input, so it is safe to place in the query.
 fn scope_fragment(scope: AddressScopeFilter) -> &'static str {
@@ -119,7 +112,6 @@ fn scope_fragment(scope: AddressScopeFilter) -> &'static str {
         AddressScopeFilter::Exchanges => "a.exchange_id IS NOT NULL",
     }
 }
-
 /// Read the addresses overview rows matching `filter`, sorted in the
 /// backend. The confirmed-transaction statistics come from a grouped
 /// subquery so sorting by them never leaves SQL.
@@ -132,8 +124,6 @@ pub fn list_overview_rows(
         .sort
         .map(|(column, direction)| (column.order_expression(), direction.as_sql()))
         .unwrap_or(("spendable_balance_sats", "DESC"));
-    // The secondary key keeps rows with equal sort values in a deterministic
-    // order.
     let sql = format!(
         "SELECT a.address,
                 a.chain_funded_txo_count, a.chain_funded_txo_sum, a.chain_spent_txo_count,
@@ -142,8 +132,13 @@ pub fn list_overview_rows(
                 a.mempool_spent_txo_count, a.mempool_spent_txo_sum, a.mempool_tx_count,
                 a.description, a.exchange_id, a.wallet_id, a.tx_index_rate_limited,
                 e.name, w.name, e.brand_color, w.brand_color,
-                COALESCE(s.confirmed_tx_count, 0) AS confirmed_tx_count,
-                s.first_tx_time, s.last_tx_time,
+                CASE WHEN a.exchange_id IS NOT NULL
+                     THEN COALESCE(sx.confirmed_tx_count, 0)
+                     ELSE COALESCE(s.confirmed_tx_count, 0) END AS confirmed_tx_count,
+                CASE WHEN a.exchange_id IS NOT NULL
+                     THEN sx.first_tx_time ELSE s.first_tx_time END AS first_tx_time,
+                CASE WHEN a.exchange_id IS NOT NULL
+                     THEN sx.last_tx_time ELSE s.last_tx_time END AS last_tx_time,
                 {SPENDABLE_BALANCE_SATS} AS spendable_balance_sats
          FROM addresses a
          LEFT JOIN exchanges_types e ON e.id = a.exchange_id
@@ -153,8 +148,16 @@ pub fn list_overview_rows(
                     MIN(block_time) AS first_tx_time, MAX(block_time) AS last_tx_time
              FROM transactions WHERE confirmed = 1 GROUP BY address
          ) s ON s.address = a.address
+         LEFT JOIN (
+             SELECT a2.exchange_id, COUNT(DISTINCT t.txid) AS confirmed_tx_count,
+                    MIN(t.block_time) AS first_tx_time, MAX(t.block_time) AS last_tx_time
+             FROM addresses a2
+             JOIN transactions t ON t.address = a2.address AND t.confirmed = 1
+             WHERE a2.exchange_id IS NOT NULL
+             GROUP BY a2.exchange_id
+         ) sx ON sx.exchange_id = a.exchange_id
          WHERE {where_scope}
-         ORDER BY {column} {direction}, a.address {direction}"
+         ORDER BY {column} {direction}, a.address {direction}",
     );
     let connection = database.connection()?;
     let mut statement = connection.prepare(&sql)?;
@@ -177,21 +180,21 @@ pub fn list_overview_rows(
     }
     Ok(values)
 }
-
 /// KPI totals of the address population selected by `scope`: the listed
 /// address count, its transaction count, and its total spendable balance in
 /// satoshis.
 ///
 /// The totals follow the same population as [`list_overview_rows`], so the
 /// cards track the table's scope filter. Address scopes count the confirmed
-/// on-chain transactions stored for the listed addresses; the exchange scope
-/// counts the imported ledger deposits and withdrawals of the exchanges those
-/// addresses belong to, because exchange balances come from the ledger rather
-/// than from on-chain indexing. The address count excludes exchange-scoped
-/// addresses without a stored ledger balance, which the overview never lists,
-/// so their stored transactions are not counted either. Exchange-scoped
-/// addresses contribute their stored ledger balance (see
-/// [`SPENDABLE_BALANCE_SATS`]).
+/// on-chain transactions stored for the listed addresses; an exchange row
+/// carries its provider's related transactions once, on the balance anchor.
+/// The exchange scope counts the imported ledger deposits and withdrawals of
+/// the exchanges those addresses belong to, because exchange balances come
+/// from the ledger rather than from on-chain indexing. The address count
+/// excludes exchange-scoped addresses without a stored ledger balance, which
+/// the overview never lists, so their stored transactions are not counted
+/// either. Exchange-scoped addresses contribute their stored ledger balance
+/// (see [`SPENDABLE_BALANCE_SATS`]).
 pub fn overview_totals(
     database: &Database,
     scope: AddressScopeFilter,
@@ -199,30 +202,36 @@ pub fn overview_totals(
     let where_scope = scope_fragment(scope);
     let sql = format!(
         "SELECT COUNT(*),
-                COALESCE(SUM(COALESCE(s.confirmed_tx_count, 0)), 0),
+                COALESCE(SUM(CASE WHEN a.exchange_id IS NOT NULL
+                                  THEN COALESCE(sx.confirmed_tx_count, 0)
+                                  ELSE COALESCE(s.confirmed_tx_count, 0) END), 0),
                 COALESCE(SUM({SPENDABLE_BALANCE_SATS}), 0)
          FROM addresses a
          LEFT JOIN (
              SELECT address, COUNT(*) AS confirmed_tx_count
              FROM transactions WHERE confirmed = 1 GROUP BY address
          ) s ON s.address = a.address
+         LEFT JOIN (
+             SELECT a2.exchange_id, COUNT(DISTINCT t.txid) AS confirmed_tx_count
+             FROM addresses a2
+             JOIN transactions t ON t.address = a2.address AND t.confirmed = 1
+             WHERE a2.exchange_id IS NOT NULL
+             GROUP BY a2.exchange_id
+         ) sx ON sx.exchange_id = a.exchange_id
          WHERE (a.exchange_id IS NULL OR a.exchange_balance_sats <> 0)
-           AND ({where_scope})"
+           AND ({where_scope})",
     );
     let connection = database.connection()?;
     let (address_count, confirmed_tx_count, spendable_balance_sats) = connection
         .query_row(&sql, [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .map_err(DatabaseError::from)?;
-
     let tx_count = if scope == AddressScopeFilter::Exchanges {
         exchange_ledger_operation_count(&connection)?
     } else {
         confirmed_tx_count
     };
-
     Ok((address_count, tx_count, spendable_balance_sats))
 }
-
 /// Deposits and withdrawals imported into the ledger accounts of the
 /// exchanges the overview lists: exchange-scoped addresses with a stored
 /// ledger balance. Ledger rows whose account is not assigned to a provider
@@ -245,11 +254,15 @@ fn exchange_ledger_operation_count(
         )
         .map_err(Into::into)
 }
-
 /// Update the description and owner classification of a stored address.
 /// Both owner ids are written as given (either may clear the previous
 /// classification); the either-or invariant stays enforced by the migration
-/// 0010_addresses.sql triggers. Returns whether the address exists.
+/// 0010_addresses.sql triggers. Changing the owner to an exchange (including
+/// switching between exchange providers) deletes the address's previously
+/// indexed on-chain transactions in the same transaction, because exchange
+/// addresses must only keep the transactions related to the other declared
+/// addresses. The reverse search rebuilds that relation set. Returns whether
+/// the address exists.
 pub fn update_address_details(
     database: &Database,
     address: &str,
@@ -274,6 +287,15 @@ pub fn update_address_details(
         params![address, description, exchange_id, wallet_id],
     )?;
     if updated == 1 {
+        if exchange_id.is_some() {
+            transaction.execute(
+                "UPDATE addresses SET tx_index_rate_limited = 0 WHERE address = ?1",
+                [address],
+            )?;
+            if exchange_id != previous_exchange {
+                transaction.execute("DELETE FROM transactions WHERE address = ?1", [address])?;
+            }
+        }
         if let Some(previous) = previous_exchange {
             exchange_repository::refresh_provider_balance_tx(&transaction, previous)?;
         }
@@ -284,7 +306,6 @@ pub fn update_address_details(
     transaction.commit()?;
     Ok(updated == 1)
 }
-
 /// Delete the given addresses in one transaction.
 ///
 /// Every affected exchange provider balance is refreshed once after the
@@ -294,14 +315,13 @@ pub fn delete_addresses(database: &Database, addresses: &[String]) -> Result<usi
     if addresses.is_empty() {
         return Ok(0);
     }
-
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let placeholders = placeholders(addresses.len());
     let exchange_ids = {
         let mut statement = transaction.prepare(&format!(
             "SELECT DISTINCT exchange_id FROM addresses
-             WHERE address IN ({placeholders}) AND exchange_id IS NOT NULL"
+             WHERE address IN ({placeholders}) AND exchange_id IS NOT NULL",
         ))?;
         let rows = statement.query_map(params_from_iter(addresses.iter()), |row| {
             row.get::<_, i64>(0)
@@ -318,7 +338,6 @@ pub fn delete_addresses(database: &Database, addresses: &[String]) -> Result<usi
     transaction.commit()?;
     Ok(deleted)
 }
-
 /// Insert or refresh an address and, when provided, its classification.
 ///
 /// The mempool statistics are always refreshed. The description is kept
@@ -390,8 +409,6 @@ pub fn insert_address(database: &Database, value: &StoredAddress) -> Result<(), 
             value.mempool_tx_count,
         ],
     )?;
-    // A stats refresh (same owner) must preserve the stored ledger balance.
-    // Only a new address or an owner change can move the anchor.
     let owner_changed =
         !existed || value.wallet_id.is_some() || value.exchange_id != previous_exchange;
     if owner_changed {
@@ -405,7 +422,6 @@ pub fn insert_address(database: &Database, value: &StoredAddress) -> Result<(), 
     transaction.commit()?;
     Ok(())
 }
-
 /// Shared row mapping for the entity list and the joined item list.
 ///
 /// `entity_first` is the column index of `address`; `description_first`
@@ -435,7 +451,6 @@ fn entity_from_row(
         mempool_tx_count: row.get(entity_first + 10)?,
     })
 }
-
 pub fn get_address(
     database: &Database,
     address: &str,
@@ -456,7 +471,6 @@ pub fn get_address(
         .optional()
         .map_err(Into::into)
 }
-
 /// Mark whether transaction indexing of the address stopped on a mempool
 /// rate limit. Set by the sync workflow when a walk is interrupted, cleared
 /// when a walk completes.
@@ -472,139 +486,107 @@ pub fn set_tx_index_rate_limited(
     )?;
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::address::StoredAddress;
-
     fn address(address: &str) -> StoredAddress {
         StoredAddress {
             address: address.to_string(),
             ..StoredAddress::default()
         }
     }
-
     #[test]
     fn batch_delete_removes_all_selected_addresses() {
         let database = Database::open_in_memory().unwrap();
         for value in ["bc1qa", "bc1qb", "bc1qc"] {
             insert_address(&database, &address(value)).unwrap();
         }
-
         let deleted =
             delete_addresses(&database, &["bc1qa".to_string(), "bc1qc".to_string()]).unwrap();
-
         assert_eq!(deleted, 2);
         assert!(get_address(&database, "bc1qa").unwrap().is_none());
         assert!(get_address(&database, "bc1qb").unwrap().is_some());
         assert!(get_address(&database, "bc1qc").unwrap().is_none());
     }
-
     #[test]
     fn classification_round_trips_through_insert_and_get() {
         let database = Database::open_in_memory().unwrap();
-
         let mut exchange = address("bc1qexchange");
         exchange.description = Some("Binance hot wallet 3".to_string());
         exchange.exchange_id = Some(1);
         insert_address(&database, &exchange).unwrap();
-
         let mut wallet = address("bc1qwallet");
         wallet.description = Some("Cold storage".to_string());
         wallet.wallet_id = Some(2);
         insert_address(&database, &wallet).unwrap();
-
         let stored = get_address(&database, "bc1qexchange").unwrap().unwrap();
         assert_eq!(stored.description.as_deref(), Some("Binance hot wallet 3"));
         assert_eq!(stored.exchange_id, Some(1));
         assert_eq!(stored.wallet_id, None);
     }
-
     #[test]
     fn rate_limited_marker_round_trips_and_survives_stats_refreshes() {
         let database = Database::open_in_memory().unwrap();
-
         insert_address(&database, &address("bc1qflagged")).unwrap();
         let stored = get_address(&database, "bc1qflagged").unwrap().unwrap();
         assert!(!stored.tx_index_rate_limited);
-
         set_tx_index_rate_limited(&database, "bc1qflagged", true).unwrap();
         let stored = get_address(&database, "bc1qflagged").unwrap().unwrap();
         assert!(stored.tx_index_rate_limited);
-
-        // A stats refresh must not clear the interrupted-walk marker.
         let mut stats_only = address("bc1qflagged");
         stats_only.chain_tx_count = 9;
         insert_address(&database, &stats_only).unwrap();
         let stored = get_address(&database, "bc1qflagged").unwrap().unwrap();
         assert!(stored.tx_index_rate_limited);
-
         set_tx_index_rate_limited(&database, "bc1qflagged", false).unwrap();
         let stored = get_address(&database, "bc1qflagged").unwrap().unwrap();
         assert!(!stored.tx_index_rate_limited);
     }
-
     #[test]
     fn refreshing_stats_preserves_description_and_owner() {
         let database = Database::open_in_memory().unwrap();
-
         let mut classified = address("bc1qclassified");
         classified.description = Some("Savings".to_string());
         classified.wallet_id = Some(1);
         classified.chain_tx_count = 5;
         insert_address(&database, &classified).unwrap();
-
-        // A later stats refresh without a description or owner must not wipe
-        // the stored classification (COALESCE on conflict).
         let mut stats_only = address("bc1qclassified");
         stats_only.chain_tx_count = 8;
         insert_address(&database, &stats_only).unwrap();
-
         let stored = get_address(&database, "bc1qclassified").unwrap().unwrap();
         assert_eq!(stored.description.as_deref(), Some("Savings"));
         assert_eq!(stored.wallet_id, Some(1));
         assert_eq!(stored.exchange_id, None);
         assert_eq!(stored.chain_tx_count, 8);
     }
-
     #[test]
     fn reimport_with_new_owner_overrides_the_previous_owner() {
         let database = Database::open_in_memory().unwrap();
-
         let mut wallet = address("bc1qrecast");
         wallet.description = Some("First tag".to_string());
         wallet.wallet_id = Some(1);
         insert_address(&database, &wallet).unwrap();
-
         let mut exchange = address("bc1qrecast");
         exchange.description = Some("Second tag".to_string());
         exchange.exchange_id = Some(2);
         insert_address(&database, &exchange).unwrap();
-
         let stored = get_address(&database, "bc1qrecast").unwrap().unwrap();
         assert_eq!(stored.description.as_deref(), Some("Second tag"));
         assert_eq!(stored.exchange_id, Some(2));
         assert_eq!(stored.wallet_id, None);
     }
-
     #[test]
     fn owner_ids_must_exist_and_must_not_conflict() {
         let database = Database::open_in_memory().unwrap();
-
-        // Both owners at once violate the either-or invariant, enforced by
-        // the schema triggers.
         let mut both = address("bc1qboth");
         both.exchange_id = Some(1);
         both.wallet_id = Some(2);
         assert!(insert_address(&database, &both).is_err());
-
-        // Unknown ids fall through to the foreign keys.
         let mut unknown = address("bc1qunknown");
         unknown.exchange_id = Some(999);
         assert!(insert_address(&database, &unknown).is_err());
     }
-
     /// Insert one address with a balance and a classification.
     fn overview_address(
         database: &Database,
@@ -621,7 +603,6 @@ mod tests {
         entity.wallet_id = wallet_id;
         insert_address(database, &entity).unwrap();
     }
-
     /// Store one confirmed transaction for the address at `block_time`.
     fn confirmed_tx(database: &Database, address: &str, txid: &str, block_time: i64) {
         let connection = database.connection().unwrap();
@@ -635,12 +616,20 @@ mod tests {
             )
             .unwrap();
     }
-
+    fn count(database: &Database, table: &str) -> i64 {
+        database
+            .connection()
+            .unwrap()
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    }
     #[test]
     fn sort_keys_parse_from_the_client_facing_allowlist() {
         assert_eq!(
             AddressSortColumn::from_key("address"),
-            Some(AddressSortColumn::Address)
+            Some(AddressSortColumn::Address),
         );
         assert_eq!(
             AddressSortColumn::from_key("label"),
@@ -648,23 +637,23 @@ mod tests {
         );
         assert_eq!(
             AddressSortColumn::from_key("txs"),
-            Some(AddressSortColumn::ConfirmedTxCount)
+            Some(AddressSortColumn::ConfirmedTxCount),
         );
         assert_eq!(
             AddressSortColumn::from_key("balance"),
-            Some(AddressSortColumn::SpendableBalance)
+            Some(AddressSortColumn::SpendableBalance),
         );
         assert_eq!(
             AddressSortColumn::from_key("price"),
-            Some(AddressSortColumn::CurrentPrice)
+            Some(AddressSortColumn::CurrentPrice),
         );
         assert_eq!(
             AddressSortColumn::from_key("first_tx"),
-            Some(AddressSortColumn::FirstTxTime)
+            Some(AddressSortColumn::FirstTxTime),
         );
         assert_eq!(
             AddressSortColumn::from_key("last_tx"),
-            Some(AddressSortColumn::LastTxTime)
+            Some(AddressSortColumn::LastTxTime),
         );
         assert_eq!(
             AddressSortColumn::from_key("scope"),
@@ -673,7 +662,6 @@ mod tests {
         assert_eq!(AddressSortColumn::from_key("type"), None);
         assert_eq!(AddressSortColumn::from_key("address; DROP TABLE"), None);
     }
-
     #[test]
     fn overview_rows_sort_in_the_backend_with_stats_and_a_deterministic_key() {
         let database = Database::open_in_memory().unwrap();
@@ -683,14 +671,9 @@ mod tests {
         confirmed_tx(&database, "bc1qbbb", "tx-b1", 1_600_000_000);
         confirmed_tx(&database, "bc1qbbb", "tx-b2", 1_700_000_000);
         confirmed_tx(&database, "bc1qccc", "tx-c1", 1_500_000_000);
-
-        // The default order is spendable balance descending. Equal balances
-        // fall back to the address as the deterministic key, in the sort
-        // direction (descending here).
         let rows = list_overview_rows(&database, &AddressOverviewFilter::default()).unwrap();
         let order: Vec<&str> = rows.iter().map(|row| row.entity.address.as_str()).collect();
         assert_eq!(order, ["bc1qccc", "bc1qbbb", "bc1qaaa"]);
-        // The stats ride along, unsynced addresses read as zero.
         assert_eq!(rows[0].confirmed_tx_count, 1);
         assert_eq!(rows[0].first_tx_time, Some(1_500_000_000));
         assert_eq!(rows[1].confirmed_tx_count, 2);
@@ -698,9 +681,6 @@ mod tests {
         assert_eq!(rows[1].last_tx_time, Some(1_700_000_000));
         assert_eq!(rows[2].confirmed_tx_count, 0);
         assert_eq!(rows[2].first_tx_time, None);
-
-        // Sorting by the transaction statistics never leaves SQL: bc1qbbb
-        // has two confirmed transactions, bc1qccc one, bc1qaaa none.
         let rows = list_overview_rows(
             &database,
             &AddressOverviewFilter {
@@ -711,7 +691,6 @@ mod tests {
         .unwrap();
         let order: Vec<&str> = rows.iter().map(|row| row.entity.address.as_str()).collect();
         assert_eq!(order, ["bc1qbbb", "bc1qccc", "bc1qaaa"]);
-
         let rows = list_overview_rows(
             &database,
             &AddressOverviewFilter {
@@ -721,10 +700,8 @@ mod tests {
         )
         .unwrap();
         let order: Vec<&str> = rows.iter().map(|row| row.entity.address.as_str()).collect();
-        // NULL descriptions sort first in ascending SQLite order.
         assert_eq!(order, ["bc1qccc", "bc1qaaa", "bc1qbbb"]);
     }
-
     #[test]
     fn overview_rows_and_totals_follow_the_scope_filter() {
         let database = Database::open_in_memory().unwrap();
@@ -733,7 +710,6 @@ mod tests {
         overview_address(&database, "bc1qplain", 300, None, None, None);
         confirmed_tx(&database, "bc1qwallet", "tx-w1", 1_600_000_000);
         confirmed_tx(&database, "bc1qexchange", "tx-e1", 1_600_000_000);
-
         let wallets = list_overview_rows(
             &database,
             &AddressOverviewFilter {
@@ -746,7 +722,6 @@ mod tests {
         assert_eq!(wallets[0].entity.address, "bc1qwallet");
         assert_eq!(wallets[0].wallet_name.as_deref(), Some("Ledger"));
         assert_eq!(wallets[0].spendable_balance_sats, 100);
-
         let exchanges = list_overview_rows(
             &database,
             &AddressOverviewFilter {
@@ -758,28 +733,21 @@ mod tests {
         assert_eq!(exchanges.len(), 1);
         assert_eq!(exchanges[0].entity.address, "bc1qexchange");
         assert_eq!(exchanges[0].exchange_name.as_deref(), Some("Binance"));
-        // Exchange balances are zero here because no ledger account exists,
-        // but the stored on-chain stats are preserved.
         assert_eq!(exchanges[0].spendable_balance_sats, 0);
         assert_eq!(exchanges[0].entity.chain_funded_txo_sum, 200);
-
-        // The KPI totals follow the filter and the listed population: the
-        // exchange address has no ledger balance, so neither it, nor the
-        // transactions stored for it, reach the "All" totals.
         assert_eq!(
             overview_totals(&database, AddressScopeFilter::All).unwrap(),
-            (2, 1, 400)
+            (2, 1, 400),
         );
         assert_eq!(
             overview_totals(&database, AddressScopeFilter::Wallets).unwrap(),
-            (1, 1, 100)
+            (1, 1, 100),
         );
         assert_eq!(
             overview_totals(&database, AddressScopeFilter::Exchanges).unwrap(),
-            (0, 0, 0)
+            (0, 0, 0),
         );
     }
-
     /// Insert one exchange ledger account assigned to a provider catalog row.
     fn ledger_account(database: &Database, provider_id: i64, name: &str) -> i64 {
         let connection = database.connection().unwrap();
@@ -792,7 +760,6 @@ mod tests {
             .unwrap();
         connection.last_insert_rowid()
     }
-
     /// Insert one ledger row of `tx_type` into an exchange account.
     fn ledger_tx(database: &Database, account_id: i64, tx_type: &str, fingerprint: &str) {
         let connection = database.connection().unwrap();
@@ -806,7 +773,6 @@ mod tests {
             )
             .unwrap();
     }
-
     #[test]
     fn exchange_scope_counts_ledger_deposits_and_withdrawals() {
         let database = Database::open_in_memory().unwrap();
@@ -822,7 +788,6 @@ mod tests {
                 [],
             )
             .unwrap();
-
         let account = ledger_account(&database, 1, "Binance");
         ledger_tx(&database, account, "deposit", "deposit-1");
         ledger_tx(&database, account, "withdrawal", "withdrawal-1");
@@ -830,27 +795,17 @@ mod tests {
         for (index, tx_type) in ["buy", "sell", "reward", "unknown"].iter().enumerate() {
             ledger_tx(&database, account, tx_type, &format!("other-{index}"));
         }
-        // A ledger account whose provider has no listed exchange address does
-        // not contribute to the exchange cards.
         let other = ledger_account(&database, 2, "Revolut");
         ledger_tx(&database, other, "deposit", "revolut-deposit");
-
-        // Exchanges: one listed address, its stored ledger balance, and the
-        // three deposit/withdrawal rows of its provider. The wallet's
-        // on-chain transaction and the buy/sell/reward/unknown rows are not
-        // part of this count.
         assert_eq!(
             overview_totals(&database, AddressScopeFilter::Exchanges).unwrap(),
-            (1, 3, 5_000)
+            (1, 3, 5_000),
         );
-
-        // The address scopes keep counting confirmed on-chain transactions.
         assert_eq!(
             overview_totals(&database, AddressScopeFilter::All).unwrap(),
-            (2, 1, 5_100)
+            (2, 1, 5_100),
         );
     }
-
     #[test]
     fn overview_address_count_skips_exchange_addresses_without_a_ledger_balance() {
         let database = Database::open_in_memory().unwrap();
@@ -867,37 +822,26 @@ mod tests {
                 [],
             )
             .unwrap();
-
         let (count, _, balance) = overview_totals(&database, AddressScopeFilter::All).unwrap();
-        // Wallet and unclassified addresses always count; an exchange
-        // address counts once its ledger balance is non-zero.
         assert_eq!(count, 3);
         assert_eq!(balance, 400 + 5_000);
-
-        // The exchange scope only lists the exchange address with a ledger
-        // balance, so its card values are the ledger balance alone.
         assert_eq!(
             overview_totals(&database, AddressScopeFilter::Exchanges).unwrap(),
-            (1, 0, 5_000)
+            (1, 0, 5_000),
         );
     }
-
     #[test]
     fn exchange_scoped_addresses_sort_as_zero_balance() {
         let database = Database::open_in_memory().unwrap();
         overview_address(&database, "bc1qwallet", 100, None, None, Some(1));
         overview_address(&database, "bc1qexchange", 9_000, None, Some(1), None);
         overview_address(&database, "bc1qplain", 300, None, None, None);
-
-        // The stored exchange balance is the highest, but the overview
-        // reports it as zero, so it sorts after the other addresses.
         let rows = list_overview_rows(&database, &AddressOverviewFilter::default()).unwrap();
         let order: Vec<&str> = rows.iter().map(|row| row.entity.address.as_str()).collect();
         assert_eq!(order, ["bc1qplain", "bc1qwallet", "bc1qexchange"]);
         assert_eq!(rows[2].spendable_balance_sats, 0);
         assert_eq!(rows[2].entity.chain_funded_txo_sum, 9_000);
     }
-
     #[test]
     fn stored_exchange_ledger_balance_is_used_by_overview_sort_and_totals() {
         let database = Database::open_in_memory().unwrap();
@@ -911,7 +855,6 @@ mod tests {
                 [],
             )
             .unwrap();
-
         let rows = list_overview_rows(
             &database,
             &AddressOverviewFilter {
@@ -921,17 +864,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(rows[0].spendable_balance_sats, 5_000);
-        // The real on-chain statistics are preserved separately.
         assert_eq!(rows[0].entity.chain_funded_txo_sum, 9_000);
-
         let (_, _, balance) = overview_totals(&database, AddressScopeFilter::All).unwrap();
         assert_eq!(balance, 5_100);
-
         let rows = list_overview_rows(&database, &AddressOverviewFilter::default()).unwrap();
         let order: Vec<&str> = rows.iter().map(|row| row.entity.address.as_str()).collect();
         assert_eq!(order, ["bc1qexchange", "bc1qwallet"]);
     }
-
     #[test]
     fn stats_refresh_does_not_clear_exchange_balance_column() {
         let database = Database::open_in_memory().unwrap();
@@ -944,7 +883,6 @@ mod tests {
                 [],
             )
             .unwrap();
-        // A regular stats refresh must leave the exchange ledger column alone.
         overview_address(&database, "bc1qexchange", 900, None, Some(1), None);
         let stored = get_address(&database, "bc1qexchange").unwrap().unwrap();
         assert_eq!(stored.chain_funded_txo_sum, 900);
@@ -958,32 +896,103 @@ mod tests {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
-            7_000
+            7_000,
         );
     }
     #[test]
     fn update_details_rewrites_description_and_owner_and_reports_missing() {
         let database = Database::open_in_memory().unwrap();
         overview_address(&database, "bc1qedit", 100, Some("old"), Some(1), None);
-
-        // Switching to a wallet clears the exchange; the description is
-        // rewritten, and the stats columns are untouched.
-        assert!(
-            update_address_details(&database, "bc1qedit", Some("new"), None, Some(2),).unwrap()
-        );
+        assert!(update_address_details(&database, "bc1qedit", Some("new"), None, Some(2)).unwrap(),);
         let stored = get_address(&database, "bc1qedit").unwrap().unwrap();
         assert_eq!(stored.description.as_deref(), Some("new"));
         assert_eq!(stored.exchange_id, None);
         assert_eq!(stored.wallet_id, Some(2));
         assert_eq!(stored.chain_funded_txo_sum, 100);
-
-        // Both owner ids may be cleared at once.
-        assert!(update_address_details(&database, "bc1qedit", None, None, None).unwrap());
+        assert!(update_address_details(&database, "bc1qedit", None, None, None).unwrap(),);
         let stored = get_address(&database, "bc1qedit").unwrap().unwrap();
         assert_eq!(stored.description, None);
         assert_eq!(stored.exchange_id, None);
         assert_eq!(stored.wallet_id, None);
-
-        assert!(!update_address_details(&database, "bc1qmissing", None, None, None).unwrap());
+        assert!(!update_address_details(&database, "bc1qmissing", None, None, None).unwrap(),);
+    }
+    #[test]
+    fn updating_to_exchange_purges_full_history_but_keeps_related_history() {
+        let database = Database::open_in_memory().unwrap();
+        overview_address(&database, "bc1qpromote", 100, Some("cold"), None, Some(2));
+        confirmed_tx(&database, "bc1qpromote", "tx-old", 1_600_000_000);
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO transaction_outputs (
+                    transaction_id, output_index, scriptpubkey, scriptpubkey_asm,
+                    scriptpubkey_type, scriptpubkey_address, value
+                 )
+                 SELECT id, 0, '0014abcd', 'OP_0 OP_PUSHBYTES_20 abcd',
+                        'v0_p2wpkh', 'bc1qpromote', 100
+                 FROM transactions WHERE address = 'bc1qpromote'",
+                [],
+            )
+            .unwrap();
+        set_tx_index_rate_limited(&database, "bc1qpromote", true).unwrap();
+        assert!(
+            update_address_details(&database, "bc1qpromote", Some("cold"), Some(1), None).unwrap(),
+        );
+        let stored = get_address(&database, "bc1qpromote").unwrap().unwrap();
+        assert_eq!(stored.exchange_id, Some(1));
+        assert_eq!(stored.wallet_id, None);
+        assert_eq!(stored.description.as_deref(), Some("cold"));
+        assert_eq!(stored.chain_funded_txo_sum, 100);
+        assert!(!stored.tx_index_rate_limited);
+        assert_eq!(count(&database, "transactions"), 0);
+        assert_eq!(count(&database, "transaction_outputs"), 0);
+        overview_address(&database, "bc1qkeep", 0, Some("old"), Some(1), None);
+        confirmed_tx(&database, "bc1qkeep", "tx-related", 1_600_000_000);
+        assert!(update_address_details(&database, "bc1qkeep", Some("new"), Some(1), None).unwrap(),);
+        assert_eq!(count(&database, "transactions"), 1);
+        overview_address(&database, "bc1qdemote", 0, None, Some(1), None);
+        confirmed_tx(&database, "bc1qdemote", "tx-kept", 1_600_000_000);
+        assert!(update_address_details(&database, "bc1qdemote", None, None, Some(2)).unwrap(),);
+        assert_eq!(count(&database, "transactions"), 2);
+    }
+    #[test]
+    fn exchange_overview_stats_aggregate_the_whole_provider() {
+        let database = Database::open_in_memory().unwrap();
+        overview_address(&database, "bc1qexchangeanchor", 200, None, Some(1), None);
+        overview_address(&database, "bc1qexchangesibling", 0, None, Some(1), None);
+        confirmed_tx(&database, "bc1qexchangesibling", "tx-e1", 1_600_000_000);
+        confirmed_tx(&database, "bc1qexchangesibling", "tx-e2", 1_700_000_000);
+        database
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE addresses SET exchange_balance_sats = 200
+                 WHERE address = 'bc1qexchangeanchor'",
+                [],
+            )
+            .unwrap();
+        let rows = list_overview_rows(&database, &AddressOverviewFilter::default()).unwrap();
+        let anchor = rows
+            .iter()
+            .find(|row| row.entity.address == "bc1qexchangeanchor")
+            .unwrap();
+        let sibling = rows
+            .iter()
+            .find(|row| row.entity.address == "bc1qexchangesibling")
+            .unwrap();
+        for row in [anchor, sibling] {
+            assert_eq!(row.confirmed_tx_count, 2);
+            assert_eq!(row.first_tx_time, Some(1_600_000_000));
+            assert_eq!(row.last_tx_time, Some(1_700_000_000));
+        }
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::All).unwrap(),
+            (1, 2, 200),
+        );
+        assert_eq!(
+            overview_totals(&database, AddressScopeFilter::Exchanges).unwrap(),
+            (1, 0, 200),
+        );
     }
 }

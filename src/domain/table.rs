@@ -4,14 +4,11 @@
 //! A table endpoint takes one query struct that flattens [`TableQuery`] plus
 //! its table-specific filters, and returns a [`TablePage`]. Page numbers are
 //! 0-based here and 1-based in the UI.
-
 use serde::{Deserialize, Serialize};
-
 /// Rows per page of every data table in the application. Screens send it as
 /// the table query's `page_size`; services still clamp it to their own
 /// maximum.
 pub const DEFAULT_PAGE_SIZE: u32 = 10;
-
 /// Sort direction of a table query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -21,7 +18,6 @@ pub enum SortDirection {
     #[default]
     Desc,
 }
-
 impl SortDirection {
     /// The other direction; clicking the active sort column toggles to this.
     pub fn toggled(self) -> Self {
@@ -30,7 +26,6 @@ impl SortDirection {
             Self::Desc => Self::Asc,
         }
     }
-
     /// SQL keyword of the direction. This is a fixed allowlist value, never
     /// client input, so it is safe to place in an `ORDER BY` clause.
     #[cfg(feature = "server")]
@@ -41,7 +36,6 @@ impl SortDirection {
         }
     }
 }
-
 /// The part of a table request every listing shares: which page, sorted by
 /// what. Table-specific filters (date ranges, owners, ...) are separate
 /// typed fields of the endpoint's query struct.
@@ -61,7 +55,6 @@ pub struct TableQuery {
     /// Sort direction; ignored without `sort_by`.
     pub sort_dir: SortDirection,
 }
-
 impl Default for TableQuery {
     fn default() -> Self {
         Self {
@@ -72,7 +65,6 @@ impl Default for TableQuery {
         }
     }
 }
-
 /// One page of a table listing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TablePage<T> {
@@ -80,29 +72,23 @@ pub struct TablePage<T> {
     /// Total rows matching the query's filters, across all pages.
     pub total: u64,
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn table_query_defaults_to_the_first_unsorted_page() {
         let query = TableQuery::default();
-
         assert_eq!(DEFAULT_PAGE_SIZE, 10);
         assert_eq!(query.page, 0);
         assert_eq!(query.page_size, DEFAULT_PAGE_SIZE);
         assert_eq!(query.sort_by, None);
         assert_eq!(query.sort_dir, SortDirection::Desc);
     }
-
     #[test]
     fn missing_fields_deserialize_to_the_defaults() {
         let query: TableQuery = serde_json::from_str("{}").unwrap();
-
         assert_eq!(query, TableQuery::default());
     }
-
     #[test]
     fn sort_direction_serializes_lowercase_and_toggles() {
         assert_eq!(

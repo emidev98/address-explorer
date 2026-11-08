@@ -11,11 +11,6 @@
 //! history in whichever currency Settings selects. SQL stays in
 //! `data::repositories::prices`; the external sources stay behind the
 //! `CoinMetrics` and `Frankfurter` clients.
-
-use std::future::Future;
-use std::pin::Pin;
-use std::time::Duration;
-
 use crate::clients::coinmetrics::catalog::CatalogAssetMetricsQuery;
 use crate::clients::coinmetrics::params::{Page, TimeRange};
 use crate::clients::coinmetrics::timeseries::AssetMetricsQuery;
@@ -35,7 +30,9 @@ use crate::domain::price::{
     USD_SYMBOL,
 };
 use crate::domain::table::TableQuery;
-
+use std::future::Future;
+use std::pin::Pin;
+use std::time::Duration;
 /// Failures of the price service: domain validation and resolution failures,
 /// plus the infrastructure errors of the database and the external sources.
 #[derive(Debug, thiserror::Error)]
@@ -51,45 +48,35 @@ pub enum PriceServiceError {
     #[error("exchange-rate request failed: {0}")]
     Frankfurter(#[from] FrankfurterError),
 }
-
 /// Owned future produced by a fetcher closure.
 type FetchFuture = Pin<Box<dyn Future<Output = Result<f64, PriceServiceError>> + Send>>;
-
 /// Owned future producing the FX series of a bulk sync: `(date, rate)`
 /// pairs covering the requested range.
 type FetchSeriesFuture =
     Pin<Box<dyn Future<Output = Result<Vec<(String, f64)>, PriceServiceError>> + Send>>;
-
 /// Owned future producing daily BTC/USD closes for a range.
 type FetchDailyFuture = Pin<Box<dyn Future<Output = Result<Vec<Price>, PriceServiceError>> + Send>>;
-
 /// Owned future producing reference-rate observations as `(interval start,
 /// value)` pairs for a frequency and range.
 type FetchReferenceFuture =
     Pin<Box<dyn Future<Output = Result<Vec<(i64, f64)>, PriceServiceError>> + Send>>;
-
 /// One 15-minute interval in seconds: the spacing of the imported history and
 /// of the finest intraday closes the sync stores.
 const FIFTEEN_MINUTES: i64 = 15 * 60;
-
 /// How far back price resolution looks for a stored intraday close after the
 /// imported 15-minute coverage. Within the synchronized granular window every
 /// interval has a row, so one hour always finds the newest one.
 const GRANULAR_RESOLUTION_LOOKBACK: i64 = 3_600;
-
 /// One day in seconds: the fallback distance of [`latest_price_at`].
 const LATEST_PRICE_FALLBACK_SECONDS: i64 = 86_400;
-
 /// Extra days fetched before a conversion range. The latest rate on or before
 /// a close time is used, so a range that starts on a weekend or holiday needs
 /// the preceding business day's rate from before the range boundary.
 const FX_RATE_LOOKBACK_DAYS: i64 = 7;
-
 /// Current UTC epoch seconds from the server clock.
 fn current_epoch_seconds() -> Result<i64, PriceServiceError> {
     Ok(civil_time::now_epoch_seconds())
 }
-
 /// Facade over the database and the external price sources. Every price
 /// requested through this service is checked against `historical_prices`
 /// first; API answers are stored before being returned.
@@ -98,7 +85,6 @@ pub struct PriceService {
     coinmetrics: CoinMetrics,
     frankfurter: Frankfurter,
 }
-
 impl PriceService {
     /// Connect the clients with their default configurations (Coin Metrics
     /// Community API and the public Frankfurter instance).
@@ -115,7 +101,6 @@ impl PriceService {
             }),
         }
     }
-
     /// Resolve the BTC price in `symbol` at `timestamp`; see
     /// [`resolve_price`] for the storage behaviour.
     pub async fn get_price(
@@ -133,13 +118,11 @@ impl PriceService {
         };
         resolve_price(&self.database, symbol, timestamp, &fetch_usd, &fetch_fx).await
     }
-
     /// Resolve the most recent BTC price in `symbol` at the server's clock,
     /// falling back one day when today's close is not published yet; see
     /// [`latest_price_at`].
     pub async fn latest_price(&self, symbol: &str) -> Result<Price, PriceServiceError> {
         let now = current_epoch_seconds()?;
-
         let fetch_usd = |date: String| -> FetchFuture {
             let timeseries = self.coinmetrics.timeseries.clone();
             Box::pin(async move { fetch_btc_usd_close(&timeseries, &date).await })
@@ -150,7 +133,6 @@ impl PriceService {
         };
         latest_price_at(&self.database, symbol, now, &fetch_usd, &fetch_fx).await
     }
-
     /// Synchronize the BTC/USD history of `[from_time, to_time]` and, when
     /// `symbol` is not USD, convert every stored USD close time of the range
     /// into it; see [`sync_prices_range`]. The Coin Metrics catalogue is read
@@ -166,7 +148,6 @@ impl PriceService {
         let now = current_epoch_seconds()?;
         let (coverage, warning) = self.btc_usd_coverage(now).await;
         let plan = plan_price_sync(granularity, &coverage, from_time, to_time, now);
-
         let fetch_daily = |from_time: i64, to_time: i64| -> FetchDailyFuture {
             let timeseries = self.coinmetrics.timeseries.clone();
             Box::pin(async move { fetch_btc_usd_daily(&timeseries, from_time, to_time).await })
@@ -190,7 +171,6 @@ impl PriceService {
             reference: &fetch_reference,
             fx_series: &fetch_fx_series,
         };
-
         let mut summary = sync_prices_range(
             &self.database,
             &symbol,
@@ -206,7 +186,6 @@ impl PriceService {
         }
         Ok(summary)
     }
-
     /// Read the BTC/USD availability from the Coin Metrics catalogue.
     ///
     /// A failure is not fatal: the documented coverage is assumed and the
@@ -227,13 +206,14 @@ impl PriceService {
             Err(error) => {
                 return (
                     BtcUsdCoverage::fallback(now),
-                    Some(format!(
-                        "Could not read the Coin Metrics catalogue ({error}); assuming the documented coverage."
-                    )),
-                )
+                    Some(
+                        format!(
+                            "Could not read the Coin Metrics catalogue ({error}); assuming the documented coverage.",
+                        ),
+                    ),
+                );
             }
         };
-
         let mut coverage = BtcUsdCoverage::default();
         for asset in response.data {
             for metric in asset.metrics {
@@ -281,7 +261,6 @@ impl PriceService {
         }
         (coverage, None)
     }
-
     /// Prepare the stored USD history in the currently selected currency;
     /// see [`ensure_currency_history`]. The automatic preparation behind the
     /// default fiat currency setting reuses the same conversion path as
@@ -299,7 +278,6 @@ impl PriceService {
         };
         ensure_currency_history(&self.database, &symbol, &fetch_fx_series).await
     }
-
     /// List the currencies the Frankfurter catalogue offers for conversions,
     /// sorted by code. This is the catalogue the "add conversion" action of
     /// the historical prices table chooses from.
@@ -319,7 +297,6 @@ impl PriceService {
         Ok(currencies)
     }
 }
-
 /// Fetch the BTC `PriceUSD` metric row for one calendar day from Coin
 /// Metrics.
 async fn fetch_btc_usd_close(
@@ -354,10 +331,8 @@ async fn fetch_btc_usd_close(
             })
         })
 }
-
 /// Largest page Coin Metrics serves for one asset-metrics request.
 const DAILY_PAGE_SIZE: u32 = 10_000;
-
 /// Fetch the BTC/USD daily closes of `[from_time, to_time]` from Coin
 /// Metrics.
 ///
@@ -375,7 +350,6 @@ async fn fetch_btc_usd_daily(
     let end_date = civil_time::format_date(to_time);
     let mut prices = Vec::new();
     let mut next_page_token = None;
-
     loop {
         let query = AssetMetricsQuery {
             assets: vec!["btc".to_string()],
@@ -394,7 +368,6 @@ async fn fetch_btc_usd_daily(
             ..Default::default()
         };
         let response = timeseries.get_asset_metrics(query).await?;
-
         for row in &response.data {
             let Some(close) = row.values.get("PriceUSD").and_then(json_number_f64) else {
                 continue;
@@ -403,7 +376,6 @@ async fn fetch_btc_usd_daily(
                 prices.push(price);
             }
         }
-
         match response.next_page_token {
             Some(token) if !token.is_empty() && Some(&token) != next_page_token.as_ref() => {
                 next_page_token = Some(token);
@@ -411,10 +383,8 @@ async fn fetch_btc_usd_daily(
             _ => break,
         }
     }
-
     Ok(prices)
 }
-
 /// Fetch `ReferenceRateUSD` observations of `[from_time, to_time]` at
 /// `frequency` (`1m` or `1h`) from Coin Metrics, as `(interval start, value)`
 /// pairs.
@@ -433,7 +403,6 @@ async fn fetch_btc_usd_reference(
     let end_time = civil_time::format_iso_timestamp(to_time);
     let mut observations = Vec::new();
     let mut next_page_token = None;
-
     loop {
         let query = AssetMetricsQuery {
             assets: vec!["btc".to_string()],
@@ -452,7 +421,6 @@ async fn fetch_btc_usd_reference(
             ..Default::default()
         };
         let response = timeseries.get_asset_metrics(query).await?;
-
         for row in &response.data {
             let Some(close) = row.values.get("ReferenceRateUSD").and_then(json_number_f64) else {
                 continue;
@@ -461,7 +429,6 @@ async fn fetch_btc_usd_reference(
                 observations.push((start, close));
             }
         }
-
         match response.next_page_token {
             Some(token) if !token.is_empty() && Some(&token) != next_page_token.as_ref() => {
                 next_page_token = Some(token);
@@ -469,10 +436,8 @@ async fn fetch_btc_usd_reference(
             _ => break,
         }
     }
-
     Ok(observations)
 }
-
 /// Map one Coin Metrics asset-metric row to the stored daily close.
 ///
 /// The API row time is the start of the interval; the table stores the close
@@ -486,7 +451,6 @@ fn daily_price(interval_start: &str, close: f64) -> Option<Price> {
         close,
     })
 }
-
 /// Fetch the `USD → quote` blended rate for one calendar day from
 /// Frankfurter.
 async fn fetch_usd_fx_rate(
@@ -497,7 +461,6 @@ async fn fetch_usd_fx_rate(
     let rate = rates.get_rate(USD_SYMBOL, quote, Some(date), &[]).await?;
     Ok(rate.rate)
 }
-
 /// Start date of an FX series request, padded so a range beginning on a
 /// weekend or holiday can use the preceding business day's rate.
 fn fx_series_start_date(from_date: &str) -> String {
@@ -505,7 +468,6 @@ fn fx_series_start_date(from_date: &str) -> String {
         .map(|day| civil_time::format_date(day - FX_RATE_LOOKBACK_DAYS * 86_400))
         .unwrap_or_else(|| from_date.to_string())
 }
-
 /// Fetch the `USD → quote` blended rate series of `[from_date, to_date]`
 /// (ISO `YYYY-MM-DD`) from Frankfurter, as `(date, rate)` pairs.
 async fn fetch_usd_fx_series(
@@ -514,8 +476,6 @@ async fn fetch_usd_fx_series(
     to_date: &str,
     quote: &str,
 ) -> Result<Vec<(String, f64)>, PriceServiceError> {
-    // A range starting on a weekend has no rate of its own. Fetch a short
-    // lookback so the conversion can use the prior business day's rate.
     let from_date = fx_series_start_date(from_date);
     let query = RatesQuery {
         from: Some(from_date),
@@ -530,7 +490,6 @@ async fn fetch_usd_fx_series(
         .map(|rate| (rate.date, rate.rate))
         .collect())
 }
-
 /// Parse a Coin Metrics metric value, returned as a numeric string.
 fn json_number_f64(value: &serde_json::Value) -> Option<f64> {
     value
@@ -539,14 +498,12 @@ fn json_number_f64(value: &serde_json::Value) -> Option<f64> {
         .or_else(|| value.as_f64())
         .or_else(|| value.as_i64().map(|number| number as f64))
 }
-
 mod conversion;
 mod listing;
 mod resolution;
 mod sync;
 #[cfg(test)]
 mod tests;
-
 pub use conversion::{ensure_currency_history, sync_prices_bulk};
 pub use listing::{
     delete_stored_prices, list_price_conversions, list_price_page, price_series,

@@ -4,11 +4,11 @@
 //! Ordinary addresses are indexed by walking the mempool address history page
 //! by page. Exchange addresses (`addresses.exchange_id`) skip the full history
 //! walk: their histories are effectively unbounded, so only the transactions
-//! that relate to the other known addresses in the database are mirrored —
-//! see `data::repositories::transactions::mirror_related_transactions`.
-
-use std::time::Duration;
-
+//! that relate to the other known addresses in the database are mirrored. The
+//! reverse search covers the whole exchange provider, not only the clicked
+//! address, so relations stored under sibling provider addresses are found
+//! too — see
+//! `data::repositories::transactions::mirror_related_transactions_for_provider`.
 use crate::clients::mempool::{
     bitcoin::types::Tx, config::MempoolConfig, error::MempoolError, Mempool,
 };
@@ -19,7 +19,8 @@ use crate::data::{Database, DatabaseError};
 use crate::domain::transaction::{
     TransactionSyncBatchSummary, TransactionSyncFailure, TransactionSyncSummary,
 };
-
+use std::collections::HashSet;
+use std::time::Duration;
 /// Failures of the transaction sync service.
 #[derive(Debug, thiserror::Error)]
 pub enum TransactionSyncError {
@@ -32,16 +33,13 @@ pub enum TransactionSyncError {
     #[error("mempool request failed: {0}")]
     Mempool(#[from] MempoolError),
 }
-
 const MAX_ADDRESS_SYNC_PAGES: usize = 100;
 const MEMPOOL_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Facade over the transactions repository and the mempool client.
 pub struct TransactionService {
     database: Database,
     mempool: Mempool,
 }
-
 impl TransactionService {
     /// Connect the mempool client with the timeout used for sync walks.
     pub fn connect(database: Database) -> Self {
@@ -53,11 +51,17 @@ impl TransactionService {
             }),
         }
     }
-
     /// Fetch and persist the transaction history for one stored address.
     ///
     /// Network I/O completes before the database transaction starts, so the
     /// connection lock is never held while waiting on the mempool API.
+    ///
+    /// Exchange-owned addresses do not walk the mempool history. Their sync
+    /// is a reverse search over the transactions already stored for the
+    /// other declared addresses and covers every address of the exchange
+    /// provider, because only the provider's balance anchor is shown in the
+    /// addresses table. The returned summary therefore carries the row that
+    /// started the sync as `address` and provider-wide counts.
     ///
     /// Rate limiting is a pause, not a failure: the pages fetched before the
     /// limit are stored, the address is marked `tx_index_rate_limited`, and
@@ -70,25 +74,20 @@ impl TransactionService {
     ) -> Result<TransactionSyncSummary, TransactionSyncError> {
         let stored_address = address_repository::get_address(&self.database, address)?
             .ok_or(TransactionSyncError::AddressNotFound)?;
-
-        if stored_address.exchange_id.is_some() {
-            return Ok(transaction_repository::mirror_related_transactions(
+        if let Some(provider_id) = stored_address.exchange_id {
+            let mut summary = transaction_repository::mirror_related_transactions_for_provider(
                 &self.database,
-                address,
-            )?);
+                provider_id,
+            )?;
+            summary.address = address.to_string();
+            return Ok(summary);
         }
-
-        // An address marked rate-limited resumes where the interrupted walk
-        // stopped; any other address re-walks from the newest transactions
-        // so freshly confirmed activity is picked up.
         let after_txid = if stored_address.tx_index_rate_limited {
             transaction_repository::oldest_confirmed_txid(&self.database, address)?
         } else {
             None
         };
-
         let (transactions, stop) = self.fetch_address_transactions(address, after_txid).await?;
-
         let mut summary = transaction_repository::sync_transactions(
             &self.database,
             address,
@@ -101,20 +100,20 @@ impl TransactionService {
             address,
             summary.rate_limited,
         )?;
-
         Ok(summary)
     }
-
     /// Sync the transaction histories of several stored addresses.
     ///
     /// This is the use case behind the addresses table's bulk sync action.
     /// The selection is sorted, deduplicated, and split into ordinary and
     /// exchange-owned addresses before any work starts; an empty selection
-    /// is rejected. Ordinary addresses sync first because an exchange runs a
-    /// reverse search over the transactions already stored for them, so the
-    /// batch must never depend on the lexical order of the selection. The
-    /// addresses sync sequentially so a batch never fans out concurrent
-    /// mempool requests that would exhaust the provider's rate limit.
+    /// is rejected. Exchange providers collapse to one sync because the
+    /// reverse search covers all of their addresses. Ordinary addresses sync
+    /// first because an exchange runs a reverse search over the transactions
+    /// already stored for them, so the batch must never depend on the lexical
+    /// order of the selection. The addresses sync sequentially so a batch
+    /// never fans out concurrent mempool requests that would exhaust the
+    /// provider's rate limit.
     ///
     /// Each address keeps its own database transaction: network I/O happens
     /// before the matching write, so the connection is never locked while
@@ -130,7 +129,6 @@ impl TransactionService {
             return Err(TransactionSyncError::EmptySelection);
         }
         let (ordinary, exchanges) = partition_by_exchange_ownership(&self.database, &addresses)?;
-
         let mut summary = TransactionSyncBatchSummary::default();
         for address in ordinary.iter().chain(exchanges.iter()) {
             match self.sync_address_transactions(address).await {
@@ -141,10 +139,8 @@ impl TransactionService {
                 }),
             }
         }
-
         Ok(summary)
     }
-
     /// Read every transaction page exposed by the mempool address endpoint,
     /// optionally resuming from `after_txid`.
     ///
@@ -158,12 +154,9 @@ impl TransactionService {
         address: &str,
         after_txid: Option<String>,
     ) -> Result<(Vec<Tx>, FetchStop), MempoolError> {
-        use std::collections::HashSet;
-
         let mut transactions = Vec::new();
         let mut seen_txids = HashSet::new();
         let mut after_txid = after_txid;
-
         for _ in 0..MAX_ADDRESS_SYNC_PAGES {
             let page = match self
                 .mempool
@@ -178,36 +171,28 @@ impl TransactionService {
                 }
                 Err(error) => return Err(error),
             };
-
             if page.is_empty() {
                 return Ok((transactions, FetchStop::Complete));
             }
-
             let next_after_txid = page.last().map(|transaction| transaction.txid.clone());
             let mut found_new_transaction = false;
-
             for transaction in page {
                 if seen_txids.insert(transaction.txid.clone()) {
                     transactions.push(transaction);
                     found_new_transaction = true;
                 }
             }
-
             if !found_new_transaction {
                 return Ok((transactions, FetchStop::Complete));
             }
-
             if next_after_txid == after_txid {
                 return Ok((transactions, FetchStop::Complete));
             }
-
             after_txid = next_after_txid;
         }
-
         Ok((transactions, FetchStop::PageLimit))
     }
 }
-
 /// Normalize a bulk selection: duplicate addresses collapse to one sync and
 /// sorting makes the order deterministic even though the UI selection set
 /// has no order.
@@ -217,7 +202,6 @@ fn normalize_selection(addresses: &[String]) -> Vec<String> {
     addresses.dedup();
     addresses
 }
-
 /// Split a bulk selection into ordinary addresses and exchange-owned
 /// addresses.
 ///
@@ -225,28 +209,30 @@ fn normalize_selection(addresses: &[String]) -> Vec<String> {
 /// exchange address is mirrored from the transactions already stored for the
 /// other addresses. Running the ordinary addresses first lets the exchange
 /// reverse search see their freshly indexed transactions in the same batch.
-/// Addresses missing from the store count as ordinary so their sync reports
-/// the not-found failure.
+/// Only the first selected address of each exchange provider is kept because
+/// the provider-wide reverse search covers the rest. Addresses missing from
+/// the store count as ordinary so their sync reports the not-found failure.
 fn partition_by_exchange_ownership(
     database: &Database,
     addresses: &[String],
 ) -> Result<(Vec<String>, Vec<String>), TransactionSyncError> {
     let mut ordinary = Vec::new();
     let mut exchanges = Vec::new();
-
+    let mut seen_providers = HashSet::new();
     for address in addresses {
-        let is_exchange = address_repository::get_address(database, address)?
-            .is_some_and(|stored| stored.exchange_id.is_some());
-        if is_exchange {
-            exchanges.push(address.clone());
-        } else {
-            ordinary.push(address.clone());
+        let exchange_id = address_repository::get_address(database, address)?
+            .and_then(|stored| stored.exchange_id);
+        match exchange_id {
+            Some(provider_id) => {
+                if seen_providers.insert(provider_id) {
+                    exchanges.push(address.clone());
+                }
+            }
+            None => ordinary.push(address.clone()),
         }
     }
-
     Ok((ordinary, exchanges))
 }
-
 /// Why a transaction history walk stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FetchStop {
@@ -260,32 +246,22 @@ enum FetchStop {
     /// indexed transaction.
     RateLimited,
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::address::StoredAddress;
-
     /// Drive a future to completion without an async runtime. The empty
     /// selection resolves before any network request is started.
     fn block_on<F: std::future::Future>(future: F) -> F::Output {
         use std::task::{Context, RawWaker, RawWakerVTable, Waker};
-
         fn raw_waker() -> RawWaker {
             fn clone(_: *const ()) -> RawWaker {
                 raw_waker()
             }
             fn noop(_: *const ()) {}
-            // SAFETY: the vtable never dereferences the null data pointer:
-            // cloning manufactures another null waker and the remaining
-            // operations are no-ops, so no requirement of `RawWaker` is
-            // violated.
             static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
             RawWaker::new(std::ptr::null(), &VTABLE)
         }
-
-        // SAFETY: `raw_waker` builds a `RawWaker` whose vtable satisfies the
-        // contract documented above; the data pointer is never dereferenced.
         let waker = unsafe { Waker::from_raw(raw_waker()) };
         let mut context = Context::from_waker(&waker);
         let mut future = std::pin::pin!(future);
@@ -294,7 +270,6 @@ mod tests {
             std::task::Poll::Pending => panic!("test future unexpectedly yielded"),
         }
     }
-
     #[test]
     fn bulk_selection_is_sorted_and_deduplicated() {
         let selection = vec![
@@ -302,23 +277,18 @@ mod tests {
             "bc1qfirst".to_string(),
             "bc1qsecond".to_string(),
         ];
-
         assert_eq!(
             normalize_selection(&selection),
-            vec!["bc1qfirst".to_string(), "bc1qsecond".to_string()]
+            vec!["bc1qfirst".to_string(), "bc1qsecond".to_string()],
         );
         assert!(normalize_selection(&[]).is_empty());
     }
-
     #[test]
     fn bulk_sync_rejects_an_empty_selection() {
         let service = TransactionService::connect(Database::open_in_memory().unwrap());
-
         let result = block_on(service.sync_addresses_transactions(&[]));
-
         assert!(matches!(result, Err(TransactionSyncError::EmptySelection)));
     }
-
     #[test]
     fn bulk_selection_syncs_exchange_addresses_after_ordinary_ones() {
         let database = Database::open_in_memory().unwrap();
@@ -332,20 +302,128 @@ mod tests {
                 exchange_id: Some(1),
                 ..StoredAddress::default()
             },
+            StoredAddress {
+                address: "bc1qexchange2".to_string(),
+                exchange_id: Some(1),
+                ..StoredAddress::default()
+            },
+            StoredAddress {
+                address: "bc1qexchangethird".to_string(),
+                exchange_id: Some(2),
+                ..StoredAddress::default()
+            },
         ] {
             address_repository::insert_address(&database, &entity).unwrap();
         }
-
-        let selection = vec!["bc1qexchange".to_string(), "bc1qwallet".to_string()];
+        let selection = vec![
+            "bc1qexchange".to_string(),
+            "bc1qexchange2".to_string(),
+            "bc1qexchangethird".to_string(),
+            "bc1qwallet".to_string(),
+        ];
         let (ordinary, exchanges) = partition_by_exchange_ownership(&database, &selection).unwrap();
-
         assert_eq!(ordinary, vec!["bc1qwallet"]);
-        assert_eq!(exchanges, vec!["bc1qexchange"]);
-        // An address that vanished from the store keeps its not-found
-        // failure in the ordinary pass instead of being treated as exchange.
+        assert_eq!(exchanges, vec!["bc1qexchange", "bc1qexchangethird"]);
         let missing = vec!["bc1qmissing".to_string()];
         let (ordinary, exchanges) = partition_by_exchange_ownership(&database, &missing).unwrap();
         assert_eq!(ordinary, vec!["bc1qmissing"]);
         assert!(exchanges.is_empty());
+    }
+    fn insert_wallet_transaction(
+        database: &Database,
+        address: &str,
+        txid: &str,
+        output_address: &str,
+    ) {
+        let connection = database.connection().unwrap();
+        connection
+            .execute(
+                "INSERT INTO transactions (
+                    address, txid, version, locktime, size, weight, fee,
+                    confirmed, block_time
+                 ) VALUES (?1, ?2, 2, 0, 100, 400, 1000, 1, 1700000000)",
+                rusqlite::params![address, txid],
+            )
+            .unwrap();
+        let transaction_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO transaction_outputs (
+                    transaction_id, output_index, scriptpubkey, scriptpubkey_asm,
+                    scriptpubkey_type, scriptpubkey_address, value
+                 ) VALUES (?1, 0, '0014abcd', 'OP_0 OP_PUSHBYTES_20 abcd',
+                    'v0_p2wpkh', ?2, 1000)",
+                rusqlite::params![transaction_id, output_address],
+            )
+            .unwrap();
+    }
+    fn stored_txids_for(database: &Database, address: &str) -> Vec<String> {
+        database
+            .connection()
+            .unwrap()
+            .prepare("SELECT txid FROM transactions WHERE address = ?1 ORDER BY txid")
+            .unwrap()
+            .query_map([address], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    }
+    #[test]
+    fn exchange_sync_covers_every_address_of_the_provider() {
+        let database = Database::open_in_memory().unwrap();
+        for entity in [
+            StoredAddress {
+                address: "bc1qwallet".to_string(),
+                ..StoredAddress::default()
+            },
+            StoredAddress {
+                address: "bc1qexchangeanchor".to_string(),
+                exchange_id: Some(1),
+                ..StoredAddress::default()
+            },
+            StoredAddress {
+                address: "bc1qexchangesibling".to_string(),
+                exchange_id: Some(1),
+                ..StoredAddress::default()
+            },
+            StoredAddress {
+                address: "bc1qexchangeother".to_string(),
+                exchange_id: Some(2),
+                ..StoredAddress::default()
+            },
+        ] {
+            address_repository::insert_address(&database, &entity).unwrap();
+        }
+        address_repository::set_tx_index_rate_limited(&database, "bc1qexchangeanchor", true)
+            .unwrap();
+        address_repository::set_tx_index_rate_limited(&database, "bc1qexchangesibling", true)
+            .unwrap();
+        insert_wallet_transaction(&database, "bc1qwallet", "tx-related", "bc1qexchangesibling");
+        insert_wallet_transaction(
+            &database,
+            "bc1qwallet",
+            "tx-other-provider",
+            "bc1qexchangeother",
+        );
+        let service = TransactionService::connect(database.clone());
+        let summary = block_on(service.sync_address_transactions("bc1qexchangeanchor")).unwrap();
+        assert_eq!(summary.address, "bc1qexchangeanchor");
+        assert_eq!(summary.fetched, 1);
+        assert_eq!(summary.inserted, 1);
+        assert_eq!(summary.stored, 1);
+        assert_eq!(
+            stored_txids_for(&database, "bc1qexchangesibling"),
+            ["tx-related"]
+        );
+        assert!(stored_txids_for(&database, "bc1qexchangeanchor").is_empty());
+        assert!(stored_txids_for(&database, "bc1qexchangeother").is_empty());
+        for address in ["bc1qexchangeanchor", "bc1qexchangesibling"] {
+            assert!(
+                !address_repository::get_address(&database, address)
+                    .unwrap()
+                    .unwrap()
+                    .tx_index_rate_limited,
+            );
+        }
     }
 }

@@ -1,16 +1,13 @@
 //! Shared RFC 4180-style CSV tokenizer used by the exchange ledger importer
 //! and the catalog importer. It is intentionally independent from HTTP,
 //! SQLite, and Dioxus so it can be unit-tested on its own.
-
 use std::collections::BTreeMap;
-
 /// Parsed CSV document: the original headers and one map per data row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CsvDocument {
     pub headers: Vec<String>,
     pub rows: Vec<BTreeMap<String, String>>,
 }
-
 /// Parse RFC 4180-style CSV text with quoted fields, escaped quotes, CRLF,
 /// and newlines inside quoted fields. Blank lines are skipped and a missing
 /// trailing cell is read as an empty string.
@@ -44,7 +41,6 @@ pub fn parse_csv_text(text: &str) -> Result<CsvDocument, String> {
     }
     Ok(CsvDocument { headers, rows })
 }
-
 fn split_csv_lines(text: &str) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current = String::new();
@@ -76,7 +72,6 @@ fn split_csv_lines(text: &str) -> Vec<String> {
     }
     lines
 }
-
 fn parse_csv_line(line: &str) -> Vec<String> {
     let mut fields = Vec::new();
     let mut current = String::new();
@@ -96,11 +91,9 @@ fn parse_csv_line(line: &str) -> Vec<String> {
     fields.push(current);
     fields
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn csv_tokenizer_handles_quotes_crlf_and_embedded_newlines() {
         let text = "A,B\r\n\"x,1\",\"hello\r\nworld\"\r\n\"a\"\"b\",plain\r\n";
@@ -111,7 +104,6 @@ mod tests {
         assert_eq!(document.rows[0]["B"], "hello\r\nworld");
         assert_eq!(document.rows[1]["A"], "a\"b");
     }
-
     #[test]
     fn a_bom_and_blank_lines_are_ignored() {
         let document = parse_csv_text("\u{feff}name,category\r\n\r\nLedger,\r\n").unwrap();
@@ -120,7 +112,6 @@ mod tests {
         assert_eq!(document.rows[0]["name"], "Ledger");
         assert_eq!(document.rows[0]["category"], "");
     }
-
     #[test]
     fn empty_files_and_missing_headers_are_rejected() {
         assert!(parse_csv_text("   ").is_err());

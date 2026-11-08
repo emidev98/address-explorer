@@ -3,7 +3,6 @@ use crate::clients::coinmetrics::http::HttpClient;
 use crate::clients::coinmetrics::params::{comma_separated, Page};
 use crate::clients::coinmetrics::types::{ListResponse, SecurityMasterAsset, SecurityMasterMarket};
 use serde::Serialize;
-
 /// Filters for `/security-master/assets`. `assets` and `codes` are mutually
 /// exclusive.
 #[derive(Debug, Clone, Default, Serialize)]
@@ -21,7 +20,6 @@ pub struct SecurityMasterAssetsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Filters for `/security-master/markets`.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SecurityMasterMarketsQuery {
@@ -44,25 +42,21 @@ pub struct SecurityMasterMarketsQuery {
     #[serde(flatten)]
     pub page: Page,
 }
-
 /// Security master asset and market metadata endpoints.
 #[derive(Clone)]
 pub struct SecurityMaster {
     http: HttpClient,
 }
-
 impl SecurityMaster {
     pub fn new(http: HttpClient) -> Self {
         Self { http }
     }
-
     pub async fn get_assets(
         &self,
         query: SecurityMasterAssetsQuery,
     ) -> Result<ListResponse<SecurityMasterAsset>, CoinMetricsError> {
         self.http.get_query("/security-master/assets", &query).await
     }
-
     pub async fn get_markets(
         &self,
         query: SecurityMasterMarketsQuery,

@@ -5,13 +5,10 @@
 //! [`CatalogSelect`] loads the options itself. [`CatalogOptionsSelect`] is the
 //! presentational half for callers that already own a provider list, such as
 //! the CSV import dialog that auto-fills the account name from the selection.
-
-use dioxus::prelude::*;
-
 use crate::api::catalogs::catalog_options_api;
 use crate::components::provider_badge::{BadgeSize, ProviderBadge};
 use crate::domain::catalog::{CatalogEntry, CatalogKind};
-
+use dioxus::prelude::*;
 #[component]
 pub fn CatalogSelect(
     kind: CatalogKind,
@@ -26,7 +23,6 @@ pub fn CatalogSelect(
             .await
             .map_err(|error| error.to_string())
     });
-
     let state = options();
     let loading = state.is_none();
     let error = match &state {
@@ -37,7 +33,6 @@ pub fn CatalogSelect(
         Some(Ok(entries)) => entries.clone(),
         _ => Vec::new(),
     };
-
     rsx! {
         CatalogOptionsSelect {
             kind,
@@ -56,7 +51,6 @@ pub fn CatalogSelect(
         }
     }
 }
-
 /// Presentational provider select: grouped options plus a badge for the
 /// current selection.
 #[component]
@@ -95,15 +89,16 @@ pub fn CatalogOptionsSelect(
     } else {
         placeholder
     };
-
     rsx! {
         div { class: "md3-text-field",
             select {
                 id: "{id}",
                 class: "md3-input",
                 value: value.map(|id| id.to_string()).unwrap_or_default(),
-                disabled: disabled || loading,
-                onchange: move |event| on_change.call(event.value().parse::<i64>().ok()),
+                disabled: disabled ||
+                                                                        loading,
+                onchange: move | event | on_change.call(event.value().parse::< i64 > ()
+                                                                        .ok()),
                 option { value: "", "{placeholder}" }
                 for (group, entries) in grouped {
                     optgroup { label: "{group}",
@@ -128,11 +123,9 @@ pub fn CatalogOptionsSelect(
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn entry(id: i64, name: &str, category: Option<&str>) -> CatalogEntry {
         CatalogEntry {
             id,
@@ -142,7 +135,6 @@ mod tests {
             brand_color: None,
         }
     }
-
     #[test]
     fn options_are_grouped_by_category_with_uncategorized_last() {
         let groups = super::super::option_groups::group_options(
@@ -160,7 +152,6 @@ mod tests {
             },
             "Uncategorized",
         );
-
         let labels: Vec<&str> = groups.iter().map(|(label, _)| label.as_str()).collect();
         assert_eq!(
             labels,

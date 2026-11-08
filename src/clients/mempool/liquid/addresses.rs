@@ -1,12 +1,10 @@
 use crate::clients::mempool::bitcoin::types::{Address, AddressTxsUtxo, Tx};
 use crate::clients::mempool::error::MempoolError;
 use crate::clients::mempool::http::HttpClient;
-
 #[derive(Clone)]
 pub struct Addresses {
     http: HttpClient,
 }
-
 impl Addresses {
     pub fn new(http: HttpClient) -> Self {
         Self { http }

@@ -13,28 +13,21 @@
 //!
 //! The module contains no SQL, HTTP, RSX, or Dioxus code.
 #![cfg_attr(not(feature = "server"), allow(dead_code))]
-
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-
-use serde::{Deserialize, Serialize};
-
 use crate::domain::exchange::{ExchangeTxType, MatchState};
-
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 /// Number of external counterparties kept as individual nodes on each side of
 /// a flow. The remaining value is folded into a labelled bucket.
 pub const TOP_EXTERNAL_NODES: usize = 12;
-
 /// Transaction-view budget. Above these counts the service renders the address
 /// summary unless the caller explicitly forces the transaction view.
 pub const MAX_TRANSACTION_GRAPH_TRANSACTIONS: usize = 1_500;
 pub const MAX_TRANSACTION_GRAPH_OUTPUTS: usize = 3_000;
 pub const MAX_TRANSACTION_GRAPH_NODES: usize = 4_000;
 pub const MAX_TRANSACTION_GRAPH_LINKS: usize = 12_000;
-
 /// Safeguards for a single filter request; client input is rejected before it
 /// can build an unbounded SQL parameter list.
 pub const MAX_FILTER_VALUES: usize = 2_000;
-
 /// Which graph shape the screen asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -45,7 +38,6 @@ pub enum FlowView {
     /// Individual stored-address summary.
     Addresses,
 }
-
 impl FlowView {
     pub fn label(self) -> &'static str {
         match self {
@@ -53,12 +45,10 @@ impl FlowView {
             Self::Addresses => "Addresses",
         }
     }
-
     pub fn is_summary(self) -> bool {
         !matches!(self, Self::Transactions)
     }
 }
-
 /// Query of the flow screen.
 ///
 /// Exchange-provider filters select exchange-owned addresses plus matching
@@ -79,20 +69,17 @@ pub struct FlowQuery {
     /// Set when the user explicitly overrides the automatic summary fallback.
     pub force_transactions: bool,
 }
-
 impl FlowQuery {
     /// Whether any owner or address filter is active.
     pub fn has_population_filter(&self) -> bool {
         !self.exchange_ids.is_empty() || !self.addresses.is_empty()
     }
-
     /// Whether an exchange-side filter is active. Ledger rows are limited to
     /// those providers when this is true.
     pub fn has_exchange_filter(&self) -> bool {
         !self.exchange_ids.is_empty()
     }
 }
-
 /// One selectable catalog value of the filter bar.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowFilterOption {
@@ -102,7 +89,6 @@ pub struct FlowFilterOption {
     pub address_count: i64,
     pub account_count: i64,
 }
-
 /// One selectable stored address of the filter bar.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowAddressOption {
@@ -118,7 +104,6 @@ pub struct FlowAddressOption {
     pub confirmed_tx_count: i64,
     pub tx_index_rate_limited: bool,
 }
-
 /// First and last stored timestamps available to the date filters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowTimeBounds {
@@ -127,7 +112,6 @@ pub struct FlowTimeBounds {
     pub first_ledger_time: Option<i64>,
     pub last_ledger_time: Option<i64>,
 }
-
 /// Everything the filter bar needs in one response.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowFilterOptions {
@@ -135,7 +119,6 @@ pub struct FlowFilterOptions {
     pub addresses: Vec<FlowAddressOption>,
     pub time_bounds: FlowTimeBounds,
 }
-
 /// Which provider a flow node belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -143,7 +126,6 @@ pub enum FlowOwnerKind {
     Exchange,
     Wallet,
 }
-
 /// Presentation metadata of an owner, shared by exchange/wallet nodes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowOwnerRef {
@@ -153,7 +135,6 @@ pub struct FlowOwnerRef {
     pub name: String,
     pub brand_color: Option<String>,
 }
-
 /// Persisted address metadata used by the graph builders.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct FlowAddressOwner {
@@ -171,7 +152,6 @@ pub struct FlowAddressOwner {
     pub confirmed_tx_count: i64,
     pub tx_index_rate_limited: bool,
 }
-
 impl FlowAddressOwner {
     pub fn owner_ref(&self) -> Option<FlowOwnerRef> {
         if let Some(id) = self.exchange_id {
@@ -198,14 +178,12 @@ impl FlowAddressOwner {
         }
         None
     }
-
     pub fn display_label(&self) -> String {
         self.description
             .clone()
             .unwrap_or_else(|| short_text(&self.address))
     }
 }
-
 /// One input of a filtered transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowInput {
@@ -215,7 +193,6 @@ pub struct FlowInput {
     pub value_sats: i64,
     pub is_coinbase: bool,
 }
-
 /// One output of a filtered transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowOutput {
@@ -224,7 +201,6 @@ pub struct FlowOutput {
     pub value_sats: i64,
     pub scriptpubkey_type: String,
 }
-
 impl FlowOutput {
     /// Whether the output can carry value into the graph.
     pub fn is_spendable(&self) -> bool {
@@ -235,7 +211,6 @@ impl FlowOutput {
         )
     }
 }
-
 /// Whether a Bitcoin output can carry value through a transaction graph.
 ///
 /// OP_RETURN outputs and outputs without an address cannot transfer value, and
@@ -251,7 +226,6 @@ pub(crate) fn is_spendable_output(
         && scriptpubkey_type != "op_return"
         && address.is_some_and(|address| !address.trim().is_empty())
 }
-
 /// A deduplicated on-chain transaction prepared for graph construction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowTransaction {
@@ -261,7 +235,6 @@ pub struct FlowTransaction {
     pub inputs: Vec<FlowInput>,
     pub outputs: Vec<FlowOutput>,
 }
-
 /// One exchange ledger row in the filtered dataset.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowLedgerRow {
@@ -278,7 +251,6 @@ pub struct FlowLedgerRow {
     pub on_chain_txid: Option<String>,
     pub local_addresses: Vec<String>,
 }
-
 impl FlowLedgerRow {
     pub fn is_deposit_or_withdrawal(&self) -> bool {
         matches!(
@@ -286,11 +258,9 @@ impl FlowLedgerRow {
             ExchangeTxType::Deposit | ExchangeTxType::Withdrawal
         )
     }
-
     pub fn is_unmatched(&self) -> bool {
         self.match_state == MatchState::Unmatched
     }
-
     /// Stable endpoint identity of the exchange side, even for a manual
     /// account without a catalog provider.
     pub fn exchange_endpoint_id(&self) -> String {
@@ -299,13 +269,11 @@ impl FlowLedgerRow {
             None => format!("exchange-account:{}", self.account_id),
         }
     }
-
     pub fn exchange_endpoint_label(&self) -> String {
         self.provider_name
             .clone()
             .unwrap_or_else(|| self.account_name.clone())
     }
-
     pub fn exchange_endpoint_owner(&self) -> FlowOwnerRef {
         FlowOwnerRef {
             kind: FlowOwnerKind::Exchange,
@@ -315,7 +283,6 @@ impl FlowLedgerRow {
         }
     }
 }
-
 /// The filtered source data of one graph request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct FlowDataset {
@@ -324,7 +291,6 @@ pub struct FlowDataset {
     pub owners: BTreeMap<String, FlowAddressOwner>,
     pub focus_addresses: Vec<String>,
 }
-
 impl FlowDataset {
     pub fn output_count(&self) -> usize {
         self.transactions
@@ -333,7 +299,6 @@ impl FlowDataset {
             .filter(|output| output.is_spendable())
             .count()
     }
-
     pub fn gross_output_sats(&self) -> i64 {
         self.transactions
             .iter()
@@ -342,14 +307,12 @@ impl FlowDataset {
             .map(|output| output.value_sats)
             .sum()
     }
-
     pub fn fee_sats(&self) -> i64 {
         self.transactions
             .iter()
             .map(|transaction| transaction.fee_sats.max(0))
             .sum()
     }
-
     pub fn focus_balance_sats(&self) -> i64 {
         self.focus_addresses
             .iter()
@@ -357,7 +320,6 @@ impl FlowDataset {
             .map(|owner| owner.balance_sats)
             .sum()
     }
-
     pub fn incomplete_address_count(&self) -> i64 {
         self.focus_addresses
             .iter()
@@ -366,7 +328,6 @@ impl FlowDataset {
             .count() as i64
     }
 }
-
 /// Exact size information used by the automatic view fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowGraphStats {
@@ -375,7 +336,6 @@ pub struct FlowGraphStats {
     pub transaction_count: usize,
     pub output_count: usize,
 }
-
 /// Render budget of the transaction view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowRenderBudget {
@@ -385,7 +345,6 @@ pub struct FlowRenderBudget {
     pub max_links: usize,
     pub exceeded: bool,
 }
-
 impl Default for FlowRenderBudget {
     fn default() -> Self {
         Self {
@@ -397,7 +356,6 @@ impl Default for FlowRenderBudget {
         }
     }
 }
-
 /// Kind of a Sankey node; the chart maps this to a color role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -415,7 +373,6 @@ pub enum FlowNodeKind {
     Coinbase,
     Unlinked,
 }
-
 /// One Sankey node with the metadata used by the chart and evidence views.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowNode {
@@ -435,7 +392,6 @@ pub struct FlowNode {
     /// Ledger annotation such as `Withdrawal · Binance`.
     pub note: Option<String>,
 }
-
 impl FlowNode {
     fn new(id: String, label: String, kind: FlowNodeKind) -> Self {
         Self {
@@ -454,22 +410,18 @@ impl FlowNode {
             note: None,
         }
     }
-
     fn with_owner(mut self, owner: Option<FlowOwnerRef>) -> Self {
         self.owner = owner;
         self
     }
-
     fn with_address(mut self, address: Option<String>) -> Self {
         self.address = address;
         self
     }
-
     pub fn residual_sats(&self) -> i64 {
         (self.in_sats - self.out_sats).max(0)
     }
 }
-
 /// Whether a link carries exact on-chain movement, an unmatched ledger flow,
 /// or an aggregated summary value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -479,7 +431,6 @@ pub enum FlowLinkKind {
     LedgerUnlinked,
     Aggregated,
 }
-
 /// One contribution behind an aggregated link. The evidence table resolves
 /// these server-side; they are omitted from the chart payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -490,7 +441,6 @@ pub struct FlowEvidenceRef {
     pub value_sats: i64,
     pub description: String,
 }
-
 /// One Sankey link.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowLink {
@@ -504,7 +454,6 @@ pub struct FlowLink {
     #[serde(skip)]
     pub evidence: Vec<FlowEvidenceRef>,
 }
-
 /// KPI totals of the rendered graph.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowKpis {
@@ -520,7 +469,6 @@ pub struct FlowKpis {
     pub unmatched_ledger_count: i64,
     pub incomplete_address_count: i64,
 }
-
 /// Exchange-ledger activity shown beside the chart. Buys, sells and rewards
 /// never became on-chain edges in v1, so they are summarised here.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -534,7 +482,6 @@ pub struct FlowExchangeActivity {
     pub unmatched_sats: i64,
     pub unmatched_count: i64,
 }
-
 /// Structured warning category rendered as a banner by the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -545,7 +492,6 @@ pub enum FlowWarningKind {
     ExcludedCircular,
     LargeGraph,
 }
-
 /// One warning produced by the builder or service.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowWarning {
@@ -554,7 +500,6 @@ pub struct FlowWarning {
     pub count: i64,
     pub value_sats: i64,
 }
-
 /// The complete graph returned to the chart and evidence endpoints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowGraph {
@@ -565,13 +510,11 @@ pub struct FlowGraph {
     pub exchange_activity: FlowExchangeActivity,
     pub warnings: Vec<FlowWarning>,
 }
-
 impl FlowGraph {
     pub fn total_link_sats(&self) -> i64 {
         self.links.iter().map(|link| link.value_sats).sum()
     }
 }
-
 /// Response of the overview endpoint.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowOverview {
@@ -581,7 +524,6 @@ pub struct FlowOverview {
     pub budget: FlowRenderBudget,
     pub auto_fallback: bool,
 }
-
 /// One aggregated row of the flow evidence table.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FlowLinkRow {
@@ -601,7 +543,6 @@ pub struct FlowLinkRow {
     /// Share of the rendered link total, in percent.
     pub share: f64,
 }
-
 /// One contributing transaction or ledger row behind a flow link.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowEvidenceRow {
@@ -611,7 +552,6 @@ pub struct FlowEvidenceRow {
     pub value_sats: i64,
     pub description: String,
 }
-
 /// Query of the aggregated-link evidence table. It flattens the shared table
 /// contract and carries the flow filters.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -622,7 +562,6 @@ pub struct FlowLinkTableQuery {
     #[serde(flatten)]
     pub table: crate::domain::table::TableQuery,
 }
-
 /// Query of the detailed evidence behind one aggregated link.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -634,7 +573,6 @@ pub struct FlowEvidenceQuery {
     #[serde(flatten)]
     pub table: crate::domain::table::TableQuery,
 }
-
 /// A link while it is being aggregated.
 #[derive(Debug, Clone)]
 struct LinkAccumulator {
@@ -645,7 +583,6 @@ struct LinkAccumulator {
     kind: FlowLinkKind,
     evidence: Vec<FlowEvidenceRef>,
 }
-
 impl LinkAccumulator {
     fn new(kind: FlowLinkKind) -> Self {
         Self {
@@ -657,7 +594,6 @@ impl LinkAccumulator {
             evidence: Vec::new(),
         }
     }
-
     fn add(&mut self, value_sats: i64, timestamp: Option<i64>, evidence: FlowEvidenceRef) {
         if value_sats <= 0 {
             return;
@@ -668,14 +604,12 @@ impl LinkAccumulator {
         self.last_time = max_time(self.last_time, timestamp);
         self.evidence.push(evidence);
     }
-
     fn merge_kind(&mut self, kind: FlowLinkKind) {
         if self.kind != kind {
             self.kind = FlowLinkKind::Aggregated;
         }
     }
 }
-
 /// Build the exact time-expanded transaction graph.
 pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
     let mut transactions: Vec<&FlowTransaction> = dataset.transactions.iter().collect();
@@ -684,24 +618,20 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
             .cmp(&right.block_time)
             .then_with(|| left.txid.cmp(&right.txid))
     });
-
     let ledger_by_txid = ledger_by_txid(&dataset.ledger);
     let withdrawal_endpoint_by_txid = withdrawal_endpoint_by_txid(&dataset.ledger);
-
     let spent_outpoints: HashSet<(String, i64)> = transactions
         .iter()
         .flat_map(|transaction| transaction.inputs.iter())
         .filter(|input| !input.is_coinbase)
         .map(|input| (input.prev_txid.clone(), input.prev_vout))
         .collect();
-
     let output_targets = transaction_output_targets(
         &transactions,
         &dataset.owners,
         &spent_outpoints,
         TOP_EXTERNAL_NODES,
     );
-
     let mut external_source_totals: BTreeMap<String, i64> = BTreeMap::new();
     for transaction in &transactions {
         let withdraws = withdrawal_endpoint_by_txid.contains_key(&transaction.txid);
@@ -727,10 +657,8 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
         }
     }
     let source_keep = top_keys(&external_source_totals, TOP_EXTERNAL_NODES);
-
     let mut nodes: BTreeMap<String, FlowNode> = BTreeMap::new();
     let mut links: BTreeMap<(String, String), LinkAccumulator> = BTreeMap::new();
-
     for transaction in &transactions {
         let tx_node_id = transaction_node_id(&transaction.txid);
         let mut tx_node = FlowNode::new(
@@ -743,7 +671,6 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
         tx_node.last_time = Some(transaction.block_time);
         tx_node.note = ledger_note(&ledger_by_txid, &transaction.txid);
         ensure_node(&mut nodes, tx_node);
-
         let withdrawal_endpoint = withdrawal_endpoint_by_txid.get(&transaction.txid);
         let mut input_total = 0_i64;
         for input in &transaction.inputs {
@@ -782,7 +709,6 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
             } else {
                 "src:unknown".to_string()
             };
-
             add_link(
                 &mut links,
                 source_id,
@@ -800,9 +726,6 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
             );
             input_total += input.value_sats.max(0);
         }
-
-        // Group outputs of one transaction by address. This keeps a transaction
-        // paying the same address twice from creating duplicate output nodes.
         let mut grouped_outputs: BTreeMap<String, (i64, BTreeSet<i64>, bool)> = BTreeMap::new();
         for output in transaction
             .outputs
@@ -821,7 +744,6 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
                 entry.2 = true;
             }
         }
-
         for (address, (value_sats, _indices, _spent)) in grouped_outputs {
             let target_id = if let Some(target) = output_targets
                 .group_nodes
@@ -850,7 +772,6 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
                 },
             );
         }
-
         let output_total: i64 = transaction
             .outputs
             .iter()
@@ -876,9 +797,7 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
             );
         }
     }
-
     add_unmatched_ledger_links_transaction_view(&mut nodes, &mut links, &dataset.ledger);
-
     finalize_graph(
         dataset,
         nodes,
@@ -888,7 +807,6 @@ pub fn build_transaction_graph(dataset: &FlowDataset) -> FlowGraph {
         dataset.output_count(),
     )
 }
-
 /// Build a compact address summary from the same filtered dataset.
 pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
     let mut transactions: Vec<&FlowTransaction> = dataset.transactions.iter().collect();
@@ -897,7 +815,6 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
             .cmp(&right.block_time)
             .then_with(|| left.txid.cmp(&right.txid))
     });
-
     let mut external_totals: BTreeMap<String, i64> = BTreeMap::new();
     for transaction in &transactions {
         for input in &transaction.inputs {
@@ -925,15 +842,12 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
         }
     }
     let external_keep = top_keys(&external_totals, TOP_EXTERNAL_NODES);
-
     let mut nodes: BTreeMap<String, FlowNode> = BTreeMap::new();
     let mut links: BTreeMap<(String, String), LinkAccumulator> = BTreeMap::new();
     let mut internal_sats = 0_i64;
-
     for transaction in &transactions {
         let mut sources: BTreeMap<String, (i64, Option<FlowOwnerRef>, String)> = BTreeMap::new();
         let mut targets: BTreeMap<String, (i64, Option<FlowOwnerRef>, String)> = BTreeMap::new();
-
         for input in &transaction.inputs {
             if input.is_coinbase {
                 continue;
@@ -949,7 +863,6 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
                 .or_insert_with(|| (0, owner.clone(), label));
             entry.0 += input.value_sats.max(0);
         }
-
         for output in transaction
             .outputs
             .iter()
@@ -966,7 +879,6 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
                 .or_insert_with(|| (0, owner.clone(), label));
             entry.0 += output.value_sats;
         }
-
         let output_total: i64 = targets.values().map(|(value, _, _)| *value).sum();
         let input_total: i64 = sources.values().map(|(value, _, _)| *value).sum();
         if sources.is_empty() && output_total > 0 {
@@ -979,7 +891,6 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
         if effective_input_total == 0 {
             continue;
         }
-
         let mut tx_pair_values: BTreeMap<(String, String), i64> = BTreeMap::new();
         for (target_id, (target_value, target_owner, target_label)) in &targets {
             let mut remaining = *target_value;
@@ -1021,7 +932,6 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
                     .or_default() += allocated;
             }
         }
-
         for ((source_id, target_id), value_sats) in tx_pair_values {
             add_link(
                 &mut links,
@@ -1038,15 +948,13 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
                     description: format!(
                         "Transaction {} · {}",
                         short_text(&transaction.txid),
-                        format_sats_simple(value_sats)
+                        format_sats_simple(value_sats),
                     ),
                 },
             );
         }
     }
-
     add_unmatched_ledger_links_summary(&mut nodes, &mut links, &dataset.ledger);
-
     let (nodes, links, excluded_sats) = break_summary_cycles(nodes, links);
     let mut graph = finalize_graph(
         dataset,
@@ -1058,19 +966,20 @@ pub fn build_address_summary(dataset: &FlowDataset) -> FlowGraph {
     );
     graph.kpis.internal_sats = internal_sats;
     if excluded_sats > 0 {
-        graph.warnings.push(FlowWarning {
-            kind: FlowWarningKind::ExcludedCircular,
-            message: format!(
-                "{} of circular value was removed from this summary so ECharts can draw an acyclic Sankey. Switch to the transaction view for the exact flow.",
-                format_sats_simple(excluded_sats)
-            ),
-            count: 0,
-            value_sats: excluded_sats,
-        });
+        graph
+            .warnings
+            .push(FlowWarning {
+                kind: FlowWarningKind::ExcludedCircular,
+                message: format!(
+                    "{} of circular value was removed from this summary so ECharts can draw an acyclic Sankey. Switch to the transaction view for the exact flow.",
+                    format_sats_simple(excluded_sats),
+                ),
+                count: 0,
+                value_sats: excluded_sats,
+            });
     }
     graph
 }
-
 fn summary_address_endpoint(
     address: &str,
     owner: Option<&FlowAddressOwner>,
@@ -1079,14 +988,12 @@ fn summary_address_endpoint(
     if let Some(owner) = owner {
         return (format!("addr:{address}"), owner.owner_ref());
     }
-
     if external_keep.contains(address) {
         (format!("ext:{address}"), None)
     } else {
         ("ext:other".to_string(), None)
     }
 }
-
 fn summary_label(address: &str, owner: Option<&FlowAddressOwner>, key: &str) -> String {
     if key == "ext:other" {
         return "Other external addresses".to_string();
@@ -1096,7 +1003,6 @@ fn summary_label(address: &str, owner: Option<&FlowAddressOwner>, key: &str) -> 
     }
     short_text(address)
 }
-
 fn summary_node_kind(owner: Option<&FlowOwnerRef>, key: &str) -> FlowNodeKind {
     if key.starts_with("ext:") {
         return FlowNodeKind::External;
@@ -1116,7 +1022,6 @@ fn summary_node_kind(owner: Option<&FlowOwnerRef>, key: &str) -> FlowNodeKind {
         None => FlowNodeKind::Address,
     }
 }
-
 fn ensure_summary_node(
     nodes: &mut BTreeMap<String, FlowNode>,
     id: &str,
@@ -1143,13 +1048,11 @@ fn ensure_summary_node(
     }
     nodes.insert(id.to_string(), node);
 }
-
 struct OutputTargets {
     outpoint_nodes: HashMap<(String, i64), String>,
     group_nodes: HashMap<(String, String), String>,
     nodes_by_id: BTreeMap<String, FlowNode>,
 }
-
 fn transaction_output_targets(
     transactions: &[&FlowTransaction],
     owners: &BTreeMap<String, FlowAddressOwner>,
@@ -1180,11 +1083,9 @@ fn transaction_output_targets(
         }
     }
     let terminal_keep = top_keys(&external_terminal_totals, top_external);
-
     let mut outpoint_nodes = HashMap::new();
     let mut group_nodes = HashMap::new();
     let mut nodes_by_id: BTreeMap<String, FlowNode> = BTreeMap::new();
-
     for transaction in transactions {
         let mut groups: BTreeMap<String, (i64, bool)> = BTreeMap::new();
         for output in transaction
@@ -1259,14 +1160,12 @@ fn transaction_output_targets(
             }
         }
     }
-
     OutputTargets {
         outpoint_nodes,
         group_nodes,
         nodes_by_id,
     }
 }
-
 fn address_node_meta(owner: Option<&FlowAddressOwner>) -> (FlowNodeKind, Option<FlowOwnerRef>) {
     match owner.and_then(FlowAddressOwner::owner_ref) {
         Some(owner_ref) if owner_ref.kind == FlowOwnerKind::Exchange => {
@@ -1278,21 +1177,17 @@ fn address_node_meta(owner: Option<&FlowAddressOwner>) -> (FlowNodeKind, Option<
         _ => (FlowNodeKind::Address, None),
     }
 }
-
 fn address_display_label(owner: Option<&FlowAddressOwner>, address: &str) -> String {
     owner
         .map(FlowAddressOwner::display_label)
         .unwrap_or_else(|| short_text(address))
 }
-
 fn ensure_node(nodes: &mut BTreeMap<String, FlowNode>, node: FlowNode) {
     nodes.entry(node.id.clone()).or_insert(node);
 }
-
 fn ensure_output_node(nodes: &mut BTreeMap<String, FlowNode>, meta: &FlowNode) {
     nodes.entry(meta.id.clone()).or_insert_with(|| meta.clone());
 }
-
 fn ensure_address_source_node(
     nodes: &mut BTreeMap<String, FlowNode>,
     id: String,
@@ -1305,7 +1200,6 @@ fn ensure_address_source_node(
             .with_address(Some(owner.address.clone()))
     });
 }
-
 fn ensure_external_node(
     nodes: &mut BTreeMap<String, FlowNode>,
     id: String,
@@ -1318,7 +1212,6 @@ fn ensure_external_node(
             .with_address(Some(address.to_string()))
     });
 }
-
 fn ensure_coinbase_node(nodes: &mut BTreeMap<String, FlowNode>) {
     nodes.entry("src:coinbase".to_string()).or_insert_with(|| {
         FlowNode::new(
@@ -1328,7 +1221,6 @@ fn ensure_coinbase_node(nodes: &mut BTreeMap<String, FlowNode>) {
         )
     });
 }
-
 fn ensure_exchange_endpoint_node(
     nodes: &mut BTreeMap<String, FlowNode>,
     endpoint: &ExchangeEndpoint,
@@ -1342,14 +1234,12 @@ fn ensure_exchange_endpoint_node(
         .with_owner(Some(endpoint.owner.clone()))
     });
 }
-
 #[derive(Debug, Clone)]
 struct ExchangeEndpoint {
     id: String,
     label: String,
     owner: FlowOwnerRef,
 }
-
 fn withdrawal_endpoint_by_txid(ledger: &[FlowLedgerRow]) -> HashMap<String, ExchangeEndpoint> {
     let mut values = HashMap::new();
     for row in ledger {
@@ -1370,7 +1260,6 @@ fn withdrawal_endpoint_by_txid(ledger: &[FlowLedgerRow]) -> HashMap<String, Exch
     }
     values
 }
-
 fn ledger_by_txid(ledger: &[FlowLedgerRow]) -> HashMap<String, Vec<&FlowLedgerRow>> {
     let mut values: HashMap<String, Vec<&FlowLedgerRow>> = HashMap::new();
     for row in ledger {
@@ -1383,7 +1272,6 @@ fn ledger_by_txid(ledger: &[FlowLedgerRow]) -> HashMap<String, Vec<&FlowLedgerRo
     }
     values
 }
-
 fn ledger_note(ledger: &HashMap<String, Vec<&FlowLedgerRow>>, txid: &str) -> Option<String> {
     let rows = ledger.get(txid)?;
     let notes = rows
@@ -1399,7 +1287,6 @@ fn ledger_note(ledger: &HashMap<String, Vec<&FlowLedgerRow>>, txid: &str) -> Opt
         .collect::<Vec<_>>();
     Some(notes.join(" · "))
 }
-
 fn add_unmatched_ledger_links_transaction_view(
     nodes: &mut BTreeMap<String, FlowNode>,
     links: &mut BTreeMap<(String, String), LinkAccumulator>,
@@ -1458,13 +1345,12 @@ fn add_unmatched_ledger_links_transaction_view(
                 description: format!(
                     "{} · {}",
                     row.tx_type.as_str(),
-                    row.exchange_endpoint_label()
+                    row.exchange_endpoint_label(),
                 ),
             },
         );
     }
 }
-
 fn add_unmatched_ledger_links_summary(
     nodes: &mut BTreeMap<String, FlowNode>,
     links: &mut BTreeMap<(String, String), LinkAccumulator>,
@@ -1523,13 +1409,12 @@ fn add_unmatched_ledger_links_summary(
                 description: format!(
                     "{} · {}",
                     row.tx_type.as_str(),
-                    row.exchange_endpoint_label()
+                    row.exchange_endpoint_label(),
                 ),
             },
         );
     }
 }
-
 fn add_link(
     links: &mut BTreeMap<(String, String), LinkAccumulator>,
     source: String,
@@ -1548,19 +1433,15 @@ fn add_link(
     entry.merge_kind(kind);
     entry.add(value_sats, timestamp, evidence);
 }
-
 type SummaryGraphMaps = (
     BTreeMap<String, FlowNode>,
     BTreeMap<(String, String), LinkAccumulator>,
     i64,
 );
-
 fn break_summary_cycles(
     nodes: BTreeMap<String, FlowNode>,
     links: BTreeMap<(String, String), LinkAccumulator>,
 ) -> SummaryGraphMaps {
-    // Net opposing flows first. This is the common case and keeps a wallet's
-    // deposits and withdrawals from drawing two opposing bands.
     let mut net: BTreeMap<(String, String), LinkAccumulator> = BTreeMap::new();
     let mut excluded = 0_i64;
     let mut grouped: BTreeMap<
@@ -1607,9 +1488,6 @@ fn break_summary_cycles(
             (None, None) => {}
         }
     }
-
-    // Greedy maximum-value acyclic subset. The summary graph is small, so a
-    // reachability check per edge is cheap and deterministic.
     let mut sorted: Vec<((String, String), LinkAccumulator)> = net.into_iter().collect();
     sorted.sort_by(
         |((source_a, target_a), link_a), ((source_b, target_b), link_b)| {
@@ -1633,8 +1511,6 @@ fn break_summary_cycles(
             .insert(target.clone());
         kept.insert((source, target), link);
     }
-
-    // Drop nodes that lost all their links.
     let connected: HashSet<String> = kept
         .keys()
         .flat_map(|(source, target)| [source.clone(), target.clone()])
@@ -1645,7 +1521,6 @@ fn break_summary_cycles(
         .collect();
     (nodes, kept, excluded)
 }
-
 fn reaches(adjacency: &HashMap<String, HashSet<String>>, from: &str, to: &str) -> bool {
     if from == to {
         return true;
@@ -1665,7 +1540,6 @@ fn reaches(adjacency: &HashMap<String, HashSet<String>>, from: &str, to: &str) -
     }
     false
 }
-
 fn finalize_graph(
     dataset: &FlowDataset,
     mut nodes: BTreeMap<String, FlowNode>,
@@ -1682,7 +1556,6 @@ fn finalize_graph(
             .entry(target.clone())
             .or_insert_with(|| default_node_for_id(target));
     }
-
     for ((source, target), link) in &links {
         if let Some(node) = nodes.get_mut(source) {
             node.out_sats += link.value_sats;
@@ -1701,8 +1574,6 @@ fn finalize_graph(
             node.last_time = max_time(node.last_time, link.last_time);
         }
     }
-
-    // Attach balances and address counts to summary address nodes.
     if view.is_summary() {
         let mut balances: BTreeMap<String, (i64, i64)> = BTreeMap::new();
         for address in &dataset.focus_addresses {
@@ -1721,7 +1592,6 @@ fn finalize_graph(
             }
         }
     }
-
     let links = links
         .into_iter()
         .map(|((source, target), link)| {
@@ -1739,7 +1609,6 @@ fn finalize_graph(
             }
         })
         .collect::<Vec<_>>();
-
     let origin_count = nodes
         .values()
         .filter(|node| node.in_sats == 0 && node.out_sats > 0)
@@ -1752,30 +1621,31 @@ fn finalize_graph(
     let mut warnings = Vec::new();
     let incomplete = dataset.incomplete_address_count();
     if incomplete > 0 {
-        warnings.push(FlowWarning {
-            kind: FlowWarningKind::IncompleteHistory,
-            message: format!(
-                "{incomplete} selected address{} have incomplete transaction history because a mempool rate limit interrupted indexing. Some flows may be missing.",
-                if incomplete == 1 { "" } else { "es" }
-            ),
-            count: incomplete,
-            value_sats: 0,
-        });
+        warnings
+            .push(FlowWarning {
+                kind: FlowWarningKind::IncompleteHistory,
+                message: format!(
+                    "{incomplete} selected address{} have incomplete transaction history because a mempool rate limit interrupted indexing. Some flows may be missing.",
+                    if incomplete == 1 { "" } else { "es" },
+                ),
+                count: incomplete,
+                value_sats: 0,
+            });
     }
     if exchange_activity.unmatched_count > 0 {
-        warnings.push(FlowWarning {
-            kind: FlowWarningKind::UnmatchedLedger,
-            message: format!(
-                "{} ledger row{} ({}) are not linked to on-chain data and appear as unlinked flows.",
-                exchange_activity.unmatched_count,
-                if exchange_activity.unmatched_count == 1 { "" } else { "s" },
-                format_sats_simple(exchange_activity.unmatched_sats)
-            ),
-            count: exchange_activity.unmatched_count,
-            value_sats: exchange_activity.unmatched_sats,
-        });
+        warnings
+            .push(FlowWarning {
+                kind: FlowWarningKind::UnmatchedLedger,
+                message: format!(
+                    "{} ledger row{} ({}) are not linked to on-chain data and appear as unlinked flows.",
+                    exchange_activity.unmatched_count,
+                    if exchange_activity.unmatched_count == 1 { "" } else { "s" },
+                    format_sats_simple(exchange_activity.unmatched_sats),
+                ),
+                count: exchange_activity.unmatched_count,
+                value_sats: exchange_activity.unmatched_sats,
+            });
     }
-
     let kpis = FlowKpis {
         address_count: dataset.focus_addresses.len() as i64,
         transaction_count: transaction_count as i64,
@@ -1789,7 +1659,6 @@ fn finalize_graph(
         unmatched_ledger_count: exchange_activity.unmatched_count,
         incomplete_address_count: incomplete,
     };
-
     FlowGraph {
         stats: FlowGraphStats {
             node_count: nodes.len(),
@@ -1804,7 +1673,6 @@ fn finalize_graph(
         warnings,
     }
 }
-
 fn default_node_for_id(id: &str) -> FlowNode {
     let (label, kind) = match id {
         "src:coinbase" => ("Coinbase / mining".to_string(), FlowNodeKind::Coinbase),
@@ -1843,7 +1711,6 @@ fn default_node_for_id(id: &str) -> FlowNode {
     };
     FlowNode::new(id.to_string(), label, kind)
 }
-
 fn dedupe_evidence(evidence: Vec<FlowEvidenceRef>) -> Vec<FlowEvidenceRef> {
     let mut seen: HashSet<(Option<String>, Option<i64>)> = HashSet::new();
     let mut values = Vec::new();
@@ -1855,7 +1722,6 @@ fn dedupe_evidence(evidence: Vec<FlowEvidenceRef>) -> Vec<FlowEvidenceRef> {
     }
     values
 }
-
 fn exchange_activity(ledger: &[FlowLedgerRow]) -> FlowExchangeActivity {
     let mut activity = FlowExchangeActivity::default();
     for row in ledger {
@@ -1879,7 +1745,6 @@ fn exchange_activity(ledger: &[FlowLedgerRow]) -> FlowExchangeActivity {
             - activity.withdrawn_sats;
     activity
 }
-
 fn top_keys(totals: &BTreeMap<String, i64>, limit: usize) -> HashSet<String> {
     let mut values: Vec<(&String, &i64)> = totals.iter().collect();
     values.sort_by(|(left_key, left_value), (right_key, right_value)| {
@@ -1893,11 +1758,9 @@ fn top_keys(totals: &BTreeMap<String, i64>, limit: usize) -> HashSet<String> {
         .map(|(key, _)| key.clone())
         .collect()
 }
-
 fn transaction_node_id(txid: &str) -> String {
     format!("tx:{txid}")
 }
-
 fn address_from_key(key: &str) -> Option<String> {
     key.strip_prefix("addr:")
         .filter(|value| *value != "unclassified")
@@ -1913,7 +1776,6 @@ fn address_from_key(key: &str) -> Option<String> {
         .or_else(|| key.strip_prefix("dst:").filter(|value| *value != "other"))
         .map(str::to_string)
 }
-
 fn min_time(current: Option<i64>, next: Option<i64>) -> Option<i64> {
     match (current, next) {
         (Some(left), Some(right)) => Some(left.min(right)),
@@ -1921,7 +1783,6 @@ fn min_time(current: Option<i64>, next: Option<i64>) -> Option<i64> {
         (None, None) => None,
     }
 }
-
 fn max_time(current: Option<i64>, next: Option<i64>) -> Option<i64> {
     match (current, next) {
         (Some(left), Some(right)) => Some(left.max(right)),
@@ -1929,7 +1790,6 @@ fn max_time(current: Option<i64>, next: Option<i64>) -> Option<i64> {
         (None, None) => None,
     }
 }
-
 fn short_text(value: &str) -> String {
     let chars: Vec<char> = value.chars().collect();
     if chars.len() <= 14 {
@@ -1939,7 +1799,6 @@ fn short_text(value: &str) -> String {
     let tail: String = chars.iter().skip(chars.len().saturating_sub(5)).collect();
     format!("{head}...{tail}")
 }
-
 fn format_sats_simple(sats: i64) -> String {
     let sign = if sats < 0 { "-" } else { "" };
     let absolute = (sats as i128).abs();
@@ -1953,11 +1812,9 @@ fn format_sats_simple(sats: i64) -> String {
         format!("{sign}{whole}.{digits} BTC")
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn owner(address: &str, exchange_id: Option<i64>, wallet_id: Option<i64>) -> FlowAddressOwner {
         FlowAddressOwner {
             address: address.to_string(),
@@ -1969,7 +1826,6 @@ mod tests {
             ..FlowAddressOwner::default()
         }
     }
-
     fn tx(
         txid: &str,
         block_time: i64,
@@ -2007,7 +1863,6 @@ mod tests {
                 .collect(),
         }
     }
-
     fn dataset(owners: Vec<FlowAddressOwner>, transactions: Vec<FlowTransaction>) -> FlowDataset {
         FlowDataset {
             focus_addresses: owners.iter().map(|owner| owner.address.clone()).collect(),
@@ -2019,7 +1874,6 @@ mod tests {
             ledger: Vec::new(),
         }
     }
-
     fn link_value(graph: &FlowGraph, source: &str, target: &str) -> i64 {
         graph
             .links
@@ -2028,7 +1882,6 @@ mod tests {
             .map(|link| link.value_sats)
             .unwrap_or(0)
     }
-
     #[test]
     fn transaction_graph_links_outputs_to_the_spending_transaction() {
         let data = dataset(
@@ -2043,9 +1896,6 @@ mod tests {
                 tx("two", 20, vec![("b", 200, false)], vec![("a", 150)]),
             ],
         );
-        // The second transaction's prevout does not match a stored outpoint,
-        // so the source is an external source; the first output still produces
-        // an exact output node.
         let graph = build_transaction_graph(&data);
         assert!(graph.links.iter().any(|link| link.target == "tx:one"));
         assert!(graph.links.iter().any(|link| link.source == "tx:one"));
@@ -2055,7 +1905,6 @@ mod tests {
             .iter()
             .any(|node| node.kind == FlowNodeKind::Transaction));
     }
-
     #[test]
     fn transaction_graph_is_acyclic_and_keeps_external_buckets() {
         let data = dataset(
@@ -2073,7 +1922,6 @@ mod tests {
         assert!(graph.nodes.iter().any(|node| node.id == "dst:external-2"));
         assert!(graph_is_acyclic(&graph));
     }
-
     fn graph_is_acyclic(graph: &FlowGraph) -> bool {
         let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
         for link in &graph.links {
@@ -2112,7 +1960,6 @@ mod tests {
             .iter()
             .all(|node| visit(&node.id, &adjacency, &mut visiting, &mut done))
     }
-
     #[test]
     fn summary_nets_opposing_flows_and_reports_the_excluded_value() {
         let data = dataset(
@@ -2126,7 +1973,6 @@ mod tests {
         assert_eq!(link_value(&graph, "addr:a", "addr:b"), 400);
         assert_eq!(link_value(&graph, "addr:b", "addr:a"), 0);
     }
-
     #[test]
     fn address_summary_keeps_stored_addresses_separate() {
         let data = dataset(
@@ -2148,7 +1994,6 @@ mod tests {
         assert!(graph.nodes.iter().any(|node| node.id == "addr:a"));
         assert!(graph.nodes.iter().any(|node| node.id == "addr:b"));
     }
-
     #[test]
     fn matching_a_withdrawal_labels_external_inputs_as_the_exchange_origin() {
         let mut data = dataset(
@@ -2182,9 +2027,8 @@ mod tests {
             .iter()
             .find(|node| node.id == "tx:one")
             .and_then(|node| node.note.clone())
-            .is_some());
+            .is_some(),);
     }
-
     #[test]
     fn unmatched_ledger_rows_create_directional_unlinked_flows() {
         let mut data = dataset(vec![owner("a", None, Some(1))], Vec::new());
@@ -2210,10 +2054,9 @@ mod tests {
                 .iter()
                 .filter(|warning| warning.kind == FlowWarningKind::UnmatchedLedger)
                 .count(),
-            1
+            1,
         );
     }
-
     #[test]
     fn spending_transaction_links_to_the_exact_produced_output_node() {
         let data = dataset(
@@ -2263,10 +2106,9 @@ mod tests {
         assert!(!graph
             .links
             .iter()
-            .any(|link| link.target == "tx:two" && link.source == "src:other"));
+            .any(|link| link.target == "tx:two" && link.source == "src:other"),);
         assert!(graph_is_acyclic(&graph));
     }
-
     #[test]
     fn summary_external_self_flow_is_kept_internal_instead_of_forming_a_self_edge() {
         let data = dataset(
@@ -2283,7 +2125,6 @@ mod tests {
         assert!(!graph.links.iter().any(|link| link.source == link.target));
         assert!(graph.kpis.internal_sats >= 900);
     }
-
     #[test]
     fn graph_ids_are_unique_and_links_reference_existing_nodes() {
         let data = dataset(

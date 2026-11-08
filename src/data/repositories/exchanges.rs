@@ -1,13 +1,5 @@
 //! SQL access to exchange accounts, their ledger transactions, and the
 //! aggregate provider balance stored on addresses.
-
-use std::collections::{BTreeMap, HashMap, HashSet};
-
-use rusqlite::{
-    params, params_from_iter, Connection, OptionalExtension, ToSql, Transaction,
-    TransactionBehavior,
-};
-
 use super::placeholders;
 use crate::data::{Database, DatabaseError};
 use crate::domain::civil_time;
@@ -17,7 +9,11 @@ use crate::domain::exchange::{
     ExchangeTxType, MatchState, OnChainLink, OnChainLinkSource,
 };
 use crate::domain::table::{SortDirection, TablePage};
-
+use rusqlite::{
+    params, params_from_iter, Connection, OptionalExtension, ToSql, Transaction,
+    TransactionBehavior,
+};
+use std::collections::{BTreeMap, HashMap, HashSet};
 /// Sortable columns of the exchanges list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExchangeAccountSortColumn {
@@ -28,7 +24,6 @@ pub enum ExchangeAccountSortColumn {
     LastTxTime,
     LastModifiedAt,
 }
-
 impl ExchangeAccountSortColumn {
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
@@ -41,7 +36,6 @@ impl ExchangeAccountSortColumn {
             _ => None,
         }
     }
-
     fn order_expression(self) -> &'static str {
         match self {
             Self::Name => "a.name COLLATE NOCASE",
@@ -53,7 +47,6 @@ impl ExchangeAccountSortColumn {
         }
     }
 }
-
 /// Sortable columns of one exchange's transaction table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExchangeTransactionSortColumn {
@@ -65,7 +58,6 @@ pub enum ExchangeTransactionSortColumn {
     TxHash,
     Description,
 }
-
 impl ExchangeTransactionSortColumn {
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
@@ -79,7 +71,6 @@ impl ExchangeTransactionSortColumn {
             _ => None,
         }
     }
-
     fn order_expression(self) -> &'static str {
         match self {
             Self::Timestamp => "timestamp",
@@ -92,7 +83,6 @@ impl ExchangeTransactionSortColumn {
         }
     }
 }
-
 /// Paging/sorting of one exchange transaction listing.
 #[derive(Debug, Clone, Copy)]
 pub struct TransactionPageQuery {
@@ -101,7 +91,6 @@ pub struct TransactionPageQuery {
     pub offset: u64,
     pub sort: Option<(ExchangeTransactionSortColumn, SortDirection)>,
 }
-
 /// One row written by the inspector or the CSV importer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExchangeTransactionWrite {
@@ -125,7 +114,6 @@ pub struct ExchangeTransactionWrite {
     pub is_manually_edited: bool,
     pub is_intentional_duplicate: bool,
 }
-
 /// Read one page of exchange accounts. Global KPIs are computed from
 /// [`list_kpi_transactions`] by the application service.
 pub fn list_accounts(
@@ -135,18 +123,22 @@ pub fn list_accounts(
     sort: Option<(ExchangeAccountSortColumn, SortDirection)>,
 ) -> Result<TablePage<ExchangeAccountRow>, DatabaseError> {
     let order = match sort {
-        Some((ExchangeAccountSortColumn::OnChainOperations, direction)) => format!(
-            "onchain_matched_count {} NULLS LAST, onchain_total_count {} NULLS LAST, a.id {}",
-            direction.as_sql(),
-            direction.as_sql(),
-            direction.as_sql()
-        ),
-        Some((column, direction)) => format!(
-            "{} {} NULLS LAST, a.id {}",
-            column.order_expression(),
-            direction.as_sql(),
-            direction.as_sql()
-        ),
+        Some((ExchangeAccountSortColumn::OnChainOperations, direction)) => {
+            format!(
+                "onchain_matched_count {} NULLS LAST, onchain_total_count {} NULLS LAST, a.id {}",
+                direction.as_sql(),
+                direction.as_sql(),
+                direction.as_sql(),
+            )
+        }
+        Some((column, direction)) => {
+            format!(
+                "{} {} NULLS LAST, a.id {}",
+                column.order_expression(),
+                direction.as_sql(),
+                direction.as_sql(),
+            )
+        }
         None => "tx_count DESC NULLS LAST, a.id DESC".to_string(),
     };
     let sql = format!(
@@ -163,7 +155,7 @@ pub fn list_accounts(
          LEFT JOIN exchange_transactions t ON t.exchange_id = a.id
          GROUP BY a.id
          ORDER BY {order}
-         LIMIT ?1 OFFSET ?2"
+         LIMIT ?1 OFFSET ?2",
     );
     let connection = database.connection()?;
     let offset = i64::try_from(offset).unwrap_or(i64::MAX);
@@ -192,7 +184,6 @@ pub fn list_accounts(
     })? as u64;
     Ok(TablePage { items, total })
 }
-
 pub fn get_account(database: &Database, id: i64) -> Result<Option<ExchangeAccount>, DatabaseError> {
     let connection = database.connection()?;
     connection
@@ -208,7 +199,6 @@ pub fn get_account(database: &Database, id: i64) -> Result<Option<ExchangeAccoun
         .optional()
         .map_err(Into::into)
 }
-
 fn account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExchangeAccount> {
     Ok(ExchangeAccount {
         id: row.get(0)?,
@@ -220,7 +210,6 @@ fn account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExchangeAccount
         last_modified_at: row.get(6)?,
     })
 }
-
 pub fn create_account(
     database: &Database,
     name: &str,
@@ -242,7 +231,6 @@ pub fn create_account(
     drop(connection);
     get_account(database, id)?.ok_or_else(|| DatabaseError::new("exchange account was not stored"))
 }
-
 pub fn update_account(
     database: &Database,
     id: i64,
@@ -278,7 +266,6 @@ pub fn update_account(
     drop(connection);
     get_account(database, id)?.ok_or_else(|| DatabaseError::new("exchange account was not stored"))
 }
-
 /// Delete several exchange accounts in one transaction.
 ///
 /// Their ledger rows cascade with the accounts. Every affected provider
@@ -288,14 +275,13 @@ pub fn delete_accounts(database: &Database, ids: &[i64]) -> Result<usize, Databa
     if ids.is_empty() {
         return Ok(0);
     }
-
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let placeholders = placeholders(ids.len());
     let provider_ids = {
         let mut statement = transaction.prepare(&format!(
             "SELECT DISTINCT provider_id FROM exchange_accounts
-             WHERE id IN ({placeholders}) AND provider_id IS NOT NULL"
+             WHERE id IN ({placeholders}) AND provider_id IS NOT NULL",
         ))?;
         let rows = statement.query_map(params_from_iter(ids.iter()), |row| row.get::<_, i64>(0))?;
         rows.collect::<Result<Vec<_>, _>>()?
@@ -310,7 +296,6 @@ pub fn delete_accounts(database: &Database, ids: &[i64]) -> Result<usize, Databa
     transaction.commit()?;
     Ok(deleted)
 }
-
 /// Refresh the stored ledger balance of one provider.
 ///
 /// The alphabetically first address of the provider receives the aggregate
@@ -355,7 +340,6 @@ pub fn refresh_provider_balance(
     }
     Ok(())
 }
-
 /// Transaction-scoped wrapper for [`refresh_provider_balance`].
 pub fn refresh_provider_balance_tx(
     transaction: &Transaction<'_>,
@@ -363,7 +347,6 @@ pub fn refresh_provider_balance_tx(
 ) -> Result<(), DatabaseError> {
     refresh_provider_balance(transaction, provider_id)
 }
-
 /// Account transactions sorted and paged in the backend.
 pub fn list_transactions(
     database: &Database,
@@ -378,7 +361,7 @@ pub fn list_transactions(
          FROM exchange_transactions
          WHERE exchange_id = ?1
          ORDER BY {column} {direction} NULLS LAST, id {direction}
-         LIMIT ?2 OFFSET ?3"
+         LIMIT ?2 OFFSET ?3",
     );
     let connection = database.connection()?;
     let offset = i64::try_from(query.offset).unwrap_or(i64::MAX);
@@ -398,7 +381,6 @@ pub fn list_transactions(
     )? as u64;
     Ok(TablePage { items, total })
 }
-
 /// All transactions of an account, used for fiat KPI conversion.
 pub fn list_account_transactions(
     database: &Database,
@@ -407,7 +389,7 @@ pub fn list_account_transactions(
     let connection = database.connection()?;
     let mut statement = connection.prepare(&format!(
         "SELECT {TRANSACTION_COLUMNS} FROM exchange_transactions
-         WHERE exchange_id = ?1 ORDER BY timestamp DESC, id DESC"
+         WHERE exchange_id = ?1 ORDER BY timestamp DESC, id DESC",
     ))?;
     let rows = statement.query_map([exchange_id], transaction_from_row)?;
     let mut items = Vec::new();
@@ -416,7 +398,6 @@ pub fn list_account_transactions(
     }
     Ok(items)
 }
-
 /// Ledger fields needed to value the exchange KPIs. `exchange_id = None`
 /// returns every account for the exchanges list.
 pub fn list_kpi_transactions(
@@ -464,7 +445,6 @@ pub fn list_kpi_transactions(
     }
     Ok(items)
 }
-
 pub fn get_transaction(
     database: &Database,
     id: i64,
@@ -472,20 +452,18 @@ pub fn get_transaction(
     let connection = database.connection()?;
     connection
         .query_row(
-            &format!("SELECT {TRANSACTION_COLUMNS} FROM exchange_transactions WHERE id = ?1"),
+            &format!("SELECT {TRANSACTION_COLUMNS} FROM exchange_transactions WHERE id = ?1",),
             [id],
             transaction_from_row,
         )
         .optional()
         .map_err(Into::into)
 }
-
 const TRANSACTION_COLUMNS: &str = "id, exchange_id, fingerprint, timestamp, tx_type,
     amount_sats, currency, fiat_amount, fiat_currency, fee, fee_currency, tx_hash,
     description, raw_data, match_state, matched_tx_id, on_chain_txid,
     on_chain_source, on_chain_linked_at, on_chain_local_addresses,
     is_manually_edited, is_intentional_duplicate";
-
 fn transaction_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExchangeTransaction> {
     let raw_data: String = row.get(13)?;
     let raw_data = serde_json::from_str(&raw_data).unwrap_or_default();
@@ -534,7 +512,6 @@ fn transaction_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ExchangeTra
         is_intentional_duplicate: row.get::<_, i64>(21)? == 1,
     })
 }
-
 pub fn find_by_fingerprint(
     database: &Database,
     exchange_id: i64,
@@ -548,7 +525,7 @@ pub fn find_by_fingerprint(
                 "SELECT {TRANSACTION_COLUMNS} FROM exchange_transactions
                  WHERE exchange_id = ?1 AND fingerprint = ?2
                    AND (?3 IS NULL OR id <> ?3)
-                 ORDER BY id LIMIT 1"
+                 ORDER BY id LIMIT 1",
             ),
             params![exchange_id, fingerprint, exclude_id],
             transaction_from_row,
@@ -556,7 +533,6 @@ pub fn find_by_fingerprint(
         .optional()
         .map_err(Into::into)
 }
-
 /// Generate a fingerprint string for a draft. Kept here so every repository
 /// write uses the same identity rules as the CSV parser.
 pub fn fingerprint_for(
@@ -574,7 +550,6 @@ pub fn fingerprint_for(
         tx_hash,
     )
 }
-
 /// Insert or update one manually edited transaction and refresh its provider.
 pub fn save_transaction(
     database: &Database,
@@ -702,7 +677,6 @@ pub fn save_transaction(
     get_transaction(database, id)?
         .ok_or_else(|| DatabaseError::new("exchange transaction was not stored"))
 }
-
 /// Delete several ledger transactions of one account in one transaction.
 ///
 /// The account's modification time and the provider balance are refreshed
@@ -715,7 +689,6 @@ pub fn delete_transactions(
     if ids.is_empty() {
         return Ok(0);
     }
-
     let now = civil_time::now_epoch_seconds();
     let mut connection = database.connection()?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -737,7 +710,7 @@ pub fn delete_transactions(
     let deleted = transaction.execute(
         &format!(
             "DELETE FROM exchange_transactions
-             WHERE exchange_id = ?1 AND id IN ({id_placeholders})"
+             WHERE exchange_id = ?1 AND id IN ({id_placeholders})",
         ),
         parameters.as_slice(),
     )?;
@@ -753,7 +726,6 @@ pub fn delete_transactions(
     transaction.commit()?;
     Ok(deleted)
 }
-
 /// Insert already deduplicated imported rows and refresh the provider.
 pub fn insert_imported_transactions(
     database: &Database,
@@ -823,7 +795,6 @@ pub fn insert_imported_transactions(
     transaction.commit()?;
     Ok(())
 }
-
 /// Existing fingerprints and on-chain claims of one account.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExistingIdentities {
@@ -835,7 +806,6 @@ pub struct ExistingIdentities {
     /// Those claims are exempt from the one-to-one amount/date rule.
     pub shareable_txids: HashSet<String>,
 }
-
 /// Existing fingerprints, linked on-chain txids, and duplicate-shareable
 /// txids of one account.
 pub fn existing_identities(
@@ -875,7 +845,6 @@ pub fn existing_identities(
         shareable_txids: shareable,
     })
 }
-
 /// Load every cached confirmed on-chain transaction for reconciliation.
 pub fn load_on_chain_transactions(
     database: &Database,
@@ -926,7 +895,6 @@ pub fn load_on_chain_transactions(
     if values.is_empty() {
         return Ok(values);
     }
-
     let representative_ids = id_to_index.keys().copied().collect::<Vec<_>>();
     let mut placeholders = Vec::new();
     let mut params = Vec::new();
@@ -938,7 +906,7 @@ pub fn load_on_chain_transactions(
     let input_sql = format!(
         "SELECT transaction_id, COALESCE(prevout_value, 0),
                 prevout_scriptpubkey_address
-         FROM transaction_inputs WHERE transaction_id IN ({placeholders})"
+         FROM transaction_inputs WHERE transaction_id IN ({placeholders})",
     );
     let mut input_statement = connection.prepare(&input_sql)?;
     let input_rows =
@@ -957,10 +925,9 @@ pub fn load_on_chain_transactions(
             values[*index].inputs.push(input);
         }
     }
-
     let output_sql = format!(
         "SELECT transaction_id, value, scriptpubkey_address, scriptpubkey_type
-         FROM transaction_outputs WHERE transaction_id IN ({placeholders})"
+         FROM transaction_outputs WHERE transaction_id IN ({placeholders})",
     );
     let mut output_statement = connection.prepare(&output_sql)?;
     let output_rows =
@@ -982,7 +949,6 @@ pub fn load_on_chain_transactions(
     }
     Ok(values)
 }
-
 /// Update only the reconciliation state/link of one ledger row. Ledger
 /// amounts are untouched, so the provider balance does not change.
 pub fn set_link(
@@ -1028,7 +994,6 @@ pub fn set_link(
     get_transaction(database, id)?
         .ok_or_else(|| DatabaseError::new("exchange transaction was not stored"))
 }
-
 /// Persist reconciliation results for all rows of one account atomically.
 pub fn update_match_states(
     database: &Database,
@@ -1082,14 +1047,12 @@ pub fn update_match_states(
     transaction.commit()?;
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::repositories::addresses as address_repository;
     use crate::domain::address::StoredAddress;
     use crate::domain::exchange::ExchangeTxType;
-
     fn address(value: &str, exchange_id: Option<i64>) -> StoredAddress {
         StoredAddress {
             address: value.to_string(),
@@ -1097,7 +1060,6 @@ mod tests {
             ..StoredAddress::default()
         }
     }
-
     fn ledger_write(
         amount_sats: i64,
         tx_type: ExchangeTxType,
@@ -1123,7 +1085,6 @@ mod tests {
             is_intentional_duplicate: false,
         }
     }
-
     fn stored_balance(database: &Database, address: &str) -> i64 {
         database
             .connection()
@@ -1135,7 +1096,6 @@ mod tests {
             )
             .unwrap()
     }
-
     #[test]
     fn ledger_balance_uses_type_direction_and_subtracts_btc_fees() {
         let database = Database::open_in_memory().unwrap();
@@ -1151,12 +1111,9 @@ mod tests {
             ledger_write(1_000_000, ExchangeTxType::Buy, Some(25_000.0)),
         ];
         insert_imported_transactions(&database, account.id, &writes, 1_700_000_000).unwrap();
-
-        // 100 - 30 - 10 + 20 + 5 + 1 - 0.00025 = 85.975 BTC.
         assert_eq!(stored_balance(&database, "bc1qa"), 85_975_000);
         assert_eq!(stored_balance(&database, "bc1qz"), 0);
     }
-
     #[test]
     fn multiple_accounts_sum_and_providerless_accounts_are_ignored() {
         let database = Database::open_in_memory().unwrap();
@@ -1187,7 +1144,6 @@ mod tests {
         .unwrap();
         assert_eq!(stored_balance(&database, "bc1qa"), 15_000_000);
     }
-
     #[test]
     fn anchor_moves_with_alphabetical_order_and_deletion() {
         let database = Database::open_in_memory().unwrap();
@@ -1202,18 +1158,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(stored_balance(&database, "bc1qm"), 7_000_000);
-
-        // A new earlier address becomes the anchor.
         address_repository::insert_address(&database, &address("bc1qa", Some(1))).unwrap();
         assert_eq!(stored_balance(&database, "bc1qa"), 7_000_000);
         assert_eq!(stored_balance(&database, "bc1qm"), 0);
-
-        // Deleting the anchor promotes the next alphabetical address.
         address_repository::delete_addresses(&database, &["bc1qa".to_string()]).unwrap();
         assert_eq!(stored_balance(&database, "bc1qm"), 7_000_000);
         assert_eq!(stored_balance(&database, "bc1qz"), 0);
     }
-
     #[test]
     fn stats_refresh_preserves_the_stored_ledger_balance() {
         let database = Database::open_in_memory().unwrap();
@@ -1229,13 +1180,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(stored_balance(&database, "bc1qa"), 4_000_000);
-
         let mut refreshed = address("bc1qa", Some(1));
         refreshed.chain_funded_txo_sum = 900;
         address_repository::insert_address(&database, &refreshed).unwrap();
         assert_eq!(stored_balance(&database, "bc1qa"), 4_000_000);
     }
-
     #[test]
     fn deleting_a_transaction_and_moving_account_provider_refresh_balances() {
         let database = Database::open_in_memory().unwrap();
@@ -1246,16 +1195,13 @@ mod tests {
         insert_imported_transactions(&database, account.id, std::slice::from_ref(&write), 1)
             .unwrap();
         assert_eq!(stored_balance(&database, "bc1qa"), 3_000_000);
-
         update_account(&database, account.id, "Exchange", Some(2)).unwrap();
         assert_eq!(stored_balance(&database, "bc1qa"), 0);
         assert_eq!(stored_balance(&database, "bc1qb"), 3_000_000);
-
         let transactions = list_account_transactions(&database, account.id).unwrap();
         delete_transactions(&database, account.id, &[transactions[0].id]).unwrap();
         assert_eq!(stored_balance(&database, "bc1qb"), 0);
     }
-
     #[test]
     fn batch_delete_removes_every_selected_account_and_its_rows() {
         let database = Database::open_in_memory().unwrap();
@@ -1271,9 +1217,7 @@ mod tests {
             )
             .unwrap();
         }
-
         let deleted = delete_accounts(&database, &[first.id, second.id]).unwrap();
-
         assert_eq!(deleted, 2);
         assert!(get_account(&database, first.id).unwrap().is_none());
         assert!(get_account(&database, second.id).unwrap().is_none());
@@ -1282,7 +1226,6 @@ mod tests {
             .unwrap()
             .is_empty());
     }
-
     #[test]
     fn batch_delete_removes_only_the_selected_transactions() {
         let database = Database::open_in_memory().unwrap();
@@ -1300,25 +1243,22 @@ mod tests {
         .unwrap();
         let rows = list_account_transactions(&database, account.id).unwrap();
         assert_eq!(rows.len(), 3);
-
         let deleted =
             delete_transactions(&database, account.id, &[rows[0].id, rows[2].id]).unwrap();
-
         assert_eq!(deleted, 2);
         let remaining = list_account_transactions(&database, account.id).unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, rows[1].id);
     }
-
     #[test]
     fn account_sort_keys_include_onchain_and_the_legacy_matched_alias() {
         assert_eq!(
             ExchangeAccountSortColumn::from_key("onchain"),
-            Some(ExchangeAccountSortColumn::OnChainOperations)
+            Some(ExchangeAccountSortColumn::OnChainOperations),
         );
         assert_eq!(
             ExchangeAccountSortColumn::from_key("matched"),
-            Some(ExchangeAccountSortColumn::OnChainOperations)
+            Some(ExchangeAccountSortColumn::OnChainOperations),
         );
         assert_eq!(ExchangeAccountSortColumn::from_key("unmatched"), None);
     }
@@ -1344,11 +1284,9 @@ mod tests {
         .unwrap();
         assert_eq!(page.total, 1);
         assert_eq!(page.items[0].tx_count, 4);
-        // Matched buys/sells never count as on-chain operations.
         assert_eq!(page.items[0].onchain_matched_count, 1);
         assert_eq!(page.items[0].onchain_total_count, 2);
     }
-
     #[test]
     fn kpi_projection_returns_ledger_fields_for_all_or_one_account() {
         let database = Database::open_in_memory().unwrap();
@@ -1374,16 +1312,14 @@ mod tests {
             1,
         )
         .unwrap();
-
         let all = list_kpi_transactions(&database, None).unwrap();
         assert_eq!(all.len(), 6);
         assert_eq!(
             all.iter()
                 .filter(|row| row.tx_type == ExchangeTxType::Buy)
                 .count(),
-            2
+            2,
         );
-
         let filtered = list_kpi_transactions(&database, Some(first.id)).unwrap();
         assert_eq!(filtered.len(), 5);
         assert!(filtered.iter().all(|row| row.timestamp > 0));
@@ -1395,10 +1331,9 @@ mod tests {
                 ExchangeTxType::Reward,
                 ExchangeTxType::Deposit,
                 ExchangeTxType::Withdrawal,
-            ]
+            ],
         );
     }
-
     #[test]
     fn onchain_operations_sort_uses_matched_then_total_counts() {
         let database = Database::open_in_memory().unwrap();
@@ -1441,7 +1376,6 @@ mod tests {
             1,
         )
         .unwrap();
-
         let page = list_accounts(
             &database,
             25,
@@ -1457,7 +1391,6 @@ mod tests {
         assert_eq!(page.items[2].onchain_matched_count, 0);
         assert_eq!(page.items[2].onchain_total_count, 0);
     }
-
     #[test]
     fn existing_identities_marks_duplicate_claims_as_shareable() {
         let database = Database::open_in_memory().unwrap();
@@ -1478,10 +1411,8 @@ mod tests {
             source: OnChainLinkSource::Hash,
             linked_at: 1,
         });
-
         insert_imported_transactions(&database, account.id, &[duplicate, normal], 1).unwrap();
         let identities = existing_identities(&database, account.id).unwrap();
-
         assert!(identities.linked_txids.contains("duplicate-tx"));
         assert!(identities.shareable_txids.contains("duplicate-tx"));
         assert!(identities.linked_txids.contains("normal-tx"));

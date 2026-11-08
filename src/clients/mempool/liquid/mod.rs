@@ -5,16 +5,13 @@ pub mod fees;
 pub mod mempool;
 pub mod transactions;
 pub mod types;
-
+use crate::clients::mempool::http::HttpClient;
 pub use addresses::Addresses;
 pub use assets::Assets;
 pub use blocks::Blocks;
 pub use fees::Fees;
 pub use mempool::MempoolEndpoints as Mempool;
 pub use transactions::Transactions;
-
-use crate::clients::mempool::http::HttpClient;
-
 #[derive(Clone)]
 pub struct Liquid {
     pub addresses: Addresses,
@@ -24,7 +21,6 @@ pub struct Liquid {
     pub mempool: Mempool,
     pub transactions: Transactions,
 }
-
 impl Liquid {
     pub fn new(http: HttpClient) -> Self {
         Self {

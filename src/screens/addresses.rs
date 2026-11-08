@@ -1,7 +1,3 @@
-use std::collections::BTreeMap;
-
-use dioxus::prelude::*;
-
 use crate::api::addresses::{addresses_overview_api, delete_addresses_api, validate_address_api};
 use crate::api::transactions::{sync_address_transactions_api, sync_addresses_transactions_api};
 use crate::components::format::{format_address, format_btc, format_fiat};
@@ -20,13 +16,13 @@ use crate::domain::civil_time::format_datetime;
 use crate::domain::price::sats_to_fiat;
 use crate::domain::table::{SortDirection, DEFAULT_PAGE_SIZE};
 use crate::domain::transaction::{TransactionSyncBatchSummary, TransactionSyncSummary};
-
+use dioxus::prelude::*;
+use std::collections::BTreeMap;
 /// Per-address transaction sync state shown in the addresses table actions.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct SyncState {
     loading: bool,
 }
-
 /// Addresses screen: KPIs, the holdings distribution treemap, and the
 /// addresses table, replicating the UTXO Utils Addresses page on this
 /// application's data.
@@ -40,15 +36,10 @@ pub fn Addresses() -> Element {
     let sync_states = use_signal(BTreeMap::<String, SyncState>::new);
     let bulk_sync_loading = use_signal(|| false);
     let mut selection = use_table_selection::<String>();
-    // Backend-driven table state: the page,
-    // sort, and scope filter are part of the overview query, so changing them
-    // re-runs the request. The response still carries every matching row for
-    // the KPIs and the holdings chart, plus the requested table page.
     let mut table = use_table_state(SortDirection::default());
     let mut scope_filter = use_signal(AddressScopeFilter::default);
     let confirm_destructive = use_interface_settings().get().confirm_destructive_actions;
     let fiat = use_fiat_currency();
-
     let mut overview = use_resource(move || async move {
         addresses_overview_api(AddressOverviewQuery {
             table: table.query(DEFAULT_PAGE_SIZE),
@@ -58,9 +49,6 @@ pub fn Addresses() -> Element {
         .map_err(|err| err.to_string())
     });
     let latest_price = use_latest_price();
-
-    // A deletion can empty the current page while earlier pages still have
-    // rows; step back until the page has content again.
     use_effect(move || {
         if let Some(Ok(data)) = overview() {
             if data.page.items.is_empty() && table.page() > 0 {
@@ -69,27 +57,17 @@ pub fn Addresses() -> Element {
             }
         }
     });
-
     let overview_state = overview();
     let loading = overview_state.is_none();
     let overview_ready = matches!(&overview_state, Some(Ok(_)));
     let symbol = fiat.code();
     let latest_value = latest_price().flatten();
     let empty_message = format!("No {} balances", scope_filter().empty_noun());
-    // Exchange balances come from the imported ledger, so the second card
-    // counts ledger deposits and withdrawals instead of on-chain confirmed
-    // transactions while the exchange scope is selected.
     let tx_kpi_title = if scope_filter() == AddressScopeFilter::Exchanges {
         "Deposits & Withdrawals"
     } else {
         "Transactions"
     };
-
-    // The KPI values cover the same filtered population as the table and the
-    // treemap: the backend excludes exchange addresses without a ledger
-    // balance from the address count, the transaction count, and the balance.
-    // In the exchange scope the transaction count is the number of ledger
-    // deposits and withdrawals, not on-chain confirmed transactions.
     let kpi_values: [Option<String>; 2] = match &overview_state {
         Some(Ok(data)) => [
             Some(data.address_count.to_string()),
@@ -97,17 +75,10 @@ pub fn Addresses() -> Element {
         ],
         _ => [None, None],
     };
-    // The fiat equivalent lives in the balance card's details overlay instead
-    // of a second card, matching the exchange amount cards.
     let balance_sats = match &overview_state {
         Some(Ok(data)) => Some(data.spendable_balance_sats),
         _ => None,
     };
-
-    // The table page and the treemap show the same listing, so the Scope chips
-    // select the population of both views: the backend already filters by
-    // scope and drops the balance-less exchange addresses from both `items`
-    // and `page`.
     let listed_items: Vec<AddressOverviewItem> = match &overview_state {
         Some(Ok(data)) => data.items.clone(),
         _ => Vec::new(),
@@ -120,9 +91,6 @@ pub fn Addresses() -> Element {
         Some(Ok(data)) => data.page.total,
         _ => 0,
     };
-
-    // The treemap aggregates every listed address by its spendable balance —
-    // wallet, exchange ledger, and unclassified holdings alike.
     let holdings: Vec<HoldingSlice> = listed_items
         .iter()
         .map(|item| HoldingSlice {
@@ -133,7 +101,6 @@ pub fn Addresses() -> Element {
             balance_sats: item.spendable_balance_sats,
         })
         .collect();
-
     let page_ids = table_items
         .iter()
         .map(|item| item.address.clone())
@@ -142,9 +109,6 @@ pub fn Addresses() -> Element {
     let selected_count = selection.len();
     let all_selected = selection.all_selected(&page_ids);
     let selectable_ids = page_ids.clone();
-    // A bulk sync and a row sync must not overlap on the same address: the
-    // batch endpoint would duplicate the network walk of a selected address
-    // that is already syncing.
     let selected_syncing = {
         let states = sync_states.read();
         selected_snapshot
@@ -161,7 +125,7 @@ pub fn Addresses() -> Element {
                 "address"
             } else {
                 "addresses"
-            }
+            },
         )
     };
     let delete_action_label = if selected_count == 0 {
@@ -173,300 +137,308 @@ pub fn Addresses() -> Element {
                 "address"
             } else {
                 "addresses"
-            }
+            },
         )
     };
-
     let table_content = match &overview_state {
-        Some(Ok(_)) => rsx! {
-            div { class: "md3-table-container",
-                table { class: "md3-table",
-                    thead {
-                        tr {
-                            TableSelectionHeader {
-                                all_selected,
-                                indeterminate: selection.some_selected(&page_ids)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    && !all_selected,
-                                select_all_label: "Select all addresses on this page".to_string(),
-                                disabled: page_ids.is_empty(),
-                                on_toggle_all: move |checked| {
-                                    selection.set_many(&selectable_ids, checked);
-                                },
-                                div { class: "md3-table-actions",
-                                    button {
-                                        r#type: "button",
-                                        class: "md3-icon-button",
-                                        disabled: selection.is_empty() || sync_busy,
-                                        title: "{bulk_sync_action_label}",
-                                        aria_label: "{bulk_sync_action_label}",
-                                        onclick: move |_| {
-                                            let addresses = selection.selected_ids();
-                                            start_bulk_transaction_sync(
-                                                sync_states,
-                                                bulk_sync_loading,
-                                                toast,
-                                                overview,
-                                                selection,
-                                                addresses,
-                                            );
-                                        },
-                                        if bulk_sync_loading() {
-                                            "…"
-                                        } else {
-                                            Icon { name: IconName::Sync, size: 20 }
+        Some(Ok(_)) => {
+            rsx! {
+                div { class: "md3-table-container",
+                    table { class: "md3-table",
+                        thead {
+                            tr {
+                                TableSelectionHeader {
+                                    all_selected,
+                                    indeterminate: selection
+                                                                                                                                                                .some_selected(& page_ids) && ! all_selected,
+                                    select_all_label: "Select all addresses on this page".to_string(),
+                                    disabled: page_ids
+                                                                                                                                                                .is_empty(),
+                                    on_toggle_all: move |checked| {
+                                        selection.set_many(&selectable_ids, checked);
+                                    },
+                                    div { class: "md3-table-actions",
+                                        button {
+                                            r#type: "button",
+                                            class: "md3-icon-button",
+                                            disabled: selection
+                                                                                                                                                                                                .is_empty() || sync_busy,
+                                            title: "{bulk_sync_action_label}",
+                                            aria_label: "{bulk_sync_action_label}",
+                                            onclick: move |_| {
+                                                let addresses = selection.selected_ids();
+                                                start_bulk_transaction_sync(
+                                                    sync_states,
+                                                    bulk_sync_loading,
+                                                    toast,
+                                                    overview,
+                                                    selection,
+                                                    addresses,
+                                                );
+                                            },
+                                            if bulk_sync_loading() {
+                                                "…"
+                                            } else {
+                                                Icon {
+                                                    name: IconName::Sync,
+                                                    size: 20,
+                                                }
+                                            }
                                         }
-                                    }
-                                    button {
-                                        r#type: "button",
-                                        class: "md3-icon-button md3-icon-button-danger",
-                                        disabled: selection.is_empty() || sync_busy,
-                                        title: "{delete_action_label}",
-                                        aria_label: "{delete_action_label}",
-                                        onclick: move |_| {
-                                            let addresses = selection.selected_ids();
-                                            start_address_delete(
-                                                toast,
-                                                addresses_to_remove,
-                                                overview,
-                                                selection,
-                                                confirm_destructive,
-                                                addresses,
-                                            );
-                                        },
-                                        Icon { name: IconName::Delete, size: 20 }
-                                    }
-                                }
-                            }
-                            SortableHeader {
-                                label: "Address".to_string(),
-                                active_direction: table.direction_for("address"),
-                                on_sort: move |_| {
-                                    table.sort("address", SortDirection::Asc);
-                                    selection.clear();
-                                },
-                            }
-                            SortableHeader {
-                                label: "Label".to_string(),
-                                active_direction: table.direction_for("label"),
-                                on_sort: move |_| {
-                                    table.sort("label", SortDirection::Asc);
-                                    selection.clear();
-                                },
-                            }
-                            th {
-                                div { class: "md3-table-scope-filter",
-                                    span { "Scope" }
-                                    div {
-                                        class: "md3-chip-group",
-                                        role: "group",
-                                        aria_label: "Filter by address scope",
-                                        for (filter, filter_label) in [
-                                            (AddressScopeFilter::All, "All"),
-                                            (AddressScopeFilter::Wallets, "Wallets"),
-                                            (AddressScopeFilter::Exchanges, "Exchanges"),
-                                        ]
-                                        {
-                                            button {
-                                                r#type: "button",
-                                                class: if scope_filter() == filter { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                                                aria_pressed: (scope_filter() == filter).to_string(),
-                                                onclick: move |_| {
-                                                    scope_filter.set(filter);
-                                                    table.reset_page();
-                                                    selection.clear();
-                                                },
-                                                "{filter_label}"
+                                        button {
+                                            r#type: "button",
+                                            class: "md3-icon-button md3-icon-button-danger",
+                                            disabled: selection.is_empty()
+                                                                                                                                                                                                || sync_busy,
+                                            title: "{delete_action_label}",
+                                            aria_label: "{delete_action_label}",
+                                            onclick: move |_| {
+                                                let addresses = selection.selected_ids();
+                                                start_address_delete(
+                                                    toast,
+                                                    addresses_to_remove,
+                                                    overview,
+                                                    selection,
+                                                    confirm_destructive,
+                                                    addresses,
+                                                );
+                                            },
+                                            Icon {
+                                                name: IconName::Delete,
+                                                size: 20,
                                             }
                                         }
                                     }
                                 }
-                            }
-                            SortableHeader {
-                                label: "Txs".to_string(),
-                                active_direction: table.direction_for("txs"),
-                                on_sort: move |_| {
-                                    table.sort("txs", SortDirection::Desc);
-                                    selection.clear();
-                                },
-                            }
-                            SortableHeader {
-                                label: "Spendable Balance".to_string(),
-                                active_direction: table.direction_for("balance"),
-                                on_sort: move |_| {
-                                    table.sort("balance", SortDirection::Desc);
-                                    selection.clear();
-                                },
-                            }
-                            SortableHeader {
-                                label: "Current Price".to_string(),
-                                active_direction: table.direction_for("price"),
-                                on_sort: move |_| {
-                                    table.sort("price", SortDirection::Desc);
-                                    selection.clear();
-                                },
-                            }
-                            SortableHeader {
-                                label: "First Transaction".to_string(),
-                                active_direction: table.direction_for("first_tx"),
-                                on_sort: move |_| {
-                                    table.sort("first_tx", SortDirection::Desc);
-                                    selection.clear();
-                                },
-                            }
-                            SortableHeader {
-                                label: "Last Transaction".to_string(),
-                                active_direction: table.direction_for("last_tx"),
-                                on_sort: move |_| {
-                                    table.sort("last_tx", SortDirection::Desc);
-                                    selection.clear();
-                                },
+                                SortableHeader {
+                                    label: "Address"
+                                                                                                                                                                .to_string(),
+                                    active_direction: table.direction_for("address"),
+                                    on_sort: move |_| {
+                                        table.sort("address", SortDirection::Asc);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Label".to_string(),
+                                    active_direction: table.direction_for("label"),
+                                    on_sort: move |_| {
+                                        table.sort("label", SortDirection::Asc);
+                                        selection.clear();
+                                    },
+                                }
+                                th {
+                                    div { class: "md3-table-scope-filter",
+                                        span { "Scope" }
+                                        div {
+                                            class: "md3-chip-group",
+                                            role: "group",
+                                            aria_label: "Filter by address scope",
+                                            for (filter, filter_label) in [
+                                                (AddressScopeFilter::All, "All"),
+                                                (AddressScopeFilter::Wallets, "Wallets"),
+                                                (AddressScopeFilter::Exchanges, "Exchanges"),
+                                            ]
+                                            {
+                                                button {
+                                                    r#type: "button",
+                                                    class: if scope_filter() == filter { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                                                    aria_pressed: (scope_filter() == filter).to_string(),
+                                                    onclick: move |_| {
+                                                        scope_filter.set(filter);
+                                                        table.reset_page();
+                                                        selection.clear();
+                                                    },
+                                                    "{filter_label}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                SortableHeader {
+                                    label: "Txs".to_string(),
+                                    active_direction: table.direction_for("txs"),
+                                    on_sort: move |_| {
+                                        table.sort("txs", SortDirection::Desc);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Spendable Balance".to_string(),
+                                    active_direction: table.direction_for("balance"),
+                                    on_sort: move |_| {
+                                        table.sort("balance", SortDirection::Desc);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Current Price".to_string(),
+                                    active_direction: table.direction_for("price"),
+                                    on_sort: move |_| {
+                                        table.sort("price", SortDirection::Desc);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "First Transaction".to_string(),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("first_tx"),
+                                    on_sort: move |_| {
+                                        table.sort("first_tx", SortDirection::Desc);
+                                        selection.clear();
+                                    },
+                                }
+                                SortableHeader {
+                                    label: "Last Transaction".to_string(),
+                                    active_direction: table
+                                                                                                                                                                .direction_for("last_tx"),
+                                    on_sort: move |_| {
+                                        table.sort("last_tx", SortDirection::Desc);
+                                        selection.clear();
+                                    },
+                                }
                             }
                         }
-                    }
-                    tbody {
-                        if table_items.is_empty() {
-                            tr {
-                                td {
-                                    colspan: "10",
-                                    class: "md3-table-empty text-body-medium",
-                                    "{empty_message}"
+                        tbody {
+                            if table_items.is_empty() {
+                                tr {
+                                    td {
+                                        colspan: "10",
+                                        class: "md3-table-empty text-body-medium",
+                                        "{empty_message}"
+                                    }
                                 }
-                            }
-                        } else {
-                            for item in &table_items {
-                                {
-                                    let row = item.clone();
-                                    let sync_address = row.address.clone();
-                                    let delete_address = row.address.clone();
-                                    let selection_address = row.address.clone();
-                                    let row_selected = selected_snapshot.contains(&selection_address);
-                                    let copy_target = row.address.clone();
-                                    let short_address = format_address(&row.address);
-                                    let label = row
-                                        .description
-                                        .clone()
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let current_value = latest_value
-                                        .map(|price| {
-                                            format_fiat(sats_to_fiat(row.spendable_balance_sats, price), &symbol)
-                                        })
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let first_tx = row
-                                        .first_tx_time
-                                        .map(format_datetime)
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let last_tx = row
-                                        .last_tx_time
-                                        .map(format_datetime)
-                                        .unwrap_or_else(|| "-".to_string());
-                                    let sync_state = sync_states
-                                        .read()
-                                        .get(&sync_address)
-                                        .cloned()
-                                        .unwrap_or_default();
-                                    let is_exchange = row.scope.is_exchange();
-                                    let sync_title = if sync_state.loading {
-                                        "Syncing..."
-                                    } else if row.tx_index_rate_limited {
-                                        "Resume indexing (paused on the mempool rate limit)"
-                                    } else if is_exchange {
-                                        "Find related transactions"
-                                    } else {
-                                        "Sync transactions"
-                                    };
-                                    rsx! {
-                                        tr { class: if row_selected { "md3-table-row-selected" } else { "" },
-                                            TableSelectionCell {
-                                                checked: row_selected,
-                                                label: format!("Select {}", format_address(&selection_address)),
-                                                on_change: move |checked| {
-                                                    selection.set(selection_address.clone(), checked);
-                                                },
-                                            }
-                                            td {
-                                                div { class: "md3-table-actions",
-                                                    if row.tx_index_rate_limited {
-                                                        span {
-                                                            class: "md3-icon-warning",
-                                                            title: "Transaction indexing stopped on the mempool rate limit. Sync again to resume from where it stopped.",
-                                                            role: "img",
-                                                            aria_label: "Transaction indexing incomplete",
-                                                            Icon { name: IconName::Warning, size: 20 }
+                            } else {
+                                for item in &table_items {
+                                    {
+                                        let row = item.clone();
+                                        let sync_address = row.address.clone();
+                                        let delete_address = row.address.clone();
+                                        let selection_address = row.address.clone();
+                                        let row_selected = selected_snapshot.contains(&selection_address);
+                                        let copy_target = row.address.clone();
+                                        let short_address = format_address(&row.address);
+                                        let label = row.description.clone().unwrap_or_else(|| "-".to_string());
+                                        let current_value = latest_value
+                                            .map(|price| {
+                                                format_fiat(sats_to_fiat(row.spendable_balance_sats, price), &symbol)
+                                            })
+                                            .unwrap_or_else(|| "-".to_string());
+                                        let first_tx = row
+                                            .first_tx_time
+                                            .map(format_datetime)
+                                            .unwrap_or_else(|| "-".to_string());
+                                        let last_tx = row
+                                            .last_tx_time
+                                            .map(format_datetime)
+                                            .unwrap_or_else(|| "-".to_string());
+                                        let sync_state = sync_states
+                                            .read()
+                                            .get(&sync_address)
+                                            .cloned()
+                                            .unwrap_or_default();
+                                        let is_exchange = row.scope.is_exchange();
+                                        let sync_title = sync_action_title(
+                                            sync_state.loading,
+                                            is_exchange,
+                                            row.tx_index_rate_limited,
+                                        );
+                                        rsx! {
+                                            tr { class: if row_selected { "md3-table-row-selected" } else { "" },
+                                                TableSelectionCell {
+                                                    checked: row_selected,
+                                                    label: format!("Select {}", format_address(&
+                                                                                                                                                                                                                                selection_address)),
+                                                    on_change: move |checked| {
+                                                        selection.set(selection_address.clone(), checked);
+                                                    },
+                                                }
+                                                td {
+                                                    div { class: "md3-table-actions",
+                                                        if row.tx_index_rate_limited && !is_exchange {
+                                                            span {
+                                                                class: "md3-icon-warning",
+                                                                title: "Transaction indexing stopped on the mempool rate limit. Sync again to resume from where it stopped.",
+                                                                role: "img",
+                                                                aria_label: "Transaction indexing incomplete",
+                                                                Icon { name: IconName::Warning, size: 20 }
+                                                            }
+                                                        }
+                                                        button {
+                                                            r#type: "button",
+                                                            class: "md3-icon-button",
+                                                            title: "{sync_title}",
+                                                            aria_label: "{sync_title}",
+                                                            disabled: sync_state.loading,
+                                                            onclick: move |_| {
+                                                                start_transaction_sync(
+                                                                    sync_states,
+                                                                    toast,
+                                                                    overview,
+                                                                    sync_address.clone(),
+                                                                    is_exchange,
+                                                                    None,
+                                                                )
+                                                            },
+                                                            if sync_state.loading {
+                                                                "…"
+                                                            } else {
+                                                                Icon { name: IconName::Sync, size: 20 }
+                                                            }
+                                                        }
+                                                        button {
+                                                            r#type: "button",
+                                                            class: "md3-icon-button md3-icon-button-danger",
+                                                            title: "Remove address",
+                                                            aria_label: "Remove address",
+                                                            onclick: move |_| {
+                                                                start_address_delete(
+                                                                    toast,
+                                                                    addresses_to_remove,
+                                                                    overview,
+                                                                    selection,
+                                                                    confirm_destructive,
+                                                                    vec![delete_address.clone()],
+                                                                );
+                                                            },
+                                                            Icon { name: IconName::Delete, size: 20 }
+                                                        }
+                                                        button {
+                                                            r#type: "button",
+                                                            class: "md3-icon-button",
+                                                            title: "Edit address",
+                                                            aria_label: "Edit address",
+                                                            onclick: move |_| {
+                                                                edit_target.set(Some(row.clone()));
+                                                                show_import_dialog.set(true);
+                                                            },
+                                                            Icon { name: IconName::Edit, size: 20 }
                                                         }
                                                     }
-                                                    button {
-                                                        r#type: "button",
-                                                        class: "md3-icon-button",
-                                                        title: "{sync_title}",
-                                                        aria_label: "{sync_title}",
-                                                        disabled: sync_state.loading,
-                                                        onclick: move |_| {
-                                                            start_transaction_sync(
-                                                                sync_states,
-                                                                toast,
-                                                                overview,
-                                                                sync_address.clone(),
-                                                                is_exchange,
-                                                            )
-                                                        },
-                                                        if sync_state.loading {
-                                                            "…"
-                                                        } else {
-                                                            Icon { name: IconName::Sync, size: 20 }
+                                                }
+                                                td {
+                                                    div { class: "md3-table-copy",
+                                                        button {
+                                                            r#type: "button",
+                                                            class: "md3-icon-button",
+                                                            title: "Copy address",
+                                                            aria_label: "Copy address",
+                                                            onclick: move |_| {
+                                                                copy_address(toast, copy_target.clone());
+                                                            },
+                                                            Icon { name: IconName::Copy, size: 20 }
                                                         }
-                                                    }
-                                                    button {
-                                                        r#type: "button",
-                                                        class: "md3-icon-button md3-icon-button-danger",
-                                                        title: "Remove address",
-                                                        aria_label: "Remove address",
-                                                        onclick: move |_| {
-                                                            start_address_delete(
-                                                                toast,
-                                                                addresses_to_remove,
-                                                                overview,
-                                                                selection,
-                                                                confirm_destructive,
-                                                                vec![delete_address.clone()],
-                                                            );
-                                                        },
-                                                        Icon { name: IconName::Delete, size: 20 }
-                                                    }
-                                                    button {
-                                                        r#type: "button",
-                                                        class: "md3-icon-button",
-                                                        title: "Edit address",
-                                                        aria_label: "Edit address",
-                                                        onclick: move |_| {
-                                                            edit_target.set(Some(row.clone()));
-                                                            show_import_dialog.set(true);
-                                                        },
-                                                        Icon { name: IconName::Edit, size: 20 }
+                                                        span { "{short_address}" }
                                                     }
                                                 }
+                                                td { "{label}" }
+                                                td { {scope_cell(&row.scope)} }
+                                                td { "{row.confirmed_tx_count}" }
+                                                td { "{format_btc(row.spendable_balance_sats)}" }
+                                                td { "{current_value}" }
+                                                td { "{first_tx}" }
+                                                td { "{last_tx}" }
                                             }
-                                            td {
-                                                div { class: "md3-table-copy",
-                                                    button {
-                                                        r#type: "button",
-                                                        class: "md3-icon-button",
-                                                        title: "Copy address",
-                                                        aria_label: "Copy address",
-                                                        onclick: move |_| {
-                                                            copy_address(toast, copy_target.clone());
-                                                        },
-                                                        Icon { name: IconName::Copy, size: 20 }
-                                                    }
-                                                    span { "{short_address}" }
-                                                }
-                                            }
-                                            td { "{label}" }
-                                            td { {scope_cell(&row.scope)} }
-                                            td { "{row.confirmed_tx_count}" }
-                                            td { "{format_btc(row.spendable_balance_sats)}" }
-                                            td { "{current_value}" }
-                                            td { "{first_tx}" }
-                                            td { "{last_tx}" }
                                         }
                                     }
                                 }
@@ -474,17 +446,17 @@ pub fn Addresses() -> Element {
                         }
                     }
                 }
+                TablePagination {
+                    page: table.page(),
+                    page_size: DEFAULT_PAGE_SIZE,
+                    total: table_total,
+                    on_page: move |next| {
+                        table.page.set(next);
+                        selection.clear();
+                    },
+                }
             }
-            TablePagination {
-                page: table.page(),
-                page_size: DEFAULT_PAGE_SIZE,
-                total: table_total,
-                on_page: move |next| {
-                    table.page.set(next);
-                    selection.clear();
-                },
-            }
-        },
+        }
         Some(Err(err)) => {
             rsx! {
                 p { class: "text-body-medium text-on-surface-variant",
@@ -498,11 +470,9 @@ pub fn Addresses() -> Element {
             }
         }
     };
-
     rsx! {
         section { id: "addresses", class: "md3-screen",
-            PageHeader {
-                title: "Addresses".to_string(),
+            PageHeader { title: "Addresses".to_string(),
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
@@ -518,10 +488,6 @@ pub fn Addresses() -> Element {
                             if candidate.is_empty() {
                                 return;
                             }
-
-                            // Discard clipboard values that rust-bitcoin does
-                            // not recognize as mainnet addresses so the
-                            // dialog input only ever receives valid input.
                             if let Ok(address) = validate_address_api(candidate).await {
                                 clipboard_text.set(Some(address));
                             }
@@ -530,7 +496,6 @@ pub fn Addresses() -> Element {
                     "Import Address"
                 }
             }
-
             div { class: "md3-kpi-grid-three",
                 Kpi {
                     title: "Addresses".to_string(),
@@ -549,7 +514,6 @@ pub fn Addresses() -> Element {
                     loading,
                 }
             }
-
             if overview_ready {
                 section { class: "md3-chart-card",
                     div { class: "md3-chart-body",
@@ -566,9 +530,8 @@ pub fn Addresses() -> Element {
                     }
                 }
             }
-
-            {table_content}
-
+            { table_content
+                                                        }
             if show_import_dialog() {
                 ImportAddressDialog {
                     clipboard_text,
@@ -593,14 +556,39 @@ pub fn Addresses() -> Element {
                         overview.restart();
                     },
                     on_updated: move |updated: StoredAddress| {
-                        toast.success(format!("Address {} updated.", format_address(&updated.address)));
+                        let previous_exchange = edit_target()
+                            .as_ref()
+                            .and_then(|item| match &item.scope {
+                                AddressScope::Exchange { id, .. } => Some(*id),
+                                _ => None,
+                            });
+                        let history_cleared = updated.exchange_id.is_some()
+                            && updated.exchange_id != previous_exchange;
                         show_import_dialog.set(false);
                         edit_target.set(None);
                         overview.restart();
+                        if history_cleared {
+                            let announcement = format!(
+                                "Address {} updated; its indexed history was cleared.",
+                                format_address(&updated.address),
+                            );
+                            start_transaction_sync(
+                                sync_states,
+                                toast,
+                                overview,
+                                updated.address,
+                                true,
+                                Some(announcement),
+                            );
+                        } else {
+                            toast
+                                .success(
+                                    format!("Address {} updated.", format_address(&updated.address)),
+                                );
+                        }
                     },
                 }
             }
-
             if let Some(addresses) = addresses_to_remove() {
                 {
                     let title = if addresses.len() == 1 {
@@ -622,7 +610,8 @@ pub fn Addresses() -> Element {
                             message,
                             confirm_text: "Yes, remove".to_string(),
                             cancel_text: "Cancel".to_string(),
-                            on_cancel: move |_| addresses_to_remove.set(None),
+                            on_cancel: move |
+                                                                                                                        _ | addresses_to_remove.set(None),
                             on_confirm: move |_| {
                                 if let Some(addresses) = addresses_to_remove() {
                                     remove_addresses(toast, selection, addresses_to_remove, overview, addresses);
@@ -635,7 +624,6 @@ pub fn Addresses() -> Element {
         }
     }
 }
-
 /// Scope cell: the provider's brand badge, its kind, and its catalog name,
 /// or `-` for unclassified addresses.
 fn scope_cell(scope: &AddressScope) -> Element {
@@ -646,42 +634,46 @@ fn scope_cell(scope: &AddressScope) -> Element {
         AddressScope::Wallet {
             name, brand_color, ..
         } => ("Wallet", name.clone(), brand_color.clone()),
-        AddressScope::Unassigned => return rsx! { "-" },
+        AddressScope::Unassigned => {
+            return rsx! { "-" };
+        }
     };
     match name {
-        Some(label) => rsx! {
-            span { class: "md3-scope-cell",
-                ProviderBadge {
-                    name: label.clone(),
-                    color,
-                    size: BadgeSize::Compact,
+        Some(label) => {
+            rsx! {
+                span { class: "md3-scope-cell",
+                    ProviderBadge {
+                        name: label.clone(),
+                        color,
+                        size: BadgeSize::Compact,
+                    }
+                    span { "{kind} · {label}" }
                 }
-                span { "{kind} · {label}" }
             }
-        },
-        None => rsx! {
-            span { class: "md3-scope-cell",
-                ProviderBadge {
-                    name: kind.to_string(),
-                    color,
-                    size: BadgeSize::Compact,
+        }
+        None => {
+            rsx! {
+                span { class: "md3-scope-cell",
+                    ProviderBadge {
+                        name: kind.to_string(),
+                        color,
+                        size: BadgeSize::Compact,
+                    }
+                    span { "{kind}" }
                 }
-                span { "{kind}" }
             }
-        },
+        }
     }
 }
-
 /// Toast for a finished import, including the indexing outcome.
 fn import_result_toast(result: &AddressImportResult) -> (ToastKind, String) {
     let imported = format_address(&result.address.address);
-
     if let Some(error) = &result.sync_error {
         (
             ToastKind::Error,
             format!(
                 "Imported {imported}, but transaction indexing failed: {error}. \
-                 Use the sync action to retry."
+                 Use the sync action to retry.",
             ),
         )
     } else if result.address.tx_index_rate_limited {
@@ -689,14 +681,13 @@ fn import_result_toast(result: &AddressImportResult) -> (ToastKind, String) {
             ToastKind::Info,
             format!(
                 "Imported {imported}. Transaction indexing paused on the mempool rate limit; \
-                 use the sync action to resume from where it stopped."
+                 use the sync action to resume from where it stopped.",
             ),
         )
     } else {
         (ToastKind::Success, format!("Imported {imported}."))
     }
 }
-
 /// Open the removal confirmation for the given addresses, or delete them
 /// immediately when the "Confirm destructive actions" setting is off.
 fn start_address_delete(
@@ -716,7 +707,6 @@ fn start_address_delete(
         remove_addresses(toast, selection, addresses_to_remove, overview, addresses);
     }
 }
-
 /// Delete the selected addresses after confirmation and refresh the page.
 ///
 /// The stored transactions of the addresses cascade away with them, so the
@@ -735,7 +725,7 @@ fn remove_addresses(
             Ok(_) if addresses.len() == 1 => {
                 toast.success(format!(
                     "Address {} removed successfully!",
-                    format_address(&addresses[0])
+                    format_address(&addresses[0]),
                 ));
             }
             Ok(deleted) => {
@@ -749,20 +739,18 @@ fn remove_addresses(
                 if count == 1 {
                     toast.error(format!(
                         "Could not remove address {}: {error}",
-                        format_address(&addresses[0])
+                        format_address(&addresses[0]),
                     ));
                 } else {
                     toast.error(format!("Could not remove the addresses: {error}"));
                 }
             }
         }
-
         selection.clear();
         addresses_to_remove.set(None);
         overview.restart();
     });
 }
-
 /// Copy one address to the clipboard and report the outcome in a toast.
 fn copy_address(mut toast: Toast, address: String) {
     spawn(async move {
@@ -770,26 +758,43 @@ fn copy_address(mut toast: Toast, address: String) {
             Ok(()) => {
                 toast.success(format!(
                     "Address {} copied to clipboard!",
-                    format_address(&address)
+                    format_address(&address),
                 ));
             }
             Err(error) => toast.error(format!("Could not copy the address: {error}")),
         }
     });
 }
-
+/// Button label of the row sync action.
+///
+/// Exchange rows always read as the reverse search, even if a legacy
+/// interrupted-walk marker is still set: the server never resumes a mempool
+/// walk for an exchange address.
+fn sync_action_title(loading: bool, is_exchange: bool, rate_limited: bool) -> &'static str {
+    if loading {
+        "Syncing..."
+    } else if is_exchange {
+        "Find related transactions"
+    } else if rate_limited {
+        "Resume indexing (paused on the mempool rate limit)"
+    } else {
+        "Sync transactions"
+    }
+}
 /// Start a sync and keep the row action disabled until the server operation
 /// finishes; the outcome is reported in a toast.
 ///
-/// Exchange addresses use the reverse search (`related_search`); their button
-/// labels and result messages describe that mode so the two sync behaviors
-/// are not confused in the UI.
+/// Exchange addresses use the server's provider-wide reverse search; their
+/// button labels and result messages describe that mode so the two sync
+/// behaviors are not confused in the UI. An optional `announcement` prefixes
+/// the result when the sync follows an edit that cleared the old history.
 fn start_transaction_sync(
     mut sync_states: Signal<BTreeMap<String, SyncState>>,
     mut toast: Toast,
     mut overview: Resource<Result<AddressOverview, String>>,
     address: String,
     related_search: bool,
+    announcement: Option<String>,
 ) {
     if sync_states
         .read()
@@ -798,27 +803,35 @@ fn start_transaction_sync(
     {
         return;
     }
-
     sync_states
         .write()
         .insert(address.clone(), SyncState { loading: true });
-
     spawn(async move {
         match sync_address_transactions_api(address.clone()).await {
             Ok(summary) => {
                 let (kind, message) = sync_summary_toast(&summary, related_search);
-                toast.show(kind, message);
+                toast.show(kind, announced(announcement.as_deref(), message));
             }
-            Err(error) => toast.error(format!("Could not sync transactions: {error}")),
+            Err(error) => {
+                toast.error(announced(
+                    announcement.as_deref(),
+                    format!("Could not sync transactions: {error}"),
+                ));
+            }
         }
-
         sync_states
             .write()
             .insert(address, SyncState { loading: false });
         overview.restart();
     });
 }
-
+/// Prepend the context of an edit-triggered sync to its result message.
+fn announced(announcement: Option<&str>, message: String) -> String {
+    match announcement {
+        Some(prefix) => format!("{prefix} {message}"),
+        None => message,
+    }
+}
 /// Sync the transaction histories of every checked address through one batch
 /// request and report the aggregated outcome in a toast.
 ///
@@ -841,9 +854,6 @@ fn start_bulk_transaction_sync(
         toast.error("Select at least one address.");
         return;
     }
-    // The button is disabled while a selected row syncs, but check again at
-    // click time so a render queued before that state changed cannot start
-    // two overlapping walks of the same address.
     let already_syncing = {
         let states = sync_states.read();
         addresses
@@ -857,7 +867,6 @@ fn start_bulk_transaction_sync(
         );
         return;
     }
-
     bulk_sync_loading.set(true);
     {
         let mut states = sync_states.write();
@@ -865,7 +874,6 @@ fn start_bulk_transaction_sync(
             states.insert(address.clone(), SyncState { loading: true });
         }
     }
-
     spawn(async move {
         let all_synced = match sync_addresses_transactions_api(addresses.clone()).await {
             Ok(summary) => {
@@ -878,7 +886,6 @@ fn start_bulk_transaction_sync(
                 false
             }
         };
-
         {
             let mut states = sync_states.write();
             for address in &addresses {
@@ -892,62 +899,59 @@ fn start_bulk_transaction_sync(
         overview.restart();
     });
 }
-
 /// Toast for a finished bulk sync: the aggregated totals of the addresses
 /// that completed, followed by any rate-limited, truncated, or failed ones.
 fn bulk_sync_summary_toast(summary: &TransactionSyncBatchSummary) -> (ToastKind, String) {
     let synced = summary.synced.len();
     let failed = summary.failed.len();
-
     if synced == 0 {
         let message = match summary.failed.first() {
-            Some(failure) if failed == 1 => format!(
-                "Could not sync {}: {}",
-                format_address(&failure.address),
-                failure.error
-            ),
-            Some(failure) => format!(
-                "Could not sync {failed} addresses. First error for {}: {}",
-                format_address(&failure.address),
-                failure.error
-            ),
+            Some(failure) if failed == 1 => {
+                format!(
+                    "Could not sync {}: {}",
+                    format_address(&failure.address),
+                    failure.error,
+                )
+            }
+            Some(failure) => {
+                format!(
+                    "Could not sync {failed} addresses. First error for {}: {}",
+                    format_address(&failure.address),
+                    failure.error,
+                )
+            }
             None => "No addresses were selected.".to_string(),
         };
         return (ToastKind::Error, message);
     }
-
     let mut message = format!(
         "Synced {synced} {}: {} transactions stored ({} new).",
         address_noun(synced),
         summary.stored(),
-        summary.inserted()
+        summary.inserted(),
     );
-
     let rate_limited = summary.rate_limited_count();
     if rate_limited > 0 {
         message.push_str(&format!(
             " {rate_limited} {} paused on the mempool rate limit; sync again to resume.",
-            address_noun(rate_limited)
+            address_noun(rate_limited),
         ));
     }
-
     let truncated = summary.truncated_count();
     if truncated > 0 {
         message.push_str(&format!(
             " {truncated} {} reached the page limit; more history may remain.",
-            address_noun(truncated)
+            address_noun(truncated),
         ));
     }
-
     if let Some(failure) = summary.failed.first() {
         message.push_str(&format!(
             " {failed} {} failed ({}: {}).",
             address_noun(failed),
             format_address(&failure.address),
-            failure.error
+            failure.error,
         ));
     }
-
     let kind = if failed > 0 {
         ToastKind::Error
     } else if rate_limited > 0 {
@@ -955,10 +959,8 @@ fn bulk_sync_summary_toast(summary: &TransactionSyncBatchSummary) -> (ToastKind,
     } else {
         ToastKind::Success
     };
-
     (kind, message)
 }
-
 /// `address` / `addresses` for the sync result messages.
 fn address_noun(count: usize) -> &'static str {
     if count == 1 {
@@ -967,7 +969,6 @@ fn address_noun(count: usize) -> &'static str {
         "addresses"
     }
 }
-
 fn sync_summary_toast(
     summary: &TransactionSyncSummary,
     related_search: bool,
@@ -978,38 +979,47 @@ fn sync_summary_toast(
             format!(
                 "Indexing paused on the mempool rate limit after storing {} transactions. \
                  Sync again to resume from where it stopped.",
-                summary.stored
+                summary.stored,
             ),
         );
     }
-
     let (kind, message) = if summary.fetched == 0 {
         let message = if related_search {
-            "No related transactions found yet. Sync your other stored addresses first; \
-             related transactions appear once their indexing covers shared transfers."
+            "No related transactions found for this exchange yet. Make sure the other \
+             stored addresses have been indexed first; related transactions appear once \
+             their indexing covers shared transfers."
                 .to_string()
         } else {
             "No transactions found.".to_string()
         };
         (ToastKind::Info, message)
     } else if summary.inserted == 0 {
-        (
-            ToastKind::Success,
+        let message = if related_search {
+            format!(
+                "Already up to date: {} related transactions stored for this exchange.",
+                summary.stored,
+            )
+        } else {
             format!(
                 "Already up to date: {} transactions stored.",
                 summary.stored
-            ),
-        )
+            )
+        };
+        (ToastKind::Success, message)
     } else {
-        (
-            ToastKind::Success,
+        let message = if related_search {
+            format!(
+                "Stored {} related transactions for this exchange ({} new).",
+                summary.stored, summary.inserted,
+            )
+        } else {
             format!(
                 "Stored {} transactions ({} new).",
                 summary.stored, summary.inserted
-            ),
-        )
+            )
+        };
+        (ToastKind::Success, message)
     };
-
     if summary.truncated {
         (
             kind,
@@ -1019,14 +1029,10 @@ fn sync_summary_toast(
         (kind, message)
     }
 }
-
-// Material icon paths (24px viewBox) for the table actions and copy cell.
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::transaction::TransactionSyncFailure;
-
     fn item(scope: AddressScope, spendable_balance_sats: i64) -> AddressOverviewItem {
         AddressOverviewItem {
             address: "bc1qtest".to_string(),
@@ -1040,7 +1046,6 @@ mod tests {
             tx_index_rate_limited: false,
         }
     }
-
     fn exchange() -> AddressScope {
         AddressScope::Exchange {
             id: 1,
@@ -1048,14 +1053,12 @@ mod tests {
             brand_color: None,
         }
     }
-
     #[test]
     fn exchange_addresses_are_listed_only_with_a_balance() {
         assert!(!item(exchange(), 0).is_listed());
         assert!(item(exchange(), 1).is_listed());
         assert!(item(exchange(), -1).is_listed());
     }
-
     #[test]
     fn wallet_and_unassigned_addresses_are_listed_at_any_balance() {
         let wallet = AddressScope::Wallet {
@@ -1063,11 +1066,9 @@ mod tests {
             name: None,
             brand_color: None,
         };
-
         assert!(item(wallet, 0).is_listed());
         assert!(item(AddressScope::Unassigned, 0).is_listed());
     }
-
     fn sync_summary(address: &str, stored: usize, inserted: usize) -> TransactionSyncSummary {
         TransactionSyncSummary {
             address: address.to_string(),
@@ -1078,7 +1079,6 @@ mod tests {
             rate_limited: false,
         }
     }
-
     #[test]
     fn bulk_sync_toast_aggregates_totals_and_names_the_first_failure() {
         let summary = TransactionSyncBatchSummary {
@@ -1091,16 +1091,13 @@ mod tests {
                 error: "address not found".to_string(),
             }],
         };
-
         let (kind, message) = bulk_sync_summary_toast(&summary);
-
         assert_eq!(kind, ToastKind::Error);
         assert!(message.contains("Synced 2 addresses"));
         assert!(message.contains("15 transactions stored (2 new)"));
         assert!(message.contains("1 address failed"));
         assert!(message.contains("address not found"));
     }
-
     #[test]
     fn bulk_sync_toast_reports_a_fully_failed_batch_as_an_error() {
         let summary = TransactionSyncBatchSummary {
@@ -1110,14 +1107,11 @@ mod tests {
                 error: "mempool request failed".to_string(),
             }],
         };
-
         let (kind, message) = bulk_sync_summary_toast(&summary);
-
         assert_eq!(kind, ToastKind::Error);
         assert!(message.contains("Could not sync"));
         assert!(message.contains("mempool request failed"));
     }
-
     #[test]
     fn bulk_sync_toast_reports_rate_limited_addresses_as_info() {
         let summary = TransactionSyncBatchSummary {
@@ -1127,10 +1121,52 @@ mod tests {
             }],
             failed: Vec::new(),
         };
-
         let (kind, message) = bulk_sync_summary_toast(&summary);
-
         assert_eq!(kind, ToastKind::Info);
         assert!(message.contains("1 address paused on the mempool rate limit"));
+    }
+    #[test]
+    fn exchange_rows_always_show_the_related_search_action() {
+        assert_eq!(
+            sync_action_title(false, true, true),
+            "Find related transactions"
+        );
+        assert_eq!(
+            sync_action_title(false, false, true),
+            "Resume indexing (paused on the mempool rate limit)",
+        );
+        assert_eq!(sync_action_title(false, false, false), "Sync transactions");
+        assert_eq!(sync_action_title(true, true, false), "Syncing...");
+    }
+    #[test]
+    fn related_search_toasts_describe_the_provider_wide_result() {
+        let empty = TransactionSyncSummary {
+            fetched: 0,
+            inserted: 0,
+            stored: 0,
+            ..sync_summary("bc1qexchange", 0, 0)
+        };
+        let (kind, message) = sync_summary_toast(&empty, true);
+        assert_eq!(kind, ToastKind::Info);
+        assert!(message.contains("No related transactions found for this exchange"));
+        let up_to_date = TransactionSyncSummary {
+            fetched: 3,
+            inserted: 0,
+            stored: 3,
+            ..sync_summary("bc1qexchange", 3, 0)
+        };
+        let (kind, message) = sync_summary_toast(&up_to_date, true);
+        assert_eq!(kind, ToastKind::Success);
+        assert!(message.contains("Already up to date: 3 related transactions"));
+        let stored = TransactionSyncSummary {
+            fetched: 3,
+            inserted: 2,
+            stored: 5,
+            ..sync_summary("bc1qexchange", 3, 2)
+        };
+        let (kind, message) = sync_summary_toast(&stored, true);
+        assert_eq!(kind, ToastKind::Success);
+        assert!(message.contains("Stored 5 related transactions for this exchange"));
+        assert!(message.contains("2 new"));
     }
 }

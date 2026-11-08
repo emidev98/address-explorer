@@ -5,12 +5,6 @@
 //! provider are read, and the complete inputs/outputs of those transactions
 //! are then loaded as context. Ownership metadata is resolved in batches, so
 //! building the graph never makes one query per address.
-
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-
-use rusqlite::types::Value;
-use rusqlite::{params_from_iter, Connection};
-
 use crate::data::{Database, DatabaseError};
 use crate::domain::exchange::{ExchangeTxType, MatchState};
 use crate::domain::flow::{
@@ -18,7 +12,9 @@ use crate::domain::flow::{
     FlowInput, FlowLedgerRow, FlowOutput, FlowQuery, FlowTimeBounds, FlowTransaction,
     MAX_FILTER_VALUES,
 };
-
+use rusqlite::types::Value;
+use rusqlite::{params_from_iter, Connection};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 /// Sortable columns of the aggregated flows table. The key allowlist is owned
 /// here even though the rows are derived from the graph rather than a SQL
 /// table; the service applies the comparator.
@@ -31,7 +27,6 @@ pub enum FlowLinkSortColumn {
     FirstTime,
     LastTime,
 }
-
 impl FlowLinkSortColumn {
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
@@ -45,14 +40,12 @@ impl FlowLinkSortColumn {
         }
     }
 }
-
 /// Sortable columns of the evidence drill-down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlowEvidenceSortColumn {
     Date,
     Value,
 }
-
 impl FlowEvidenceSortColumn {
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
@@ -62,7 +55,6 @@ impl FlowEvidenceSortColumn {
         }
     }
 }
-
 /// Read every option the filter bar needs.
 pub fn filter_options(database: &Database) -> Result<FlowFilterOptions, DatabaseError> {
     let connection = database.connection()?;
@@ -75,13 +67,11 @@ pub fn filter_options(database: &Database) -> Result<FlowFilterOptions, Database
         time_bounds,
     })
 }
-
 /// Load the filtered dataset used by both the transaction and summary builders.
 pub fn load_dataset(database: &Database, query: &FlowQuery) -> Result<FlowDataset, DatabaseError> {
     let connection = database.connection()?;
     let focus_owners = load_focus_owners(&connection, query)?;
     let focus_addresses: Vec<String> = focus_owners.keys().cloned().collect();
-
     let mut txids = focus_txids(&connection, &focus_addresses, query)?;
     let ledger = if query.has_exchange_filter() {
         let ledger = load_ledger_rows(&connection, query)?;
@@ -92,18 +82,11 @@ pub fn load_dataset(database: &Database, query: &FlowQuery) -> Result<FlowDatase
         }
         ledger
     } else if query.has_population_filter() {
-        // The focus txids are already known, so only the ledger rows that
-        // actually connect to the selected population are read. This keeps an
-        // address-only filter from scanning unrelated exchange activity.
         load_linked_ledger_rows(&connection, query, &txids)?
     } else {
         load_ledger_rows(&connection, query)?
     };
-
     let txids = txids.into_iter().collect::<Vec<_>>();
-    // Linked ledger transactions are added to the focus set before this load;
-    // enforce the same date bounds on them, not only on transactions selected
-    // through addresses.
     let transactions = load_transactions(&connection, &txids)?
         .into_iter()
         .filter(|transaction| {
@@ -115,7 +98,6 @@ pub fn load_dataset(database: &Database, query: &FlowQuery) -> Result<FlowDatase
                     .is_none_or(|to_time| transaction.block_time <= to_time)
         })
         .collect::<Vec<_>>();
-
     let mut address_set: HashSet<String> = focus_addresses.iter().cloned().collect();
     for transaction in &transactions {
         for input in &transaction.inputs {
@@ -134,7 +116,6 @@ pub fn load_dataset(database: &Database, query: &FlowQuery) -> Result<FlowDatase
     {
         owners.insert(address, owner);
     }
-
     Ok(FlowDataset {
         transactions,
         ledger,
@@ -142,7 +123,6 @@ pub fn load_dataset(database: &Database, query: &FlowQuery) -> Result<FlowDatase
         focus_addresses,
     })
 }
-
 fn exchange_options(connection: &Connection) -> Result<Vec<FlowFilterOption>, DatabaseError> {
     let mut statement = connection.prepare(
         "SELECT p.id, p.name, p.brand_color,
@@ -170,7 +150,6 @@ fn exchange_options(connection: &Connection) -> Result<Vec<FlowFilterOption>, Da
     });
     Ok(values)
 }
-
 fn address_options(connection: &Connection) -> Result<Vec<FlowAddressOption>, DatabaseError> {
     let mut statement = connection.prepare(
         "SELECT a.address, a.description, a.exchange_id, e.name, e.brand_color,
@@ -210,7 +189,6 @@ fn address_options(connection: &Connection) -> Result<Vec<FlowAddressOption>, Da
     });
     Ok(values)
 }
-
 fn time_bounds(connection: &Connection) -> Result<FlowTimeBounds, DatabaseError> {
     let (first_tx_time, last_tx_time): (Option<i64>, Option<i64>) = connection.query_row(
         "SELECT MIN(block_time), MAX(block_time) FROM transactions
@@ -230,7 +208,6 @@ fn time_bounds(connection: &Connection) -> Result<FlowTimeBounds, DatabaseError>
         last_ledger_time,
     })
 }
-
 fn load_focus_owners(
     connection: &Connection,
     query: &FlowQuery,
@@ -250,9 +227,7 @@ fn load_focus_owners(
          WHERE 1 = 1",
     );
     let mut params = Vec::<Value>::new();
-
     if !query.addresses.is_empty() {
-        // An explicit address selection is the authoritative on-chain focus.
         push_in(
             &mut sql,
             &mut params,
@@ -285,7 +260,6 @@ fn load_focus_owners(
     }
     Ok(values)
 }
-
 fn load_owners(
     connection: &Connection,
     addresses: &[String],
@@ -308,7 +282,7 @@ fn load_owners(
              FROM addresses a
              LEFT JOIN exchanges_types e ON e.id = a.exchange_id
              LEFT JOIN wallets_types w ON w.id = a.wallet_id
-             WHERE a.address IN ({placeholders})"
+             WHERE a.address IN ({placeholders})",
         );
         let mut statement = connection.prepare(&sql)?;
         let params = chunk.iter().map(|address| Value::Text(address.clone()));
@@ -320,7 +294,6 @@ fn load_owners(
     }
     Ok(values)
 }
-
 fn owner_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FlowAddressOwner> {
     Ok(FlowAddressOwner {
         address: row.get(0)?,
@@ -336,7 +309,6 @@ fn owner_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FlowAddressOwner>
         tx_index_rate_limited: row.get::<_, i64>(10)? == 1,
     })
 }
-
 const LEDGER_SELECT: &str =
     "SELECT t.id, t.exchange_id, a.name, a.provider_id, p.name, p.brand_color,
             t.timestamp, t.tx_type, t.amount_sats, t.match_state, t.on_chain_txid,
@@ -344,7 +316,6 @@ const LEDGER_SELECT: &str =
      FROM exchange_transactions t
      JOIN exchange_accounts a ON a.id = t.exchange_id
      LEFT JOIN exchanges_types p ON p.id = a.provider_id";
-
 fn ledger_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FlowLedgerRow> {
     let tx_type: String = row.get(7)?;
     let match_state: String = row.get(9)?;
@@ -368,7 +339,6 @@ fn ledger_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FlowLedgerRow> {
             .unwrap_or_default(),
     })
 }
-
 fn load_ledger_rows(
     connection: &Connection,
     query: &FlowQuery,
@@ -393,7 +363,6 @@ fn load_ledger_rows(
     let rows = statement.query_map(params_from_iter(params), ledger_from_row)?;
     collect_rows(rows)
 }
-
 fn load_linked_ledger_rows(
     connection: &Connection,
     query: &FlowQuery,
@@ -407,7 +376,7 @@ fn load_linked_ledger_rows(
         let placeholders = placeholders(chunk.len());
         let mut sql = format!(
             "{LEDGER_SELECT} WHERE (t.on_chain_txid IN ({placeholders})
-                OR t.matched_tx_id IN ({placeholders}))"
+                OR t.matched_tx_id IN ({placeholders}))",
         );
         let mut params = Vec::<Value>::new();
         for txid in chunk {
@@ -429,7 +398,6 @@ fn load_linked_ledger_rows(
     });
     Ok(values)
 }
-
 fn push_ledger_date_filters(sql: &mut String, params: &mut Vec<Value>, query: &FlowQuery) {
     if let Some(from_time) = query.from_time {
         sql.push_str(" AND t.timestamp >= ?");
@@ -440,7 +408,6 @@ fn push_ledger_date_filters(sql: &mut String, params: &mut Vec<Value>, query: &F
         params.push(Value::Integer(to_time));
     }
 }
-
 fn focus_txids(
     connection: &Connection,
     focus_addresses: &[String],
@@ -456,7 +423,7 @@ fn focus_txids(
             "WITH focus(address) AS (VALUES {values})
              SELECT DISTINCT t.txid
              FROM transactions t
-             WHERE t.confirmed = 1"
+             WHERE t.confirmed = 1",
         );
         let mut params: Vec<Value> = chunk
             .iter()
@@ -493,7 +460,6 @@ fn focus_txids(
     }
     Ok(txids)
 }
-
 #[derive(Debug, Clone)]
 struct TransactionRow {
     representative_id: i64,
@@ -501,7 +467,6 @@ struct TransactionRow {
     block_time: i64,
     fee_sats: i64,
 }
-
 fn load_transactions(
     connection: &Connection,
     txids: &[String],
@@ -517,7 +482,7 @@ fn load_transactions(
              FROM transactions
              WHERE confirmed = 1 AND txid IN ({values})
              GROUP BY txid
-             ORDER BY COALESCE(MAX(block_time), 0), txid"
+             ORDER BY COALESCE(MAX(block_time), 0), txid",
         );
         let mut statement = connection.prepare(&sql)?;
         let params = chunk.iter().map(|txid| Value::Text(txid.clone()));
@@ -533,7 +498,6 @@ fn load_transactions(
             rows.push(row.map_err(|error| DatabaseError::new(error.to_string()))?);
         }
     }
-
     let mut inputs_by_transaction: HashMap<i64, Vec<FlowInput>> = HashMap::new();
     let mut outputs_by_transaction: HashMap<i64, Vec<FlowOutput>> = HashMap::new();
     let ids = rows
@@ -550,7 +514,7 @@ fn load_transactions(
                     COALESCE(prevout_value, 0), is_coinbase
              FROM transaction_inputs
              WHERE transaction_id IN ({values})
-             ORDER BY transaction_id, input_index"
+             ORDER BY transaction_id, input_index",
         );
         let mut statement = connection.prepare(&input_sql)?;
         let params = chunk.iter().map(|id| Value::Integer(*id));
@@ -574,12 +538,11 @@ fn load_transactions(
                 .or_default()
                 .push(input);
         }
-
         let output_sql = format!(
             "SELECT transaction_id, output_index, scriptpubkey_address, value, scriptpubkey_type
              FROM transaction_outputs
              WHERE transaction_id IN ({values})
-             ORDER BY transaction_id, output_index"
+             ORDER BY transaction_id, output_index",
         );
         let mut statement = connection.prepare(&output_sql)?;
         let params = chunk.iter().map(|id| Value::Integer(*id));
@@ -603,7 +566,6 @@ fn load_transactions(
                 .push(output);
         }
     }
-
     let transactions = rows
         .into_iter()
         .map(|row| FlowTransaction {
@@ -620,7 +582,6 @@ fn load_transactions(
         .collect();
     Ok(transactions)
 }
-
 fn push_in(sql: &mut String, params: &mut Vec<Value>, column: &str, values: Vec<Value>) {
     if values.is_empty() {
         return;
@@ -629,11 +590,9 @@ fn push_in(sql: &mut String, params: &mut Vec<Value>, column: &str, values: Vec<
     sql.push_str(&format!(" AND {column} IN ({placeholders})"));
     params.extend(values);
 }
-
 fn placeholders(count: usize) -> String {
     vec!["?"; count].join(",")
 }
-
 fn collect_rows<T>(
     rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>>,
 ) -> Result<Vec<T>, DatabaseError> {
@@ -643,7 +602,6 @@ fn collect_rows<T>(
     }
     Ok(values)
 }
-
 /// Validate a query before it reaches SQL or graph construction.
 pub fn validate_query(query: &FlowQuery) -> Result<(), String> {
     if query.exchange_ids.len() > MAX_FILTER_VALUES || query.addresses.len() > MAX_FILTER_VALUES {
@@ -658,7 +616,6 @@ pub fn validate_query(query: &FlowQuery) -> Result<(), String> {
     }
     Ok(())
 }
-
 /// Parse the table sort key, returning the repository-owned allowlist value.
 pub fn parse_link_sort(key: Option<&str>) -> Result<Option<FlowLinkSortColumn>, String> {
     match key {
@@ -668,7 +625,6 @@ pub fn parse_link_sort(key: Option<&str>) -> Result<Option<FlowLinkSortColumn>, 
             .ok_or_else(|| format!("unknown sort column: {key}")),
     }
 }
-
 /// Parse the evidence sort key.
 pub fn parse_evidence_sort(key: Option<&str>) -> Result<Option<FlowEvidenceSortColumn>, String> {
     match key {
@@ -678,13 +634,11 @@ pub fn parse_evidence_sort(key: Option<&str>) -> Result<Option<FlowEvidenceSortC
             .ok_or_else(|| format!("unknown sort column: {key}")),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::repositories::addresses as address_repository;
     use crate::domain::address::StoredAddress;
-
     fn insert_address(
         database: &Database,
         address: &str,
@@ -706,7 +660,6 @@ mod tests {
         )
         .unwrap();
     }
-
     fn insert_transaction(
         database: &Database,
         address: &str,
@@ -760,14 +713,12 @@ mod tests {
                 .unwrap();
         }
     }
-
     fn fixture() -> Database {
         let database = Database::open_in_memory().unwrap();
         insert_address(&database, "wallet-a", None, Some(1), Some("Wallet A"), 700);
         insert_address(&database, "plain-b", None, None, Some("Plain B"), 0);
         insert_address(&database, "binance-c", Some(1), None, None, 0);
         insert_address(&database, "plain-d", None, None, None, 0);
-
         insert_transaction(
             &database,
             "wallet-a",
@@ -776,7 +727,6 @@ mod tests {
             &[("prev-one", 0, "external-src", 1_000, false)],
             &[("plain-b", 700), ("external-dst", 200)],
         );
-        // The same on-chain transaction mirrored under an exchange address.
         insert_transaction(
             &database,
             "binance-c",
@@ -801,7 +751,6 @@ mod tests {
             &[("prev-unrelated", 0, "external-unrelated", 50, false)],
             &[("external-unrelated-output", 40)],
         );
-
         let connection = database.connection().unwrap();
         connection
             .execute(
@@ -834,25 +783,20 @@ mod tests {
         drop(connection);
         database
     }
-
     fn query() -> FlowQuery {
         FlowQuery::default()
     }
-
     #[test]
     fn query_validation_rejects_inverted_ranges_and_oversized_filters() {
         let mut filter = query();
         filter.from_time = Some(200);
         filter.to_time = Some(100);
         assert!(validate_query(&filter).is_err());
-
         let mut filter = query();
         filter.addresses = vec!["a".to_string(); MAX_FILTER_VALUES + 1];
         assert!(validate_query(&filter).is_err());
-
         assert!(validate_query(&query()).is_ok());
     }
-
     #[test]
     fn options_count_data_bearing_catalogs_and_addresses() {
         let options = filter_options(&fixture()).unwrap();
@@ -861,9 +805,8 @@ mod tests {
             .exchanges
             .iter()
             .find(|entry| entry.id == 1)
-            .is_some_and(|entry| entry.address_count == 1 && entry.account_count == 1));
+            .is_some_and(|entry| { entry.address_count == 1 && entry.account_count == 1 }),);
     }
-
     #[test]
     fn options_sort_exchanges_by_ledger_accounts_and_addresses_by_transactions() {
         let database = fixture();
@@ -888,14 +831,12 @@ mod tests {
             &[("prev-extra", 0, "external-extra", 100, false)],
             &[("external-extra-out", 90)],
         );
-
         let options = filter_options(&database).unwrap();
         assert_eq!(options.exchanges[0].id, 2);
         assert_eq!(options.exchanges[0].account_count, 2);
         assert_eq!(options.addresses[0].address, "wallet-a");
         assert_eq!(options.addresses[0].confirmed_tx_count, 2);
     }
-
     #[test]
     fn address_filter_loads_only_touching_transactions_and_their_context() {
         let database = fixture();
@@ -908,11 +849,8 @@ mod tests {
         assert_eq!(dataset.transactions[0].outputs.len(), 2);
         assert!(dataset.owners.contains_key("plain-b"));
         assert!(!dataset.owners.contains_key("external-src"));
-        // Without an exchange filter, unrelated ledger rows are dropped once a
-        // population filter selects a different part of the graph.
         assert!(dataset.ledger.is_empty());
     }
-
     #[test]
     fn exchange_filter_loads_linked_on_chain_transactions() {
         let database = fixture();
@@ -929,7 +867,6 @@ mod tests {
         assert!(!txids.contains("tx-unrelated"));
         assert_eq!(dataset.ledger.len(), 2);
     }
-
     #[test]
     fn explicit_addresses_take_precedence_over_owner_facets() {
         let database = fixture();
@@ -938,14 +875,12 @@ mod tests {
         filter.exchange_ids = vec![1];
         let dataset = load_dataset(&database, &filter).unwrap();
         assert_eq!(dataset.focus_addresses, vec!["wallet-a".to_string()]);
-        // Exchange ledger context is still available for annotations.
         assert_eq!(dataset.ledger.len(), 2);
         assert!(dataset
             .transactions
             .iter()
-            .any(|transaction| transaction.txid == "tx-two"));
+            .any(|transaction| transaction.txid == "tx-two"),);
     }
-
     #[test]
     fn date_range_filters_both_address_and_linked_ledger_transactions() {
         let database = fixture();
@@ -961,7 +896,6 @@ mod tests {
         assert_eq!(txids, ["tx-two"].into_iter().collect());
         assert!(dataset.ledger.iter().all(|row| row.timestamp <= 250));
     }
-
     #[test]
     fn mirrored_transaction_rows_are_deduplicated_in_the_dataset() {
         let database = fixture();
@@ -980,7 +914,6 @@ mod tests {
         assert_eq!(stored.inputs.len(), 1);
         assert_eq!(stored.outputs.len(), 2);
     }
-
     #[test]
     fn transaction_view_keeps_the_focus_address_and_external_context() {
         let database = fixture();
@@ -989,7 +922,7 @@ mod tests {
         assert!(graph
             .nodes
             .iter()
-            .any(|node| node.kind == crate::domain::flow::FlowNodeKind::Transaction));
+            .any(|node| node.kind == crate::domain::flow::FlowNodeKind::Transaction),);
         assert!(graph
             .links
             .iter()
@@ -999,7 +932,6 @@ mod tests {
             .iter()
             .any(|link| link.target.starts_with("dst:")));
     }
-
     #[test]
     fn summary_views_are_bounded_and_preserve_the_ledger_unlinked_edge() {
         let database = fixture();
@@ -1009,6 +941,6 @@ mod tests {
         assert!(addresses
             .links
             .iter()
-            .any(|link| link.kind == crate::domain::flow::FlowLinkKind::LedgerUnlinked));
+            .any(|link| { link.kind == crate::domain::flow::FlowLinkKind::LedgerUnlinked }),);
     }
 }
