@@ -3,6 +3,10 @@
 Releases are built by [`.github/workflows/release.yml`](../.github/workflows/release.yml)
 when a **stable** GitHub release is published. Pre-releases are ignored.
 
+For the build and deployment topology, see
+[`architecture.md`](architecture.md). For server/PWA operations, see
+[`deployment.md`](deployment.md).
+
 ## Release checklist
 
 1. Update the version in `Cargo.toml`.
@@ -32,6 +36,9 @@ The workflow validates:
 - Builds the Windows x86_64 NSIS installer and portable `.zip`.
 - Builds a debug-signed Android APK.
 - Builds Linux x86_64/arm64 server tarballs and a multi-arch GHCR image.
+- Builds the GHCR image from the prebuilt server binary using
+  `.github/docker/server-runtime.Dockerfile`; the repository root `Dockerfile`
+  is a separate source-build alternative.
 - Generates `SHA256SUMS.txt`.
 - Appends a grouped commit changelog to the release notes.
 - Deploys the web PWA to Vercel.

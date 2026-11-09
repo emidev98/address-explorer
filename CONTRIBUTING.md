@@ -20,6 +20,20 @@ Contributions **MUST** prioritize correctness, clarity, security, accessibility,
 
 When sources disagree, contributors **MUST** prioritize project configuration and code verified by tests, followed by official documentation for the exact dependency version, this guide, and then third-party tutorials or blog posts. An existing implementation is not proof that a behavior is intentional or safe.
 
+**Documentation map.** This guide is the source of truth for code rules,
+persistence conventions, tests, and review. Use the other pages for their
+specific topics instead of duplicating them here:
+
+- [`docs/architecture.md`](docs/architecture.md) — system, build, deployment,
+  and client-server diagrams and runtime-mode overview.
+- [`docs/BUILDING.md`](docs/BUILDING.md) — toolchain installation, build
+  commands, bundle matrix, version pins, and troubleshooting.
+- [`docs/deployment.md`](docs/deployment.md) — PWA hosting, server tarball or
+  container, environment, CORS, security, and backups.
+- [`docs/release.md`](docs/release.md) — release validation, artifacts, Vercel,
+  and changelog.
+- [`docs/installation.md`](docs/installation.md) — installing published builds.
+
 ## 3. Supported stack and repository layout
 
 - **Language:** stable Rust unless the repository explicitly documents a toolchain exception.
@@ -30,7 +44,7 @@ When sources disagree, contributors **MUST** prioritize project configuration an
 - **Web backends:** one web build supports two runtime modes. **Local** uses the browser SQLite database; **Remote** uses any Address Explorer server over HTTP(S) with the server's explicit CORS allowlist. The mode is selected in **Settings → General**; Local is the first-run default.
 - **Browser support:** latest 2026+ Chrome (desktop/Android), Edge, Firefox, and Safari (macOS/iOS) only. SharedWorker and service-worker support are required. Older browsers are unsupported; Local mode shows a clear incompatibility message and Remote remains available. No legacy polyfills are in scope.
 - **Currency:** Bitcoin is the base and accounting currency; fiat values are a derived display layer governed by the default-fiat rules in Section 3.1.
-- **Bundled data:** the packed BTC/USD history lives in `assets/pricing/btc_usd.bin`; the researched exchange-wallet catalog lives in `src/data/migrations/0019_addresses_data.sql`. Native builds import both through the seed migrations. The web PWA precaches the same price-pack asset and the worker imports it on first initialization or when the seed migration is still pending; it **MUST NOT** be embedded in the main PWA WASM.
+- **Bundled data:** the packed BTC/USD history lives in `assets/pricing/btc_usd.bin`; the researched exchange-wallet catalog lives in `src/data/migrations/0019_addresses_data.sql`. Native builds import both through the seed migrations. The web PWA precaches the same price-pack asset; the worker fetches and imports it when the browser database is new or its `user_version` is below the price-seed migration. The pack **MUST NOT** be embedded in the main PWA WASM.
 
 Contributors **MUST NOT** upgrade Dioxus, `rusqlite`, SQLite features, or other major dependencies as an incidental part of an unrelated change. Dependency changes **SHOULD** state the reason, compatibility impact, and tests performed. For an application, `Cargo.lock` **MUST** be committed so dependency resolution is reviewed and reproducible.
 
@@ -75,7 +89,9 @@ src/
 ├── main.rs                 # Entry point and composition root
 ├── app.rs                  # Root component, Route enum, route URLs
 ├── navigation.rs           # Destination manifest: route, label, icon
-├── api/                    # Thin native #[server] controllers + web wrappers
+├── bin/pricing_pack.rs     # Packs Kaggle CSVs into assets/pricing/btc_usd.bin
+├── api/                    # Thin native #[server] controllers
+│   └── web/                # Browser wrappers and transport dispatch
 ├── application/            # Services: use cases and orchestration
 ├── clients/                # External API clients, one module per provider
 ├── components/             # Reusable presentation components
@@ -84,8 +100,10 @@ src/
 │   ├── modal.rs            # Shared dialog shell
 │   ├── page_header.rs      # Shared screen title row
 │   ├── table_controls.rs   # Table state, pagination, sorting, selection
+│   ├── catalog/            # Provider-catalog dialogs
+│   ├── exchanges/          # Ledger inspector, import, and linking dialogs
 │   └── charts/             # One component per Apache ECharts chart
-├── data/                   # Database, migrations, seeds, repositories
+├── data/                   # Database, migrations, seeds, repositories, backup
 ├── domain/                 # Types, validation, pure business rules
 ├── screens/                # Screen components
 │   └── settings/           # Settings subsections
@@ -97,10 +115,27 @@ tools/
 └── cargo-prepare/          # Development environment installer (`cargo prepare`)
 build.rs                    # Web worker + stable seed generation
 web/worker-entry.js         # Classic SharedWorker JavaScript loader
-public/                     # PWA manifest, service worker, icons
+public/                     # PWA manifest, service worker, registration, icons
+assets/                     # Fonts, pricing data, Tailwind source/output, ECharts
+scripts/                    # Vercel output and release changelog helpers
+.github/                    # CI, release, prepare action, runtime Dockerfile
+docs/                       # Architecture, build, deployment, release, install
+vendor/sqlite-wasm-vfs/     # Vendored relaxed-idb commit-barrier patch
+tailwind.css                # Material 3 Tailwind source
 ```
 
 The `data`, `application`, `clients`, and `domain` modules stay in `src/` as the shared backend source. `crates/web-worker` includes those files for the WASM worker; the main PWA WASM **MUST NOT** link `rusqlite`, SQLite C, the application layer, the data layer, or the external API clients. `crates/core` owns the worker envelope and protocol version. The worker reuses the same schema, migrations, seeds, repositories, services, and external clients as native builds.
+
+Generated and committed web artifacts are distinct:
+
+| Path | Status | Produced by |
+| --- | --- | --- |
+| `assets/pricing/btc_usd.bin` | committed | `cargo run --bin pricing_pack` |
+| `assets/tailwind.css` | committed | Dioxus CLI + Tailwind |
+| `public/local-worker.js` | generated, gitignored | `build.rs` |
+| `public/worker/*` | generated, gitignored | `build.rs` + `wasm-bindgen-cli-support` |
+| `public/btc_usd.bin` | generated, gitignored | `build.rs` copy |
+| `assets/pricing/raw_data/` | ignored | Kaggle exports |
 
 A small application **MAY** use fewer modules. Modules **SHOULD** be introduced when they establish a meaningful boundary, not to increase the number of files.
 
@@ -115,10 +150,23 @@ build dependencies, web worker compiler, Node/Tailwind, and (with
 and troubleshooting. `cargo prepare --check` verifies the environment without
 changing it.
 
-CI runs the checks in this section on every pull request and every push to
-`main`. A release is accepted only when the tagged commit is on `main` and its
-CI run succeeded. The release build, artifact list, Vercel deployment, and
-changelog behavior are documented in [`docs/release.md`](docs/release.md).
+CI runs the checks below on every pull request and every push to `main`. A
+release is accepted only when the tagged commit is on `main` and its CI run
+succeeded. CI runs on Linux; the release workflow builds the macOS, Windows,
+and Android artifacts on their native runners. The release build, artifact
+list, Vercel deployment, and changelog behavior are documented in
+[`docs/release.md`](docs/release.md).
+
+| CI job | Commands |
+| --- | --- |
+| Formatting | `cargo fmt --all --check` |
+| Compile checks | `dx check --platform web`, `dx check --platform desktop`, `dx check --fullstack` |
+| Tests | `cargo test -p address-explorer --no-default-features --features server` and `cargo test -p address-explorer --no-default-features --features desktop` |
+| Clippy | server, desktop, web wasm, and `address-explorer-web-worker` wasm with `-D warnings` |
+| Web release | `dx build --web --release --locked`, then `git diff --exit-code -- assets/tailwind.css` |
+
+`dx fmt` is deliberately not a CI gate; use it on changed files as described in
+Section 4.1.
 
 The web PWA and its SharedWorker add these prerequisites:
 
@@ -180,52 +228,26 @@ and bundling. `web` enables the browser client and `web-client`; it **MUST NOT**
 enable `server`, `rusqlite`, or the native backend. The worker is a separate
 workspace crate; `build.rs` generates its web assets.
 
-### 4.0 Web PWA and native build commands
+### 4.0 Web PWA and native build ownership
 
-The root `build.rs` makes web builds self-contained. For a web target it:
+The full build command and bundle matrix live in
+[`docs/BUILDING.md`](docs/BUILDING.md). The build contract is:
 
-- builds `address-explorer-web-worker` in release mode with a separate
-  `CARGO_TARGET_DIR`;
-- generates the classic worker with `wasm-bindgen-cli-support` in `no_modules`
-  mode;
-- writes `public/local-worker.js`, `public/worker/*`, and
-  `public/btc_usd.bin`;
-- leaves native desktop/mobile and pure-server builds untouched.
-
-No external `wasm-bindgen-cli`, no `cargo xtask`, and no precache manifest are
-required.
-
-```sh
-# Development: both commands build the SharedWorker and seed automatically
-dx serve
-dx serve --web
-# pass --port 8090 if 8080 is already in use
-
-# Deployable PWA
-dx build --web --release
-# or:
-dx bundle --web --release --no-default-features --features web
-# Output: target/dx/address-explorer/release/web/public
-```
-
-The deployable `public/` directory includes `index.html`, hashed JS/WASM,
-`local-worker.js`, `worker/*`, the manifest, service worker, icons, fonts,
-vendored ECharts, and stable `btc_usd.bin`. Static hosts **MUST** rewrite
-unknown paths to `index.html` for the client-side router and **MUST** serve the
-PWA over HTTPS (or `localhost`) for the service worker.
-
-Native and server builds remain:
-
-```sh
-dx bundle --desktop --release --no-default-features
-dx bundle --android --release --no-default-features
-dx bundle --ios --release --no-default-features
-cargo build --release --no-default-features --features server
-```
-
-`desktop` and `mobile` already include `server` and `remote-backend`; do not add
-those features again. The pure server build selects only `server` and cannot
-forward. These native commands **MUST NOT** invoke clang or build the worker.
+- The root `build.rs` runs only for a `wasm32` target with the `web` feature.
+  It builds `address-explorer-web-worker` in release mode with a separate
+  `CARGO_TARGET_DIR`, converts the worker with `wasm-bindgen-cli-support` in
+  `no_modules` mode, and writes `public/local-worker.js`, `public/worker/*`,
+  and `public/btc_usd.bin`.
+- No external `wasm-bindgen-cli`, `cargo xtask`, or build-time precache
+  manifest is required.
+- The deployable PWA directory is
+  `target/dx/address-explorer/release/web/public`. Static hosts **MUST**
+  rewrite unknown application paths to `index.html` and **MUST** serve the PWA
+  over HTTPS (or `localhost`) for the service worker. `/api/*` must return 404,
+  not the application shell.
+- Native desktop/mobile and pure-server builds **MUST NOT** invoke clang or
+  build the worker. `desktop` and `mobile` already include `server` and
+  `remote-backend`; the pure server selects only `server` and cannot forward.
 
 Before opening a pull request, contributors **MUST** run `cargo fmt --all` and
 `dx fmt`, the `dx check` commands for the affected targets, the Cargo test
@@ -305,7 +327,7 @@ Dioxus bundling is platform-sensitive. A successful build on one operating syste
 
 ## 5. Dioxus application development
 
-This section defines the Dioxus-specific conventions for the application. The example API baseline is **Dioxus 0.7.1**; the version pinned in `Cargo.toml` and `Cargo.lock` always takes precedence. Contributors **MUST NOT** mix APIs from different Dioxus versions. In Dioxus 0.7, the legacy `cx`, `Scope`, and `use_state` APIs **MUST NOT** be used.
+This section defines the Dioxus-specific conventions for the application. `Cargo.toml` requires Dioxus 0.7.x and `Cargo.lock` currently pins 0.7.10; the versions in those files always take precedence. Contributors **MUST NOT** mix APIs from different Dioxus versions. In Dioxus 0.7, the legacy `cx`, `Scope`, and `use_state` APIs **MUST NOT** be used.
 
 ### 5.1 Dependency features and application entry point
 
@@ -697,10 +719,13 @@ Screens compose the existing primitives instead of re-implementing their markup:
 - `Icon` / `IconName` (`src/components/icon.rs`) for Material icons.
 - `PageHeader` (`src/components/page_header.rs`) for the screen title row.
 - `Modal` (`src/components/modal.rs`) for scrim, Escape handling, and dialog ARIA. Views **MUST NOT** hand-roll a dialog scrim.
-- `TableState` / `use_table_state` and the table controls in
-  `src/components/table_controls.rs`.
+- `TableState` / `use_table_state`, `use_table_selection`, and the table
+  controls in `src/components/table_controls.rs`.
 - `ConfirmDialog`, `Checkbox`, `DatePicker`, `ProviderBadge`, `CsvDropzone`,
-  `MultiSelect`, and the chart components.
+  `MultiSelect`, `CatalogSelect`, and the catalog/exchange dialogs.
+- `Kpi`, `BalanceKpi`, `ExchangeKpiGrid`, `EditPriceDialog`,
+  `SyncPricesDialog`, and the chart components.
+- `Toast` / `use_toast` for transient status and error messages.
 - The formatters in `src/components/format.rs` and the UTC helpers in
   `src/domain/civil_time.rs`.
 
@@ -745,14 +770,19 @@ versioned key `address-explorer.backend`:
 - The key is per-origin and is not backend data. It **MUST** be read before the
   backend is initialized. A schema change **MUST** bump `version` and define a
   migration or reset path.
-- If `localStorage` is unavailable, Local still works; warn that the mode will
-  reset on reload.
+- If `localStorage` is unavailable, Local still works, but saving a backend
+  preference returns an error. The app falls back to the default Local config
+  on the next load; it does not silently pretend the preference was saved.
 
 **Remote URL validation.** A remote URL **MUST** be an absolute `http://` or
 `https://` base URL with a host and optional port/base path. It **MUST NOT**
-include `/api`, a query, or a fragment. Trailing slashes are normalized. HTTPS is
-required except on loopback; an HTTP page cannot call an HTTP remote because
-browsers block mixed content.
+contain credentials, a query, or a fragment. Trailing slashes are normalized.
+Endpoint paths already include `/api`; do not append `/api` to the configured
+base URL. HTTPS is expected except on loopback or private networks. The
+Settings UI warns about public plain-HTTP URLs but does not block them, and a
+browser page cannot call an HTTP remote because mixed content is blocked.
+When a URL cannot be parsed or validated, the preference is rejected before it
+is stored.
 
 **Connection test.** Settings “Test connection” calls `GET <base>/api/health`
 and compares `API_VERSION`. Saving a remote URL is allowed only after a
@@ -770,14 +800,16 @@ remote-capable endpoints. CORS/network failures **MUST** be reported as a
 connection problem, not as an API error with an invented status.
 
 **API versioning.** `src/domain/health.rs` owns `API_VERSION` and
-`API_VERSION_HEADER` (`x-address-explorer-api-version`). The client installs the
-header before the first request via `src/api/version.rs`. Every web remote
-`/api/*` request except `/api/health` **MUST** carry it. The pure server applies
-`api::version::guard` and returns HTTP 426 with a structured error when the
-header is missing or mismatched. The client checks `/api/health` at native
-startup, in web Settings “Test connection”, and periodically while a remote
-backend is active. A mismatch **MUST** block the remote backend and show a toast
-with both versions; it **MUST NOT** be silently accepted.
+`API_VERSION_HEADER` (`x-address-explorer-api-version`). The native client
+installs the header before the first request via `src/api/version.rs`; the web
+remote client attaches it directly. Every remote `/api/*` request except
+`/api/health` **MUST** carry it. The pure server applies `api::version::guard`
+and returns HTTP 426 with a structured error when the header is missing or
+mismatched. The client checks `/api/health` at native startup and web boot when
+Remote is active, and in web Settings “Test connection”. Native builds also
+re-check every 60 seconds while a remote backend is active; the web client does
+not run a periodic health timer. A mismatch **MUST** block the remote backend
+and show a toast with both versions; it **MUST NOT** be silently accepted.
 
 **Server CORS.** The server **MUST** read `ADDRESS_EXPLORER_CORS_ORIGINS` as a
 comma-separated allowlist of absolute origins (scheme + host + optional port, no
@@ -797,20 +829,108 @@ ADDRESS_EXPLORER_CORS_ORIGINS="https://addresses.example.com,https://staging.exa
 **Worker protocol.** `crates/core` owns `WORKER_PROTOCOL_VERSION`, separate from
 `API_VERSION`. The PWA and worker **MUST** compare it on connection. A mismatch
 **MUST** block Local mode with an update/reload message; it **MUST NOT** silently
-run mismatched RPC payloads.
+run mismatched RPC payloads. Each tab owns one `MessagePort`; requests are
+correlated by monotonic id and the worker serializes them. After a write, the
+worker waits for the commit barrier and broadcasts `DataChanged`; other tabs
+reload so they cannot keep stale rows. The writing tab keeps its own reactive
+resources and refetches after its request succeeds.
 
-**Switching.** Saving a backend change **MUST** hard-reload the application:
-release desktop restarts the process, web reloads the page, and mobile uses a
-webview reload or a full-root remount with a blocking overlay. Debug desktop
-builds use the full-root remount so the reload can coexist with `dx serve`
-without spawning a second managed process. Local and remote data are separate;
-switching **MUST NOT** attempt to merge or migrate them.
+**Switching.** Saving a backend change **MUST** fully reload the application:
+release desktop restarts the process, web reloads the page, and mobile or a
+debug desktop build remounts the root with a blocking overlay. Debug desktop
+uses the remount so the reload can coexist with `dx serve` without spawning a
+second managed process. Local and remote data are separate; switching **MUST
+NOT** attempt to merge or migrate them.
 
 **Bump policy.** Increment `API_VERSION` whenever an endpoint path or a
 request/response body shape changes incompatibly. Increment
 `WORKER_PROTOCOL_VERSION` whenever an RPC request/response variant or payload
 shape changes. Update the native remote helper, web remote wrapper, worker RPC,
 and endpoint checklist in the same change.
+
+### 5.16 Funds Flow
+
+The Funds Flow screen (`/funds-flow`) explains where BTC moved between tracked
+addresses, exchange accounts, and external counterparties.
+
+- The graph builders are pure domain code in `src/domain/flow.rs`; they **MUST
+  NOT** contain SQL, HTTP, RSX, or Dioxus signal code. `src/application/flow.rs`
+  validates filter input, loads the filtered dataset, applies the render
+  budget, and paginates the evidence tables.
+- The **transaction view** is an exact time-expanded UTXO graph. Every output
+  node is created once and consumed later, which keeps the Sankey acyclic by
+  construction. The **address summary** aggregates values, nets opposing flows,
+  and retains the largest acyclic subset; it **MUST** report value excluded
+  from circular flows instead of hiding it.
+- The service **MUST** enforce the render budget before charting. The current
+  limits are 1,500 transactions, 3,000 spendable outputs, 4,000 nodes, and
+  12,000 links. A graph over budget automatically falls back to the address
+  summary unless the user explicitly forces transaction detail. Forced or
+  still-large graphs produce a visible warning rather than a broken chart.
+- The chart is a dedicated component in
+  `src/components/charts/funds_flow_chart.rs`. It receives the domain graph and
+  optional display context only; the screen **MUST NOT** build an ECharts
+  option or manipulate ECharts directly. Section 5.10 applies.
+- The aggregated link table and its evidence dialog use the shared
+  `TableQuery`/`TablePage` contract from Section 5.11. Sort keys remain a fixed
+  repository allowlist; the service clamps the page size.
+- Filters use the shared `MultiSelect` and `DatePicker`. The exchange and
+  address filter values are validated against the domain limits before they
+  reach the repository.
+
+### 5.17 Exchange ledger and on-chain reconciliation
+
+The exchange ledger is independent from the on-chain transaction store.
+`src/application/exchanges.rs` owns the workflows and
+`src/domain/exchange/matching.rs` owns the pure matching rules.
+
+- **CSV import.** The parser accepts at most 25 MiB and 200,000 rows. It
+  detects known exchange formats or uses the user's explicit column mapping.
+  Only BTC/XBT rows are imported; amounts are normalized to satoshis. Each row
+  receives a stable fingerprint, duplicates are reported to the user, and the
+  import returns a partial summary (`created`, `inserted`, `duplicates`,
+  `auto_linked`, `skipped_non_btc`) instead of failing the whole file.
+- **Fiat provenance.** Original fiat amounts and fees remain stored for
+  provenance. Default-currency displays use the read-time `converted_*` fields
+  from `ExchangeFiatService`. BTC/XBT fees stay in satoshis. See Section 3.1.
+- **Matching.** Exact txid hashes are definitive and return the `hash_match`
+  state. Otherwise, only withdrawals and deposits are considered. Amount/date
+  matching is one-to-one, requires direction and strong amount/timestamp
+  evidence, and stays unmatched when it cannot establish exactly one unclaimed
+  candidate. A valid-looking txid that is not cached stays unmatched instead of
+  guessing by amount/date.
+- **Scoring.** Candidate likeliness is a rounded `0..=1` value. The weights and
+  tolerances are persisted through **Settings → On-chain Linking**; exact hash
+  matches bypass scoring. Weights are relative, non-negative values and
+  tolerances must remain positive. A manual link is an explicit user action and
+  may use a weaker candidate.
+- **Duplicates.** An intentional duplicate may share a claim where the matching
+  rules allow it. The duplicate dialog **MUST** offer replace, keep both, or
+  cancel; silently overwriting or silently creating a second row is forbidden.
+- **Deletion.** Deleting exchange accounts removes their ledger rows and
+  refreshes the affected provider balances in one transaction. The confirmation
+  shows the account and transaction counts and honors the destructive-action
+  setting.
+
+### 5.18 PWA shell and service worker
+
+- `public/manifest.webmanifest`, `public/sw.js`, and `public/sw-register.js`
+  are part of the deployable PWA. The service worker is registered only in a
+  production web build, not during debug development.
+- The service worker precaches the stable shell paths on install: `/`,
+  `/index.html`, the manifest, icons, `local-worker.js`, the worker JavaScript
+  and WASM, and `btc_usd.bin`. Hashed Dioxus assets are reported by
+  `sw-register.js` after they load and are cached at runtime; there is no
+  build-time precache manifest.
+- `/local-worker.js`, `/sw-register.js`, and `/worker/*` use network-first
+  revalidation so a new app never pairs with a stale worker; they fall back to
+  the cache when offline. Navigation requests fall back to `/`.
+- `/api/*` and cross-origin requests **MUST NOT** be intercepted or cached.
+- Bump `CACHE_NAME` in `public/sw.js` when the stable precache list or caching
+  semantics change. The app **MUST NOT** claim offline support for an
+  uninstalled page or for a failed seed import.
+- Service workers require HTTPS or `localhost`. A plain-HTTP deployment can
+  run the app but not the offline shell.
 
 ## 6. SQLite and `rusqlite` conventions
 
@@ -844,7 +964,7 @@ SQLite supports concurrent readers but only one active writer per database at a 
 - In the web build, the SharedWorker is the only owner of the `rusqlite::Connection`. The main thread **MUST NOT** open a connection, and multiple tabs **MUST NOT** open the IndexedDB VFS directly.
 - Each tab owns one `MessagePort`. Requests are typed, correlated by request ID, and serialized by the worker; no connection or `rusqlite::Statement` crosses the port.
 - Write endpoints run one at a time. The worker **MUST** await the patched commit barrier before returning success.
-- Long syncs and seed imports **MUST** send progress and support cancellation without leaving a partial transaction or a stuck loading state.
+- Long syncs and seed imports **SHOULD** send progress and support cancellation without leaving a partial transaction or a stuck loading state. The current worker does not emit `WorkerProgress`; add that path when a long-running workflow needs it.
 
 ### 6.3 SQL safety and repository boundaries
 
@@ -979,26 +1099,31 @@ The current `CURRENT_SCHEMA_VERSION` is `22`.
   `synchronous = OFF` setting the VFS requires.
 - **Commit barrier.** The repository vendors `sqlite-wasm-vfs` under
   `vendor/sqlite-wasm-vfs` and exposes `wait_committed(filename)` for normal
-  writes. The worker **MUST** await it after every write endpoint, before
-  export, and before the last port closes. Reporting a save as successful
-  without waiting for the IndexedDB commit is forbidden. Reapply and test the
-  patch when the crate version changes.
+  writes. The worker **MUST** await it after every write endpoint and before
+  export. Reporting a save as successful without waiting for the IndexedDB
+  commit is forbidden. Reapply and test the patch when the crate version
+  changes.
 - **One schema.** The browser database uses the exact same `MIGRATIONS` list and
   `CURRENT_SCHEMA_VERSION` as native. A web-only schema or migration list is
   forbidden. A migration change **MUST** be tested against a native database and
   a browser database.
 - **Seeds.** On WASM, `0015_historical_prices_data` reads the stable
-  `public/btc_usd.bin` asset generated by `build.rs` and fetched by the worker; it **MUST NOT** use `std::fs` or
-  `include_bytes!` for the 6.2 MB pack. `0019_addresses_data` remains
-  `include_str!`. A new browser database runs migrations and the full seed; a
-  failed seed leaves Local unavailable but keeps Remote usable.
+  `public/btc_usd.bin` asset generated by `build.rs` and fetched by the worker;
+  it **MUST NOT** use `std::fs` or `include_bytes!` for the 6.2 MB pack.
+  `0019_addresses_data` remains `include_str!`. The worker fetches the pack when
+  the database is new or its `user_version` is below the price-seed migration.
+  A new browser database runs migrations and the full seed; a failed seed
+  leaves Local unavailable but keeps Remote usable.
 - **Storage and backup.** Request `navigator.storage.persist()` automatically
   on every Local-mode start; a denial or unsupported browser must not block
   Local mode. Settings shows `navigator.storage.estimate()` usage only. Export
-  downloads the virtual database as `.sqlite`; import validates the
-  header, `PRAGMA integrity_check`, `user_version`, and expected tables, then
-  restores the previous database if validation fails. The file is unencrypted;
-  warn users. Browser SQLite is unencrypted in v1; do not store secrets.
+  downloads the virtual database as `.sqlite`. Import decodes the base64 file,
+  rejects empty input, imports it into the VFS, and validates
+  `PRAGMA integrity_check`, a non-zero `user_version`, the `setting` table, the
+  migration chain, the current schema, and foreign keys. A rejected import
+  restores the previous database. There is no backup file-size limit; the
+  export dialog limits only the normalized file name. The file is unencrypted;
+  warn users and do not store secrets in it.
 - **External sync.** Local mode may call Coin Metrics Community, Mempool, and
   Frankfurter directly; all three allow browser CORS. Handle offline, timeout,
   rate-limit, and CORS failures without corrupting local data.
@@ -1022,10 +1147,14 @@ branch on the transport.
 - **Export.** Produce a consistent SQLite snapshot with the SQLite online
   backup API (native/server) or the worker VFS export (web Local). The worker
   **MUST** await the commit barrier before exporting browser data.
-- **Import.** Check the SQLite header, size limit, `PRAGMA integrity_check`,
-  `user_version`, and required tables. Older backups run the normal migration
+- **Import.** Native/server import checks the SQLite header before replacing
+  the live database. Browser import decodes the base64 file, rejects empty
+  input, imports it into the VFS, and validates `PRAGMA integrity_check`, a
+  non-zero `user_version`, the `setting` table, the migration chain, the
+  current schema, and foreign keys. Older backups run the normal migration
   list; newer backups are rejected with a clear message. The live database is
   backed up before replacement; any restore or commit failure restores it.
+  There is no backup file-size limit.
 - **Reset.** Create a fresh database through the normal migration and seed
   path, back up the live database, restore the fresh copy, and restore the
   safety copy on failure. The result matches the browser's existing clear
@@ -1171,12 +1300,16 @@ Coverage expectations by change type:
 - **UI behavior:** verification of loading, success, empty, and failure states when applicable.
 - **Currency and fiat conversion:** tests for default-currency propagation, BTC-to-fiat calculations, conversion idempotency, preservation of existing/manual prices, and non-fatal failure warnings where applicable.
 - **Platform-specific code:** build or execute checks on the affected platform; mock the OS boundary when practical.
-- **Browser worker and SQLite:** worker browser tests for VFS install/open, migrations, seed import, write plus commit barrier, export/import round-trip, invalid import rollback, and worker protocol mismatch.
+- **Browser worker and SQLite:** worker browser tests **SHOULD** cover VFS
+  install/open, migrations, seed import, write plus commit barrier,
+  export/import round-trip, invalid import rollback, and worker protocol
+  mismatch. The repository does not currently include a browser test runner;
+  add one when changing the worker protocol or VFS patch.
 - **Data backup and restore:** export/import round-trip, older-schema upgrade, newer-schema rejection, missing-table rejection, non-SQLite input, reset-to-defaults, and rollback that preserves the previous database.
-- **Worker protocol:** request IDs, sequential writes, progress/cancel, `DataChanged` broadcast, and a two-tab RPC check.
-- **Endpoint parity:** every endpoint exposed by native server functions is also exposed by the worker RPC and the web remote wrapper; a test fails when one is missing.
-- **Remote HTTP and CORS:** JSON, query, path, error envelope, 426, missing version header, allowlisted origin success, unlisted origin denial, and OPTIONS preflight.
-- **PWA and offline:** first-run local seed, persistence across reload, offline reload after installation, multi-tab writes, unsupported-browser message, and export/import.
+- **Worker protocol:** request IDs, sequential writes, `DataChanged` broadcast, and a two-tab RPC check. `WorkerProgress` is reserved in `crates/core` but is not currently emitted; add progress and cancellation when a long-running worker workflow needs them.
+- **Endpoint parity:** every endpoint exposed by native server functions **MUST** also be exposed by the worker RPC and the web remote wrapper. There is no automated parity test in the current tree; verify the three lists manually and add a test when the endpoint surface changes.
+- **Remote HTTP and CORS:** JSON, query, path, error envelope, 426, missing version header, allowlisted origin success, unlisted origin denial, and OPTIONS preflight. Add CORS integration coverage when changing the allowlist or preflight.
+- **PWA and offline:** first-run local seed, persistence across reload, offline reload after installation, multi-tab writes, unsupported-browser message, and export/import. Verify manually until a browser test runner is added.
 
 Tests **MUST NOT** depend on a developer's real database, home directory, network connection, or manually prepared application state. Tests **SHOULD** be deterministic and clean up temporary files they create.
 
@@ -1189,12 +1322,12 @@ The baseline pre-PR commands are listed in Section 4. Release builds and target-
 - UI layout, fonts, keyboard behavior, touch targets, scrolling, and accessibility **SHOULD** be checked on each supported renderer/platform. CSS and WebView behavior can differ.
 - Android lifecycle transitions, background restrictions, permission prompts, and low-memory behavior **SHOULD** be considered for long-running work.
 - A feature unavailable on a platform **MUST** fail gracefully or be explicitly marked unsupported; it **MUST NOT** silently report success.
-- CI **SHOULD** include Linux and macOS builds and Android compilation/package checks. Platform packaging, signing, and notarization requirements **MUST** be documented separately from ordinary development builds.
+- PR CI runs on Linux. The release workflow builds macOS, Windows, and Android artifacts on their native runners; platform packaging, signing, and notarization requirements **MUST** be documented separately from ordinary development builds.
 - The web PWA is supported only on latest 2026+ Chrome (desktop/Android), Edge, Firefox, and Safari (macOS/iOS). Do not add legacy polyfills or a dedicated-worker fallback for older browsers.
 - On an unsupported browser, Local mode **MUST** fail gracefully with a clear message; Remote remains available. It **MUST NOT** silently create a second database or report Local as ready.
 - Service workers, `navigator.storage.persist()`, and persistent browser storage require HTTPS or `localhost`. A plain-HTTP deployment can run the app but not the offline shell.
 - iOS/Safari storage eviction and private browsing **MUST** be considered; SQLite export is the user-facing recovery path.
-- A static host **MUST** rewrite unknown paths to `index.html` for the client-side router.
+- A static host **MUST** rewrite unknown application paths to `index.html` for the client-side router and **MUST** return 404 for `/api/*` instead of the application shell.
 
 ## 11. Pull requests and review
 
@@ -1215,13 +1348,16 @@ Before requesting review, contributors **MUST**:
 - [ ] Verify every new or changed fiat display and conversion uses the `FiatCurrency` context and the default currency, without hardcoded USD assumptions (Section 3.1).
 - [ ] Check that no secrets, local database files, build artifacts, or unintended changes are included; describe formatting churn in the pull request.
 - [ ] Web changes build with plain `dx serve`/`dx build`; `build.rs` generated `local-worker.js`, `worker/*`, and `btc_usd.bin`. No xtask or precache manifest is required.
-- [ ] A new or changed endpoint is implemented in the native controller, exposed through worker RPC, exposed through the web remote wrapper, and covered by the endpoint parity test.
+- [ ] A new or changed endpoint is implemented in the native controller, exposed through worker RPC, exposed through the web remote wrapper, and the three lists were compared manually (no automated parity test is present yet).
 - [ ] API request/response shape changes bump `API_VERSION`; worker RPC changes bump `WORKER_PROTOCOL_VERSION`; both remote transports and the docs are updated.
 - [ ] CORS changes update `ADDRESS_EXPLORER_CORS_ORIGINS` documentation and the allowlist/preflight tests. No `*` default was introduced.
 - [ ] Web Local writes await the patched commit barrier before reporting success; export/import and migration behavior were tested.
 - [ ] Data export/import/reset was exercised against the active local and remote backends, including cross-target import and rollback on a rejected file.
 - [ ] Browser localStorage keys and JSON shapes are versioned; an incompatible change has a reset/migration path.
 - [ ] Local mode was tested offline after an installed PWA load; Remote mode was tested against an allowlisted cross-origin server and an API-version mismatch.
+- [ ] Funds Flow changes preserve the acyclic transaction view, report circular value excluded from the address summary, and keep the render-budget fallback visible.
+- [ ] Exchange ledger changes preserve BTC/XBT satoshi normalization, duplicate choices, one-to-one amount/date matching, and read-time fiat conversion.
+- [ ] PWA cache changes bump `CACHE_NAME` when the stable precache list or semantics change; `/api/*` remains outside the service worker.
 - [ ] No native↔web migration or encryption guarantee is implied beyond what is implemented.
 - [ ] The supported browser floor was not weakened, and unsupported browsers still get the Local message plus Remote.
 - [ ] Describe any validation that could not be performed.
@@ -1235,11 +1371,14 @@ the SQL here. The browser-local database uses the same tables, migrations,
 invariants, and `CURRENT_SCHEMA_VERSION`; web-only tables or seed variants are
 forbidden. `historical_prices` is seeded in the browser from the generated stable
 `public/btc_usd.bin` (source `assets/pricing/btc_usd.bin`); `addresses` is seeded from the checked-in
-`0019_addresses_data.sql`. Export produces a normal SQLite snapshot; import
-validates the header, `PRAGMA integrity_check`, schema version, and required
-tables, upgrades older schemas through the same migration list, and rejects
-newer schemas. The operation is a portable cross-target backup, not a backend
-preference migration. A database at `CURRENT_SCHEMA_VERSION = 22` has these tables:
+`0019_addresses_data.sql`. Export produces a normal SQLite snapshot. Native/server
+import checks the SQLite header; browser import validates through
+`PRAGMA integrity_check`, a non-zero `user_version`, the `setting` table, the
+migration chain, the current schema, and foreign keys. Both upgrade older
+schemas through the same migration list and reject newer schemas. The operation
+is a portable cross-target backup, not a backend preference migration; see
+Section 6.7 and [`docs/architecture.md`](docs/architecture.md). A database at
+`CURRENT_SCHEMA_VERSION = 22` has these tables:
 
 | Table | Purpose | Reference rows |
 | --- | --- | --- |
@@ -1285,6 +1424,8 @@ tests in `src/data/migrations.rs`.
 
 Contributors **MUST** use documentation matching the versions pinned by the repository.
 
+- [Address Explorer architecture](docs/architecture.md)
+- [Address Explorer build guide](docs/BUILDING.md)
 - [Dioxus 0.7 documentation](https://dioxuslabs.com/learn/0.7/)
 - [Dioxus hooks](https://dioxuslabs.com/learn/0.7/essentials/basics/hooks/)
 - [Dioxus state and signals](https://dioxuslabs.com/learn/0.7/tutorial/state/)

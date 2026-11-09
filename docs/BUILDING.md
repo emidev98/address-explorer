@@ -2,7 +2,8 @@
 
 This page describes the development environment, the bundle matrix, and the
 `cargo prepare` command. The repository rules for code, tests, and formatting
-remain in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+remain in [`CONTRIBUTING.md`](../CONTRIBUTING.md). For the build, deployment,
+and client-server diagrams, see [`architecture.md`](architecture.md).
 
 ## Quick start
 
@@ -126,34 +127,36 @@ dx serve
 dx serve --web
 
 # Deployable PWA
-dx build --web --release
+dx build --web --release --locked
 # or
-dx bundle --web --release --no-default-features --features web
+dx bundle --web --release --locked --no-default-features --features web
 
 # Optional Remote server
-cargo build --release --no-default-features --features server
+cargo build --release --locked --no-default-features --features server
 ```
 
-The deployable `public/` directory includes the app shell, hashed JS/WASM,
-`local-worker.js`, `worker/*`, the manifest, service worker, icons, fonts,
-vendored ECharts, and the stable `btc_usd.bin`. Serve it over HTTPS or
-`localhost`, and rewrite unknown paths to `index.html` for the client-side
-router.
+The deployable `public/` directory includes `index.html`, hashed JS/WASM,
+`local-worker.js`, `worker/*`, `manifest.webmanifest`, `sw.js`,
+`sw-register.js`, the icons, fonts, vendored ECharts, and the stable
+`btc_usd.bin`. Serve it over HTTPS or `localhost`, rewrite unknown application
+paths to `index.html` for the client-side router, and return 404 for `/api/*`
+instead of the application shell. See [`deployment.md`](deployment.md) for the
+static-host cache rules and the optional server setup.
 
 ## Native and mobile commands
 
 ```sh
 # Desktop
-dx bundle --desktop --release --no-default-features
+dx bundle --desktop --release --locked --no-default-features
 
 # Android
-dx bundle --android --release --no-default-features
+dx bundle --android --release --locked --no-default-features
 
 # iOS
-dx bundle --ios --release --no-default-features
+dx bundle --ios --release --locked --no-default-features
 
 # Pure server binary
-cargo build --release --no-default-features --features server
+cargo build --release --locked --no-default-features --features server
 ```
 
 `desktop` and `mobile` already include `server` and `remote-backend`; do not

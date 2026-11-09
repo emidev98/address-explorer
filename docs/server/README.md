@@ -26,5 +26,5 @@ at startup even when the PWA is served separately.
 
 The server has no authentication. `ADDRESS_EXPLORER_CORS_ORIGINS` is a browser
 CORS allowlist, not access control. Do not expose the server to untrusted
-networks or origins. See `docs/deployment.md` in the repository for the
-container image and backup notes.
+networks or origins. See `docs/deployment.md` and `docs/architecture.md` in the
+repository for the container image, runtime modes, and backup notes.

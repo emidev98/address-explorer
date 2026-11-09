@@ -1,7 +1,8 @@
 # Installing release builds
 
 Download artifacts from the repository's GitHub Releases page. The release
-workflow publishes checksums in `SHA256SUMS.txt`.
+workflow publishes checksums in `SHA256SUMS.txt`. For the runtime modes and
+build/deployment diagram, see [`architecture.md`](architecture.md).
 
 Verify a download with:
 
