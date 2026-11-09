@@ -1,0 +1,40 @@
+# CODEOWNERS
+#
+# Ownership is intentionally concentrated on the maintainer. Agents and external
+# contributors can change application code, but not the specification, the
+# guardrails, the dependency graph, or the schema history.
+#
+# Pair this file with the ruleset setting "Require review from Code Owners".
+# Note that GitHub accepts an approval from *any* listed owner, so these entries
+# deliberately list a single owner.
+
+# Default: everything is owned by the maintainer.
+*                       @emidev98
+
+# The specification and agent operating manual.
+/CONTRIBUTING.md        @emidev98
+/AGENTS.md              @emidev98
+/CLAUDE.md              @emidev98
+/GEMINI.md              @emidev98
+/CONTRIBUTORS.md        @emidev98
+/docs/agents/           @emidev98
+
+# The enforcement layer — including CODEOWNERS itself, so the guard cannot be
+# edited by a pull request it would otherwise gate.
+/.github/               @emidev98
+
+# Dependency graph and build configuration.
+/Cargo.toml             @emidev98
+/Cargo.lock             @emidev98
+/build.rs               @emidev98
+/Dioxus.toml            @emidev98
+/tools/cargo-prepare/   @emidev98
+/vendor/                @emidev98
+
+# Schema history.
+/src/data/migrations/   @emidev98
+
+# Deployment and packaging.
+/vercel.json            @emidev98
+/Dockerfile             @emidev98
+/.dockerignore          @emidev98

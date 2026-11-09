@@ -1,0 +1,52 @@
+name: Chore
+description: Documentation, CI, dependencies, or another non-behavioural change.
+title: "[chore] "
+labels: ["chore"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - documentation
+        - CI or tooling
+        - dependency update
+        - refactor with no behaviour change
+        - test coverage
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: The single change this covers. Documentation, CI, and dependency updates merge at the highest rate for agent contributions, so keep them boring.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] `./scripts/verify-agent.sh` passes
+        - [ ] The document renders and every link resolves
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: This needs no frozen path from `.github/frozen-paths.txt`, or the issue explains why
+          required: true
+        - label: A dependency change is intentional and described above
+          required: false

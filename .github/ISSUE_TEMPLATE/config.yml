@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How contributions work here
+    url: https://github.com/emidev98/address-explorer/blob/main/docs/agents/GOVERNANCE.md
+    about: Frozen paths, size limits, trust tiers, and the pull request contract.
+  - name: Report a security issue privately
+    url: https://github.com/emidev98/address-explorer/security/advisories/new
+    about: Do not open a public issue for a vulnerability.

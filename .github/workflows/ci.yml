@@ -17,6 +17,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Incremental artifacts help local rebuilds and only bloat a clean CI cache.
+  CARGO_INCREMENTAL: 0
 
 jobs:
   format:
@@ -26,6 +28,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/prepare
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       # `dx fmt` is intentionally not gated: Dioxus CLI 0.7.10 is not
       # idempotent on several existing handlers, and its global --check
       # reports generated files outside the tracked source.
@@ -38,6 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/prepare
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       - run: dx check --platform web
       - run: dx check --platform desktop
       - run: dx check --fullstack
@@ -49,6 +57,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/prepare
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       - run: cargo test -p address-explorer --no-default-features --features server
       - run: cargo test -p address-explorer --no-default-features --features desktop
 
@@ -59,6 +70,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/prepare
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       - run: cargo clippy -p address-explorer --all-targets --no-default-features --features server -- -D warnings
       - run: cargo clippy -p address-explorer --all-targets --no-default-features --features desktop -- -D warnings
       - run: cargo clippy -p address-explorer --target wasm32-unknown-unknown --no-default-features --features web -- -D warnings
@@ -71,6 +85,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/prepare
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
       - run: dx build --web --release --locked
       - name: Verify committed Tailwind output
         run: git diff --exit-code -- assets/tailwind.css

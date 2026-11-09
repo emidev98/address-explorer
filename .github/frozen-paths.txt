@@ -1,0 +1,44 @@
+# Paths agents MUST NOT modify in a contribution pull request.
+#
+# One glob per line, bash `case`-statement semantics (`*` also matches `/`).
+# `#` starts a comment. This file is enforced by:
+#   .github/workflows/guard-frozen-files.yml   (server-side, blocks merge)
+#   scripts/verify-agent.sh                    (local, fails the run)
+#   .claude/hooks/protect-files.sh             (local, courtesy only)
+#
+# This file is itself frozen: adding an exception requires a maintainer edit.
+
+# The specification and the operating manual.
+CONTRIBUTING.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+CONTRIBUTORS.md
+docs/agents/*
+
+# The enforcement layer. Agents must not be able to weaken their own guardrails.
+.github/*
+.claude/*
+.cursor/*
+scripts/verify-agent.sh
+scripts/guard-pr.mjs
+scripts/sync-labels.sh
+scripts/install-hooks.sh
+scripts/update-contributors.mjs
+
+# Dependency and build configuration.
+Cargo.toml
+Cargo.lock
+build.rs
+Dioxus.toml
+rust-toolchain*
+vendor/*
+tools/cargo-prepare/*
+
+# Schema history is append-only and maintainer-owned.
+src/data/migrations/*
+
+# Deployment and packaging.
+vercel.json
+Dockerfile
+.dockerignore

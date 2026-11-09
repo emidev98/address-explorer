@@ -1,0 +1,37 @@
+name: Copilot setup steps
+
+# Pre-installs the toolchain Copilot cloud agent needs, so a session does not
+# spend its 59-minute budget rediscovering `cargo prepare`, the Dioxus CLI, the
+# wasm target, and Node.
+#
+# The job MUST be named `copilot-setup-steps`.
+# Reference: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the development toolchain
+        uses: ./.github/actions/prepare
+        with:
+          android: "false"
+          verify: "true"
+          github-env: "true"
+          web-tools: "true"
+
+      - name: Report the pinned versions
+        run: |
+          rustc --version
+          cargo --version
+          dx --version
+          node --version || true

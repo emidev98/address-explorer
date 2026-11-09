@@ -1,0 +1,106 @@
+name: Agent task
+description: A scoped change that an agent may implement. Written to be complete before work starts.
+title: "[task] "
+labels: ["needs-spec"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Write this issue as if it were the prompt. An agent gets one attempt, so
+        every field below is required.
+
+        Read `AGENTS.md` before filing. If the work needs a frozen path, say so
+        and stop.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is wrong or missing today? One paragraph, no solution yet.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        File paths with line numbers, a failing command with its output, a query
+        plan, a measurement, or a screenshot. This is what makes the issue real.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: The single logical change this issue covers.
+      placeholder: One sentence. If it needs the word "and", split it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What a reviewer should reject as unrelated.
+    validations:
+      required: true
+
+  - type: textarea
+    id: files
+    attributes:
+      label: Relevant files
+      description: Modules, functions, or tests the change will touch or must reuse.
+      placeholder: |
+        - src/data/repositories/prices.rs
+        - src/screens/historical_prices.rs (reference pattern)
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Measurable conditions. Each one must be checkable.
+      placeholder: |
+        - [ ] list_prices clamps page_size to the documented maximum
+        - [ ] a repository test covers the clamp
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification command
+      description: The exact command that proves the change works.
+      placeholder: ./scripts/verify-agent.sh --full
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - area:data
+        - area:ui
+        - area:wasm
+        - area:api
+        - area:domain
+        - area:docs
+        - area:ci
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: agent-ready
+    attributes:
+      label: Readiness
+      options:
+        - label: The change fits within 400 lines and 8 files
+          required: true
+        - label: The change needs no frozen path from `.github/frozen-paths.txt`
+          required: true
+        - label: No new dependency is required
+          required: true

@@ -1,0 +1,84 @@
+name: Contribution gate
+
+# Enforces the two invariants that must not depend on an agent's good behaviour:
+#
+#   1. Frozen paths are never modified by a contribution.
+#   2. A pull request stays small and its description stays short and factual.
+#
+# Both jobs read the pull request through the REST API and run the scripts from
+# the *base* branch, so a contributor cannot weaken the gate in their own branch.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+
+concurrency:
+  group: contribution-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  frozen-files:
+    name: Frozen files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Reject frozen-path changes
+        run: node scripts/guard-pr.mjs --frozen
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  contribution-shape:
+    name: Shape and description
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the base branch (trusted tooling)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: guard
+          persist-credentials: false
+
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check size, scope, and description
+        working-directory: guard
+        run: node scripts/guard-pr.mjs --description
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check the machine-readable CONTRIBUTING rules
+        working-directory: pr
+        run: ../guard/scripts/verify-agent.sh
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          # Formatting, compilation, tests, and Clippy are owned by ci.yml.
+          SKIP_FMT: "1"

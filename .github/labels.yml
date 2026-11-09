@@ -1,0 +1,86 @@
+# Label taxonomy.
+#
+# Apply with `./scripts/sync-labels.sh` (requires the `gh` CLI and write access).
+# Labels are referenced by .github/workflows/pr-guard.yml,
+# scripts/verify-agent.sh, and docs/agents/GOVERNANCE.md, so do not rename one
+# without updating those.
+
+- name: needs-spec
+  color: "d876e3"
+  description: Not ready to implement; acceptance criteria or evidence are missing.
+
+- name: agent-ready
+  color: "0e8a16"
+  description: Scoped, verified, and open to an agent. The maintainer promotes issues to this.
+
+- name: agent-proposed
+  color: "c5def5"
+  description: Filed by an agent as a research proposal. Reviewed as a document first.
+
+- name: agent-working
+  color: "fbca04"
+  description: An agent session has claimed this issue.
+
+- name: maintainer-override
+  color: "b60205"
+  description: Bypasses the automated pull request gate. Maintainer use only.
+
+- name: dep-change
+  color: "5319e7"
+  description: Permits a Cargo.toml or Cargo.lock change.
+
+- name: size-xl-approved
+  color: "8b0000"
+  description: Permits a pull request above 800 reviewable lines. Should be rare.
+
+- name: bug
+  color: "d73a4a"
+  description: Something behaves incorrectly.
+
+- name: chore
+  color: "cfd3d7"
+  description: Documentation, CI, dependencies, or another non-behavioural change.
+
+- name: area:data
+  color: "1d76db"
+  description: src/data, SQLite, migrations, backup and restore.
+
+- name: area:ui
+  color: "1d76db"
+  description: src/components and src/screens.
+
+- name: area:wasm
+  color: "1d76db"
+  description: crates/web-worker, crates/core, and browser transport.
+
+- name: area:api
+  color: "1d76db"
+  description: src/api controllers, worker RPC, and web wrappers.
+
+- name: area:domain
+  color: "1d76db"
+  description: src/domain, src/application, and src/clients.
+
+- name: area:docs
+  color: "1d76db"
+  description: Documentation and guides.
+
+- name: area:ci
+  color: "1d76db"
+  description: Workflows, scripts, and tooling.
+
+- name: size:s
+  color: "ededed"
+  description: Up to 100 changed lines.
+
+- name: size:m
+  color: "ededed"
+  description: 101 to 400 changed lines.
+
+- name: size:l
+  color: "ededed"
+  description: 401 to 800 changed lines. Consider splitting.
+
+- name: size:xl
+  color: "ededed"
+  description: Above 800 changed lines. Requires size-xl-approved.

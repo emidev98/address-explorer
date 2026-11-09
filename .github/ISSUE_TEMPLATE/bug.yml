@@ -1,0 +1,63 @@
+name: Bug report
+description: Something behaves incorrectly in the application.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happens, and where.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include the backend mode (Local or Remote) and the platform.
+      placeholder: |
+        1. Settings → General → Backend: Local
+        2. Open Historical Prices
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Logs, screenshots, the failing assertion, or the query that returns the wrong rows.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Web PWA (Local)
+        - Web PWA (Remote)
+        - Desktop
+        - Server
+        - Android
+        - iOS
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Release version, or the commit you reproduced on.
+    validations:
+      required: true

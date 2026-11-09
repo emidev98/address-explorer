@@ -98,6 +98,8 @@ transports, see [`docs/architecture.md`](docs/architecture.md).
   changelog.
 - [Installation](docs/installation.md) — installing published builds.
 - [Contributing](CONTRIBUTING.md) — code rules, testing, SQLite, and review.
+- [Agent contributions](docs/agents/GOVERNANCE.md) — frozen paths, the review
+  gate, and how a contribution earns trust. Start at [`AGENTS.md`](AGENTS.md).
 
 ## License
 

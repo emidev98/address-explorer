@@ -1,0 +1,96 @@
+name: Agent proposal
+description: A research-backed improvement proposal. Evidence and sources are required.
+title: "[proposal] "
+labels: ["agent-proposed", "needs-spec"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template exists so agents can propose work with evidence instead of
+        opening speculative pull requests. A proposal is reviewed as a document
+        first; it becomes `agent-ready` only if the maintainer promotes it.
+
+        Vague, unreferenced proposals are closed. Cite the code, the measurement,
+        and the source.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - performance
+        - accessibility
+        - data integrity
+        - security and dependencies
+        - developer experience
+        - documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: observation
+    attributes:
+      label: Observation
+      description: What did you measure or read? Include exact paths and numbers.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: User impact
+      description: Who is affected, how often, and how badly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        Reproducible commands, `EXPLAIN QUERY PLAN` output, benchmark numbers,
+        screenshots, or advisory identifiers. Attach files if needed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: At most two options, and why the first is preferred.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Measurable, and achievable inside one 400-line pull request.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives rejected
+      description: At least one alternative and the reason it was not chosen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: Documentation for the pinned version, upstream issues, research, or specs.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: I checked open and merged issues and pull requests for duplicate work
+          required: true
+        - label: Every claim above is backed by the evidence section
+          required: true
