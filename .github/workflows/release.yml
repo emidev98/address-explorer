@@ -1,0 +1,526 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing published release tag to rebuild and deploy
+        required: true
+        type: string
+      deploy:
+        description: Deploy the rebuilt web PWA to Vercel
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  meta:
+    name: Validate release
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      deploy: ${{ steps.version.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validate version, branch, and CI
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          DEPLOY: ${{ github.event_name == 'release' || inputs.deploy }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must match vX.Y.Z, got: $TAG" >&2
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          CARGO_VERSION="$(cargo metadata --locked --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "address-explorer") | .version')"
+          if [ "$CARGO_VERSION" != "$VERSION" ]; then
+            echo "Cargo.toml version $CARGO_VERSION does not match release tag $TAG" >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Release commit $GITHUB_SHA is not reachable from main" >&2
+            exit 1
+          fi
+
+          TAG_SHA="$(git rev-parse HEAD)"
+          RUN_COUNT="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${TAG_SHA}&branch=main&event=push&status=success&per_page=1" \
+            --jq '.workflow_runs | length')"
+          if [ "$RUN_COUNT" -lt 1 ]; then
+            echo "No successful CI run found for $TAG_SHA on main." >&2
+            echo "Wait for the main CI run to finish, then re-run this workflow." >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "deploy=$DEPLOY" >> "$GITHUB_OUTPUT"
+
+  changelog:
+    name: Update release notes
+    needs: meta
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Append generated changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: scripts/release-changelog.sh "$TAG"
+
+  web:
+    name: Web PWA
+    needs: meta
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      - name: Ensure zip is available
+        run: command -v zip >/dev/null || (sudo apt-get update && sudo apt-get install -y zip)
+      - name: Build deployable PWA
+        shell: bash
+        run: |
+          set -euo pipefail
+          dx build --web --release --locked
+          mkdir -p dist
+          (
+            cd target/dx/address-explorer/release/web/public
+            zip -qr "$GITHUB_WORKSPACE/dist/address-explorer-web_${VERSION}.zip" .
+          )
+          test -s "dist/address-explorer-web_${VERSION}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: dist/address-explorer-web_*.zip
+          if-no-files-found: error
+
+  linux:
+    name: Linux desktop (${{ matrix.arch }})
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      - name: Build Linux bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BUNDLES="$(dx bundle --desktop --release --locked --no-default-features \
+            --package-types appimage --package-types deb --json-output \
+            | tail -n 1 | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
+
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              *.AppImage)
+                cp "$path" "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
+                ;;
+              *.deb)
+                cp "$path" "dist/address-explorer_${VERSION}_linux_${ARCH}.deb"
+                ;;
+            esac
+          done <<< "$BUNDLES"
+
+          test -f "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
+          test -f "dist/address-explorer_${VERSION}_linux_${ARCH}.deb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    name: macOS desktop (arm64)
+    needs: meta
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+        with:
+          github-env: "false"
+      # Signing hook (disabled). Expected secrets when enabled:
+      #   APPLE_CERTIFICATE_P12, APPLE_CERTIFICATE_PASSWORD,
+      #   APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_TEAM_ID,
+      #   APPLE_APP_SPECIFIC_PASSWORD.
+      # Import the certificate into a temporary keychain and pass the identity
+      # to `dx bundle --codesign --apple-team-id ...` in this job.
+      - name: Build macOS bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          BUNDLES="$(dx bundle --desktop --release --locked --no-default-features \
+            --package-types macos --package-types dmg --json-output \
+            | tail -n 1 | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
+
+          while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in
+              *.app)
+                ditto -c -k --sequesterRsrc --keepParent \
+                  "$path" "dist/address-explorer_${VERSION}_macos_arm64.app.zip"
+                ;;
+              *.dmg)
+                cp "$path" "dist/address-explorer_${VERSION}_macos_arm64.dmg"
+                ;;
+            esac
+          done <<< "$BUNDLES"
+
+          test -f "dist/address-explorer_${VERSION}_macos_arm64.app.zip"
+          test -f "dist/address-explorer_${VERSION}_macos_arm64.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos-arm64
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows desktop (x86_64)
+    needs: meta
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+        with:
+          github-env: "false"
+      # Signing hook (disabled). Expected secrets when enabled:
+      #   WINDOWS_CERTIFICATE_PFX (base64), WINDOWS_CERTIFICATE_PASSWORD.
+      # Import the PFX and run signtool on the installer and portable exe.
+      - name: Build Windows bundles
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          $lines = & dx bundle --desktop --release --locked --no-default-features `
+            --package-types nsis --json-output
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          $last = $lines | Select-Object -Last 1
+          $bundles = ($last | ConvertFrom-Json).json | ConvertFrom-Json
+          $installer = $bundles.BundleOutput.bundles |
+            Where-Object { $_ -like '*-setup.exe' } |
+            Select-Object -First 1
+          if (-not $installer) {
+            $installer = Get-ChildItem -Path target/dx/address-explorer/bundle/windows -Recurse -Filter '*-setup.exe' |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $installer) {
+            throw 'NSIS installer was not reported by dx bundle'
+          }
+          Copy-Item $installer "dist/address-explorer_${env:VERSION}_windows_x86_64_setup.exe"
+
+          $exe = $bundles.BundleOutput.client.exe
+          if (-not $exe -or -not (Test-Path $exe)) {
+            $exe = Get-ChildItem -Path target/dx/address-explorer/release/windows -Recurse -Filter address-explorer.exe |
+              Where-Object { $_.FullName -notmatch '\\deps\\' } |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $exe) {
+            throw 'desktop executable was not found'
+          }
+          Compress-Archive -Path $exe `
+            -DestinationPath "dist/address-explorer_${env:VERSION}_windows_x86_64.zip" `
+            -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    name: Android debug APK
+    needs: meta
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: ./.github/actions/prepare
+        with:
+          android: "true"
+          web-tools: "false"
+      - name: Verify Android environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          test -d "${ANDROID_NDK_HOME:-}"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
+          echo "JAVA_HOME=$JAVA_HOME"
+      - name: Build debug-signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          dx bundle --android --locked --no-default-features --package-types apk --json-output
+          APK="$(find target/dx/address-explorer -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          cp "$APK" "dist/address-explorer_${VERSION}_android_debug.apk"
+          test -s "dist/address-explorer_${VERSION}_android_debug.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-debug
+          path: dist/address-explorer_*_android_debug.apk
+          if-no-files-found: error
+
+  server:
+    name: Server tarball (${{ matrix.arch }})
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      - name: Build server
+        run: cargo build --release --locked --no-default-features --features server
+      - name: Package server
+        shell: bash
+        run: |
+          set -euo pipefail
+          STAGE="dist/address-explorer-server_${VERSION}_linux_${ARCH}"
+          mkdir -p "$STAGE/assets/pricing" "$STAGE/public" "dist/context-${ARCH}"
+          cp target/release/address-explorer "$STAGE/"
+          cp assets/pricing/btc_usd.bin "$STAGE/assets/pricing/"
+          cp LICENSE "$STAGE/"
+          cp docs/server/README.md "$STAGE/README.md"
+          tar -czf "dist/address-explorer-server_${VERSION}_linux_${ARCH}.tar.gz" \
+            -C dist "$(basename "$STAGE")"
+
+          cp target/release/address-explorer "dist/context-${ARCH}/address-explorer"
+          cp assets/pricing/btc_usd.bin "dist/context-${ARCH}/btc_usd.bin"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-server-${{ matrix.arch }}
+          path: dist/address-explorer-server_*.tar.gz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: context-server-${{ matrix.arch }}
+          path: dist/context-${{ matrix.arch }}/*
+          if-no-files-found: error
+
+  server-image:
+    name: Server container image
+    needs: [meta, server]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: context-server-x86_64
+          path: docker-context/amd64
+      - uses: actions/download-artifact@v4
+        with:
+          name: context-server-arm64
+          path: docker-context/arm64
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: image-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ needs.meta.outputs.version }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker-context
+          file: ./.github/docker/server-runtime.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image-meta.outputs.tags }}
+          labels: ${{ steps.image-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  publish:
+    name: Publish release assets
+    needs: [meta, web, linux, macos, windows, android, server, server-image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd dist
+            find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS.txt
+            cat SHA256SUMS.txt
+          )
+
+      - name: Attach assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: gh release upload "$TAG" dist/* --clobber
+
+  deploy-vercel:
+    name: Deploy web to Vercel
+    needs: [meta, publish]
+    if: needs.meta.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: Deploy Vercel
+    permissions:
+      contents: read
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-web
+          path: dist/web
+      - name: Extract web build
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v unzip >/dev/null || (sudo apt-get update && sudo apt-get install -y unzip)
+          mkdir -p dist/web-public
+          unzip -q dist/web/*.zip -d dist/web-public
+          test -f dist/web-public/index.html
+
+      - name: Pull Vercel project settings
+        run: npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Create Vercel build output
+        run: bash scripts/build-vercel-output.sh dist/web-public .vercel/output
+
+      - name: Deploy prebuilt PWA
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT="$(npx --yes vercel@latest deploy --prebuilt --prod --yes --json --token="$VERCEL_TOKEN")"
+          printf '%s\n' "$OUTPUT"
+          URL="$(printf '%s' "$OUTPUT" \
+            | jq -r '.url // .deployment.url // .deploymentUrl // .deployments[0].url // empty' \
+              2>/dev/null || true)"
+          if [ -z "$URL" ]; then
+            URL="$(printf '%s\n' "$OUTPUT" | grep -Eo 'https://[^"[:space:]]+' | head -n 1 || true)"
+          fi
+          if [ -z "$URL" ]; then
+            echo "Could not read the deployment URL from Vercel output." >&2
+            exit 1
+          fi
+          echo "deployment_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "### Vercel deployment" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "VERCEL_DEPLOYMENT_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: Verify deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS "$VERCEL_DEPLOYMENT_URL/" >/dev/null
+          curl -fsS "$VERCEL_DEPLOYMENT_URL/sw.js" >/dev/null
+          curl -fsS "$VERCEL_DEPLOYMENT_URL/btc_usd.bin" -o /tmp/address-explorer-btc_usd.bin
+          test "$(wc -c < /tmp/address-explorer-btc_usd.bin)" -gt 6000000

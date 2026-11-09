@@ -34,3 +34,5 @@ rustc-ice-*.txt
 /public/btc_usd.bin
 .vercel
 .env*
+node_modules/
+dist/

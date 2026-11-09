@@ -1,0 +1,71 @@
+name: Prepare Address Explorer
+description: Install the Rust, Dioxus, system, web, and optional Android toolchains with cargo prepare.
+
+inputs:
+  android:
+    description: Install the Android SDK, NDK, Rust targets, and Android environment.
+    required: false
+    default: "false"
+  verify:
+    description: Run cargo prepare --check after installation.
+    required: false
+    default: "true"
+  github-env:
+    description: Export detected Android paths to GITHUB_ENV/GITHUB_PATH.
+    required: false
+    default: "true"
+  web-tools:
+    description: Also export CC/AR for the web wasm toolchain.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust stable
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        targets: wasm32-unknown-unknown
+
+    - name: Install cargo-binstall
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-binstall
+
+    - name: Cache Dioxus tools
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/dx
+          ~/.cargo/bin/dx.exe
+          ~/.local/share/.dx/tools
+          ~/Library/Application Support/.dx/tools
+          ~/AppData/Local/.dx/tools
+        key: ${{ runner.os }}-${{ runner.arch }}-dx-0.7.10-v1
+
+    - name: Install development toolchain
+      shell: bash
+      run: |
+        ENV_FLAG=""
+        if [ "${{ inputs.github-env }}" = "true" ]; then
+          ENV_FLAG="--github-env"
+          if [ "${{ inputs.web-tools }}" = "true" ]; then
+            ENV_FLAG="$ENV_FLAG --github-env-web-tools"
+          fi
+        fi
+        if [ "${{ inputs.android }}" = "true" ]; then
+          cargo prepare --all --yes --non-interactive $ENV_FLAG
+        else
+          cargo prepare --yes --non-interactive $ENV_FLAG
+        fi
+
+    - name: Verify development toolchain
+      if: inputs.verify == 'true'
+      shell: bash
+      run: |
+        if [ "${{ inputs.android }}" = "true" ]; then
+          cargo prepare --all --check
+        else
+          cargo prepare --check
+        fi

@@ -108,12 +108,17 @@ A small application **MAY** use fewer modules. Modules **SHOULD** be introduced 
 
 Contributors **SHOULD** install the stable Rust toolchain, platform prerequisites for the selected Dioxus renderer, and the Dioxus CLI version recommended for the pinned dependency. Linux desktop builds generally require the GTK/WebKitGTK development libraries for the selected renderer. Android development requires the applicable Android SDK/NDK and Java toolchain. Contributors **MUST** follow the official, version-matched platform guide for exact package names and setup steps.
 
-Run `cargo prepare` once per machine to install the pinned toolchain, system
+Run `cargo prepare` once per machine to install the stable toolchain, system
 build dependencies, web worker compiler, Node/Tailwind, and (with
 `cargo prepare --all`) the Android/iOS toolchains. See
 [`docs/BUILDING.md`](docs/BUILDING.md) for the OS/bundle matrix, version pins,
 and troubleshooting. `cargo prepare --check` verifies the environment without
 changing it.
+
+CI runs the checks in this section on every pull request and every push to
+`main`. A release is accepted only when the tagged commit is on `main` and its
+CI run succeeded. The release build, artifact list, Vercel deployment, and
+changelog behavior are documented in [`docs/release.md`](docs/release.md).
 
 The web PWA and its SharedWorker add these prerequisites:
 
@@ -257,6 +262,12 @@ once a file is corrupted the CLI often refuses to parse it again. A full run of
 closures. `cargo fmt --all` followed by `dx fmt` produces the same readable
 result without corrupting anything, so that is the required pipeline.
 
+The pinned CLI is not idempotent on a small number of existing handlers: a
+second `dx fmt` run can add more whitespace to the same handler body. Run
+`dx fmt` only on files you changed, review the diff, and do not re-run it on an
+unchanged tree. CI enforces `cargo fmt --all --check` and the compile/test/
+Clippy gates; `dx fmt` is deliberately not a CI gate.
+
 If `dx fmt` reports that it cannot parse a file, the contributor **MUST** find
 and repair the duplicated closure described above, then re-run `cargo fmt --all`
 and `dx fmt`. Do not rewrite correct code to silence the formatter, and do not
@@ -371,13 +382,19 @@ clients use `dioxus::launch`.
 The interface uses a Material 3 theme implemented with Tailwind CSS v4 in
 `tailwind.css`. `assets/tailwind.css` is the generated stylesheet that the
 application loads, and `assets/main.css` holds hand-written layout and
-component overrides that sit on top of the generated theme. Contributors
-**MUST** rebuild the generated stylesheet after changing the theme or the
-Tailwind classes in the Rust views; do not hand-edit the generated file:
+component overrides that sit on top of the generated theme. The Dioxus CLI runs
+the pinned Tailwind 4.1.5 binary automatically before `dx serve` and `dx build`,
+writing `assets/tailwind.css`. Contributors **MUST** commit the regenerated
+stylesheet after changing the theme or the Tailwind classes in the Rust views;
+do not hand-edit it:
 
 ```bash
-npx @tailwindcss/cli@4.1.5 -i tailwind.css -o assets/tailwind.css
+dx build --web
 ```
+
+The CI web build regenerates the stylesheet and fails when the committed file
+differs. `cargo prepare` installs the toolchain and warms the Tailwind CLI
+cache; see [`docs/BUILDING.md`](docs/BUILDING.md).
 
 The theme provides:
 

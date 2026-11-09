@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  format:
+    name: Formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      # `dx fmt` is intentionally not gated: Dioxus CLI 0.7.10 is not
+      # idempotent on several existing handlers, and its global --check
+      # reports generated files outside the tracked source.
+      - run: cargo fmt --all --check
+
+  checks:
+    name: Compile checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      - run: dx check --platform web
+      - run: dx check --platform desktop
+      - run: dx check --fullstack
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      - run: cargo test -p address-explorer --no-default-features --features server
+      - run: cargo test -p address-explorer --no-default-features --features desktop
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      - run: cargo clippy -p address-explorer --all-targets --no-default-features --features server -- -D warnings
+      - run: cargo clippy -p address-explorer --all-targets --no-default-features --features desktop -- -D warnings
+      - run: cargo clippy -p address-explorer --target wasm32-unknown-unknown --no-default-features --features web -- -D warnings
+      - run: cargo clippy -p address-explorer-web-worker --target wasm32-unknown-unknown -- -D warnings
+
+  web-build:
+    name: Web release build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+      - run: dx build --web --release --locked
+      - name: Verify committed Tailwind output
+        run: git diff --exit-code -- assets/tailwind.css

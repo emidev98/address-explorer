@@ -122,6 +122,17 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
   mobile, and remote backends; older schemas are upgraded on import and newer
   schemas are rejected. The database and exported files are not encrypted.
 
+## Releases
+
+Stable GitHub releases are built by the release workflow. It attaches desktop,
+Android, web, and server artifacts, appends a generated changelog, and deploys
+the PWA to Vercel. See [docs/release.md](docs/release.md) for the release
+checklist and [docs/installation.md](docs/installation.md) for install notes.
+
+The optional server image and tarball are documented in
+[docs/deployment.md](docs/deployment.md); no live backend is deployed by the
+workflow.
+
 ## Development
 
 For development guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).

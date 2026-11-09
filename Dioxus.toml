@@ -1,4 +1,13 @@
 [application]
+name = "Address Explorer"
+
+[bundle]
+identifier = "com.emidev98.address-explorer"
+publisher = "emidev98"
+icon = ["public/icons/icon-512.png", "assets/favicon.ico"]
+category = "Finance"
+short_description = "Bitcoin address, ledger, and price explorer"
+copyright = "MIT"
 
 [web.app]
 
