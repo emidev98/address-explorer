@@ -9,6 +9,8 @@ pub struct Options {
     pub yes: bool,
     pub non_interactive: bool,
     pub verify_build: bool,
+    pub github_env: bool,
+    pub github_env_web_tools: bool,
     pub verbose: bool,
 }
 
@@ -44,6 +46,8 @@ where
             "--yes" | "-y" => options.yes = true,
             "--non-interactive" => options.non_interactive = true,
             "--verify-build" => options.verify_build = true,
+            "--github-env" => options.github_env = true,
+            "--github-env-web-tools" => options.github_env_web_tools = true,
             "--verbose" | "-v" => options.verbose = true,
             "--help" | "-h" => return Ok(Parse::Help),
             "--version" | "-V" => return Ok(Parse::Version),
@@ -82,6 +86,8 @@ OPTIONS:
     -y, --yes            Skip the confirmation prompt
         --non-interactive  Never prompt; requires --yes for installs
         --verify-build   Run dx check for web and desktop after installing
+        --github-env     Append detected tool paths to GITHUB_ENV/GITHUB_PATH
+        --github-env-web-tools  Also export CC/AR for the web toolchain
     -v, --verbose        Stream command output
     -h, --help           Print this help
     -V, --version        Print the cargo-prepare version
@@ -116,11 +122,21 @@ mod tests {
 
     #[test]
     fn parses_all_flags() {
-        let options = run(&["--all", "--yes", "--verbose", "--verify-build"]).expect("parse");
+        let options = run(&[
+            "--all",
+            "--yes",
+            "--verbose",
+            "--verify-build",
+            "--github-env",
+            "--github-env-web-tools",
+        ])
+        .expect("parse");
         assert!(options.all);
         assert!(options.yes);
         assert!(options.verbose);
         assert!(options.verify_build);
+        assert!(options.github_env);
+        assert!(options.github_env_web_tools);
     }
 
     #[test]

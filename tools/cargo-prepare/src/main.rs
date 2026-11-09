@@ -1,6 +1,7 @@
 mod cli;
 mod context;
 mod env_file;
+mod github_env;
 mod platform;
 mod report;
 mod system;
@@ -67,6 +68,13 @@ fn main() -> ExitCode {
             tools::webtoolchain::ensure(&mut ctx);
             tools::android::ensure(&mut ctx);
             tools::ios::ensure(&mut ctx);
+
+            if ctx.opts.github_env {
+                if let Err(error) = github_env::export(&ctx, ctx.opts.github_env_web_tools) {
+                    eprintln!("\ncould not export the GitHub Actions environment: {error}");
+                    return ExitCode::FAILURE;
+                }
+            }
 
             if ctx.opts.verify_build && !ctx.opts.check && !ctx.opts.dry_run {
                 verify_build(&mut ctx);

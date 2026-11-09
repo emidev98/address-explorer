@@ -22,7 +22,13 @@ cargo prepare --dry-run                # print every planned command
 cargo prepare --all --dry-run          # inspect the full mobile plan
 cargo prepare --all --yes              # skip the confirmation prompt
 cargo prepare --verify-build           # run dx check web/desktop afterwards
+cargo prepare --github-env             # append detected Android paths to GITHUB_ENV/GITHUB_PATH
+cargo prepare --github-env --github-env-web-tools  # also export CC/AR for web builds
 ```
+
+Use `--github-env-web-tools` for desktop/web jobs. Android jobs should export only
+the Android environment so the host wasm compiler does not override the NDK
+toolchain.
 
 `--check` exits non-zero when a requested tool is missing or needs manual
 action. `--dry-run` always leaves the system untouched. Host capabilities that
