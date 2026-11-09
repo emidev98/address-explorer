@@ -1,0 +1,10 @@
+[package]
+name = "cargo-prepare"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Install the development toolchains and system dependencies for Address Explorer"
+
+[[bin]]
+name = "cargo-prepare"
+path = "src/main.rs"

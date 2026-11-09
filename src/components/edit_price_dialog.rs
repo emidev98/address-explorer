@@ -52,7 +52,7 @@ pub fn EditPriceDialog(
         Modal {
             title: "Modify price".to_string(),
             title_id: "edit-price-title"
-                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
             on_close: move |_| on_close.call(()),
             p { class: "text-body-medium text-on-surface-variant",
                 "Update the {price.symbol} close of {format_datetime(price.close_time)} (UTC), currently {format_fiat(price.close, &price.symbol)}."
@@ -80,7 +80,7 @@ pub fn EditPriceDialog(
                     class: "md3-button-text",
                     onclick: move |_| on_close.call(()),
                     disabled: * loading
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .read(),
                     "Cancel"
                 }
                 button {

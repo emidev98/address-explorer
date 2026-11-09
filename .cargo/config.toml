@@ -1,0 +1,2 @@
+[alias]
+prepare = "run --quiet -p cargo-prepare --"

@@ -21,7 +21,7 @@ pub fn ConfirmDialog(
             title,
             title_id: "confirm-dialog-title".to_string(),
             on_close: move | _
-                                                                                                                                                                                                                                                                                                                                                                    | on_cancel.call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        | on_cancel.call(()),
             p { class: "text-body-medium text-on-surface-variant", "{message}" }
             div { class: "md3-dialog-actions",
                 button {

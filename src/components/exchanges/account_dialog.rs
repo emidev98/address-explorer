@@ -45,7 +45,7 @@ pub fn ExchangeAccountDialog(
         Modal {
             title: "Edit exchange".to_string(),
             title_id: "exchange-edit-title"
-                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
             on_close: move |_| on_close.call(()),
             label { class: "text-body-medium text-on-surface-variant", "Exchange name *" }
             div { class: "md3-text-field",
@@ -53,7 +53,7 @@ pub fn ExchangeAccountDialog(
                     class: "md3-input",
                     value: "{name}",
                     disabled: *
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            loading.read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        loading.read(),
                     oninput: move |event| name.set(event.value()),
                 }
             }
@@ -63,10 +63,10 @@ pub fn ExchangeAccountDialog(
                 value: provider_id(),
                 on_change: move |selected| provider_id.set(selected),
                 disabled: * loading
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .read(),
                 id: "exchange-edit-provider".to_string(),
                 placeholder: "Manual Import"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
                 entries: provider_entries,
                 loading: providers_loading,
             }
@@ -76,7 +76,7 @@ pub fn ExchangeAccountDialog(
                     class: "md3-button-text",
                     disabled: *loading.read(),
                     onclick: move | _ | on_close
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .call(()),
                     "Cancel"
                 }
                 button {

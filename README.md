@@ -16,9 +16,9 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
 ## Installation
 
 1. **Prerequisites**
-   - Rust (latest stable)
-   - Cargo
-   - Dioxus CLI (version matching the pinned Dioxus dependency)
+   - Rust (latest stable) and Cargo. Install them from
+     <https://rustup.rs>; the setup command uses this Cargo to bootstrap the
+     rest of the toolchain.
 
 2. **Clone the repository**
    ```bash
@@ -26,7 +26,23 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
    cd address-explorer
    ```
 
-3. **Run the application**
+3. **Prepare the development environment**
+   ```bash
+   # Desktop + web toolchain for this operating system
+   cargo prepare
+
+   # Also Android everywhere supported, and iOS on macOS
+   cargo prepare --all
+   ```
+
+   The command installs the pinned Dioxus CLI, Rust targets, system build
+   libraries, the web SharedWorker compiler toolchain, and Node.js; with
+   `--all` it also installs the Android and (on macOS) iOS toolchains. Use
+   `cargo prepare --check` to verify without changing anything.
+   See [docs/BUILDING.md](docs/BUILDING.md) for the OS/bundle matrix, manual
+   fallbacks, and troubleshooting.
+
+4. **Run the application**
 
    ```bash
    # Web PWA development (Local browser SQLite or Remote server)
@@ -48,7 +64,7 @@ A Dioxus application for exploring Bitcoin addresses, historical prices, and exc
    cargo run --no-default-features --features desktop
    ```
 
-4. **Build for production**
+5. **Build for production**
 
    Native builds are always all-in-one. The default backend is the bundled
    SQLite database; Settings → General can point the app at a remote Address

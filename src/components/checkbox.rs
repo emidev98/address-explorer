@@ -46,7 +46,7 @@ pub fn Checkbox(
                     aria_label,
                     aria_checked: indeterminate.then_some("mixed"),
                     onchange: move | event |
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            on_change.call(event.checked()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        on_change.call(event.checked()),
                 }
                 span { class: "md3-checkbox-state-layer", aria_hidden: "true" }
                 span { class: "md3-checkbox-box", aria_hidden: "true",

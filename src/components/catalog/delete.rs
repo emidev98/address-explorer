@@ -97,7 +97,7 @@ pub fn CatalogDeleteImpact(
                     autofocus: true,
                     disabled: busy,
                     oninput: move | event |
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            typed.set(event.value()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        typed.set(event.value()),
                 }
             }
         }
@@ -107,7 +107,7 @@ pub fn CatalogDeleteImpact(
                 class: "md3-button-text",
                 disabled: busy,
                 onclick: move | _
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | on_cancel.call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | on_cancel.call(()),
                 "Cancel"
             }
             button {
@@ -115,7 +115,7 @@ pub fn CatalogDeleteImpact(
                 class: "md3-button-danger",
                 disabled: busy || !phrase_matches,
                 onclick: move | _ |
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        on_confirm.call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        on_confirm.call(()),
                 if busy {
                     "Deleting..."
                 } else {
@@ -143,7 +143,7 @@ pub fn CatalogDeleteDialog(
             role: "alertdialog".to_string(),
             dismissible: !busy,
             on_close: move | _ | on_cancel
-                                                                                                                                                                                                                                                                                                                                                                    .call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                        .call(()),
             CatalogDeleteImpact {
                 kind,
                 preview,

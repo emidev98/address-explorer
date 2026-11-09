@@ -6,7 +6,7 @@ edition = "2021"
 default-run = "address-explorer"
 
 [workspace]
-members = ["crates/core", "crates/web-worker"]
+members = ["crates/core", "crates/web-worker", "tools/cargo-prepare"]
 
 [patch.crates-io]
 sqlite-wasm-vfs = { path = "vendor/sqlite-wasm-vfs" }

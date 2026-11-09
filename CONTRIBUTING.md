@@ -93,6 +93,8 @@ src/
 crates/
 ├── core/                   # Worker protocol and version constants
 └── web-worker/             # SharedWorker WASM entry (includes src modules)
+tools/
+└── cargo-prepare/          # Development environment installer (`cargo prepare`)
 build.rs                    # Web worker + stable seed generation
 web/worker-entry.js         # Classic SharedWorker JavaScript loader
 public/                     # PWA manifest, service worker, icons
@@ -105,6 +107,13 @@ A small application **MAY** use fewer modules. Modules **SHOULD** be introduced 
 ## 4. Development setup and quality commands
 
 Contributors **SHOULD** install the stable Rust toolchain, platform prerequisites for the selected Dioxus renderer, and the Dioxus CLI version recommended for the pinned dependency. Linux desktop builds generally require the GTK/WebKitGTK development libraries for the selected renderer. Android development requires the applicable Android SDK/NDK and Java toolchain. Contributors **MUST** follow the official, version-matched platform guide for exact package names and setup steps.
+
+Run `cargo prepare` once per machine to install the pinned toolchain, system
+build dependencies, web worker compiler, Node/Tailwind, and (with
+`cargo prepare --all`) the Android/iOS toolchains. See
+[`docs/BUILDING.md`](docs/BUILDING.md) for the OS/bundle matrix, version pins,
+and troubleshooting. `cargo prepare --check` verifies the environment without
+changing it.
 
 The web PWA and its SharedWorker add these prerequisites:
 

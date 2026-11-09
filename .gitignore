@@ -32,3 +32,5 @@ rustc-ice-*.txt
 /public/local-worker.js
 /public/worker/
 /public/btc_usd.bin
+.vercel
+.env*
