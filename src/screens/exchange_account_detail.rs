@@ -172,10 +172,10 @@ pub fn ExchangeAccountDetail(
                                 TableSelectionHeader {
                                     all_selected,
                                     indeterminate: selection
-                                                                                                                                                                .some_selected(& page_ids) && ! all_selected,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .some_selected(& page_ids) && ! all_selected,
                                     select_all_label: "Select all transactions on this page".to_string(),
                                     disabled: page_ids
-                                                                                                                                                                .is_empty(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .is_empty(),
                                     on_toggle_all: move |checked| {
                                         selection.set_many(&selectable_ids, checked);
                                     },
@@ -183,7 +183,7 @@ pub fn ExchangeAccountDetail(
                                         r#type: "button",
                                         class: "md3-icon-button md3-icon-button-danger",
                                         disabled: selection
-                                                                                                                                                                                .is_empty(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .is_empty(),
                                         title: "{delete_action_label}",
                                         aria_label: "{delete_action_label}",
                                         onclick: move |_| {
@@ -218,7 +218,7 @@ pub fn ExchangeAccountDetail(
                                 SortableHeader {
                                     label: "Date".to_string(),
                                     active_direction: table
-                                                                                                                                                                .direction_for("date"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .direction_for("date"),
                                     on_sort: move |_| {
                                         table.sort("date", SortDirection::Desc);
                                         selection.clear();
@@ -252,7 +252,7 @@ pub fn ExchangeAccountDetail(
                                 SortableHeader {
                                     label: "On-chain".to_string(),
                                     active_direction: table
-                                                                                                                                                                .direction_for("on_chain"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .direction_for("on_chain"),
                                     on_sort: move |_| {
                                         table.sort("on_chain", SortDirection::Asc);
                                         selection.clear();
@@ -261,7 +261,7 @@ pub fn ExchangeAccountDetail(
                                 SortableHeader {
                                     label: "Exchange Tx Hash".to_string(),
                                     active_direction: table
-                                                                                                                                                                .direction_for("tx_hash"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .direction_for("tx_hash"),
                                     on_sort: move |_| {
                                         table.sort("tx_hash", SortDirection::Asc);
                                         selection.clear();
@@ -270,7 +270,7 @@ pub fn ExchangeAccountDetail(
                                 SortableHeader {
                                     label: "Description".to_string(),
                                     active_direction: table
-                                                                                                                                                                .direction_for("description"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .direction_for("description"),
                                     on_sort: move |_| {
                                         table.sort("description", SortDirection::Asc);
                                         selection.clear();
@@ -481,7 +481,7 @@ pub fn ExchangeAccountDetail(
                         r#type: "button",
                         class: "md3-button-tonal",
                         onclick: move | _ |
-                                                                                                        show_import_data.set(true),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                show_import_data.set(true),
                         "Import Data"
                     }
                     button {
@@ -522,7 +522,7 @@ pub fn ExchangeAccountDetail(
                         exchange_id,
                         transaction: editor_transaction(),
                         on_close: move | _ |
-                                                                                                        close_editor.call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                close_editor.call(()),
                         on_saved: move |saved: ExchangeTransaction| {
                             toast.success("Exchange transaction saved.");
                             close_editor.call(());
@@ -538,7 +538,7 @@ pub fn ExchangeAccountDetail(
             ImportDataDialog {
                 exchange_id: Some(exchange_id),
                 exchange_name: Some(account
-                                                                        .name.clone()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .name.clone()),
                 on_close: move |_| show_import_data.set(false),
                 on_imported: move |summary: ImportDataSummary| {
                     toast.success(import_data_summary_message(&summary));
@@ -597,7 +597,7 @@ pub fn ExchangeAccountDetail(
                         confirm_text: "Remove".to_string(),
                         cancel_text: "Cancel".to_string(),
                         on_cancel: move | _ |
-                                                                                                        delete_target.set(None),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                delete_target.set(None),
                         on_confirm: move |_| {
                             let selected_transactions = selected_transactions.clone();
                             if editor_transaction()

@@ -25,10 +25,12 @@ When sources disagree, contributors **MUST** prioritize project configuration an
 - **Language:** stable Rust unless the repository explicitly documents a toolchain exception.
 - **UI:** Dioxus. The version pinned by `Cargo.toml`/`Cargo.lock` determines the usable API. Section 5 describes the Dioxus conventions; contributors **MUST** update that section deliberately when the dependency baseline changes rather than mixing APIs.
 - **Charts:** Apache ECharts, vendored in `assets/vendor/echarts/`, is the default and only charting library. Section 5.10 describes the required chart component boundaries.
-- **Persistence:** SQLite through `rusqlite` for native application builds. Browser/WASM builds **MUST NOT** assume that a native `rusqlite` persistence implementation can be reused unchanged; a browser target requires an explicitly supported storage adapter.
-- **Targets:** Linux, macOS, and Android. Platform-specific APIs **SHOULD** be isolated behind narrow modules or target-specific compilation.
+- **Persistence:** SQLite through `rusqlite`. Native builds open a platform database file. The web Local backend opens a virtual SQLite database through `sqlite-wasm-vfs` `relaxed-idb` inside the SharedWorker. Browser/WASM code **MUST NOT** use native filesystem paths, `dirs`, or `std::fs`, and **MUST NOT** assume the database is a file on disk; the browser database is exported as a normal SQLite file only through the backup path.
+- **Targets:** Linux, macOS, Android, iOS, and the web PWA. Platform-specific APIs **SHOULD** be isolated behind narrow modules or target-specific compilation. The web target is a single deployable PWA directory, not one HTML file and not a native binary.
+- **Web backends:** one web build supports two runtime modes. **Local** uses the browser SQLite database; **Remote** uses any Address Explorer server over HTTP(S) with the server's explicit CORS allowlist. The mode is selected in **Settings → General**; Local is the first-run default.
+- **Browser support:** latest 2026+ Chrome (desktop/Android), Edge, Firefox, and Safari (macOS/iOS) only. SharedWorker and service-worker support are required. Older browsers are unsupported; Local mode shows a clear incompatibility message and Remote remains available. No legacy polyfills are in scope.
 - **Currency:** Bitcoin is the base and accounting currency; fiat values are a derived display layer governed by the default-fiat rules in Section 3.1.
-- **Bundled data:** the packed BTC/USD history lives in `assets/pricing/btc_usd.bin`; the researched exchange-wallet catalog lives in `src/data/migrations/0019_addresses_data.sql`. No external sample-data folder is required to build or test the application.
+- **Bundled data:** the packed BTC/USD history lives in `assets/pricing/btc_usd.bin`; the researched exchange-wallet catalog lives in `src/data/migrations/0019_addresses_data.sql`. Native builds import both through the seed migrations. The web PWA precaches the same price-pack asset and the worker imports it on first initialization or when the seed migration is still pending; it **MUST NOT** be embedded in the main PWA WASM.
 
 Contributors **MUST NOT** upgrade Dioxus, `rusqlite`, SQLite features, or other major dependencies as an incidental part of an unrelated change. Dependency changes **SHOULD** state the reason, compatibility impact, and tests performed. For an application, `Cargo.lock` **MUST** be committed so dependency resolution is reviewed and reproducible.
 
@@ -73,7 +75,7 @@ src/
 ├── main.rs                 # Entry point and composition root
 ├── app.rs                  # Root component, Route enum, route URLs
 ├── navigation.rs           # Destination manifest: route, label, icon
-├── api/                    # Thin #[server] controllers
+├── api/                    # Thin native #[server] controllers + web wrappers
 ├── application/            # Services: use cases and orchestration
 ├── clients/                # External API clients, one module per provider
 ├── components/             # Reusable presentation components
@@ -85,15 +87,39 @@ src/
 │   └── charts/             # One component per Apache ECharts chart
 ├── data/                   # Database, migrations, seeds, repositories
 ├── domain/                 # Types, validation, pure business rules
-└── screens/                # Screen components
-    └── settings/           # Settings subsections
+├── screens/                # Screen components
+│   └── settings/           # Settings subsections
+└── web/                    # Browser boot, SharedWorker client
+crates/
+├── core/                   # Worker protocol and version constants
+└── web-worker/             # SharedWorker WASM entry (includes src modules)
+build.rs                    # Web worker + stable seed generation
+web/worker-entry.js         # Classic SharedWorker JavaScript loader
+public/                     # PWA manifest, service worker, icons
 ```
 
-A small application **MAY** use fewer modules. Modules **SHOULD** be introduced when they establish a meaningful boundary, not to increase the number of files. A separate `core` crate **MAY** be useful when the same domain/computation logic must be tested independently or reused by multiple frontends; it is a Rust library boundary, not a separate process or service.
+The `data`, `application`, `clients`, and `domain` modules stay in `src/` as the shared backend source. `crates/web-worker` includes those files for the WASM worker; the main PWA WASM **MUST NOT** link `rusqlite`, SQLite C, the application layer, the data layer, or the external API clients. `crates/core` owns the worker envelope and protocol version. The worker reuses the same schema, migrations, seeds, repositories, services, and external clients as native builds.
+
+A small application **MAY** use fewer modules. Modules **SHOULD** be introduced when they establish a meaningful boundary, not to increase the number of files.
 
 ## 4. Development setup and quality commands
 
 Contributors **SHOULD** install the stable Rust toolchain, platform prerequisites for the selected Dioxus renderer, and the Dioxus CLI version recommended for the pinned dependency. Linux desktop builds generally require the GTK/WebKitGTK development libraries for the selected renderer. Android development requires the applicable Android SDK/NDK and Java toolchain. Contributors **MUST** follow the official, version-matched platform guide for exact package names and setup steps.
+
+The web PWA and its SharedWorker add these prerequisites:
+
+- the `wasm32-unknown-unknown` target;
+- a wasm-capable `clang` and `lld`/`wasm-ld` (required by `sqlite-wasm-rs`);
+- no external `wasm-bindgen-cli`: `build.rs` uses `wasm-bindgen-cli-support` as a build dependency;
+- optional `wasm-pack` and a browser driver if you add worker browser tests;
+- Node/npx for Tailwind, as today;
+- HTTPS or `localhost` for service-worker and PWA testing.
+
+```sh
+rustup target add wasm32-unknown-unknown
+# Linux example; use the platform's LLVM packages elsewhere.
+sudo apt-get install clang lld
+```
 
 The Dioxus CLI is the default interface for formatting and compile checks. `dx check` applies the target, feature, and asset arguments the application actually builds with. Tests and Clippy have no `dx` subcommand and remain Cargo commands.
 
@@ -109,23 +135,83 @@ dx check --platform web
 dx check --platform desktop
 dx check --fullstack
 
-# Tests: dx has no test subcommand
-cargo test --workspace
-cargo test --workspace --features server
-
-# Clippy: dx has no Clippy subcommand
-cargo clippy --workspace --all-targets --features server -- -D warnings
+# Native tests and Clippy: dx has no test or Clippy subcommand
+cargo test -p address-explorer --no-default-features --features server
+cargo test -p address-explorer --no-default-features --features desktop
+cargo clippy -p address-explorer --all-targets --no-default-features --features server -- -D warnings
+cargo clippy -p address-explorer --all-targets --no-default-features --features desktop -- -D warnings
 
 # Compile fallback when dx check reports a known static-analysis false positive
-cargo check --workspace --all-targets --features server
+cargo check -p address-explorer --all-targets --no-default-features --features server
+cargo check -p address-explorer --all-targets --no-default-features --features desktop
+
+# Web main client (no rusqlite/server in this WASM)
+cargo check -p address-explorer --target wasm32-unknown-unknown --no-default-features --features web
+cargo clippy -p address-explorer --target wasm32-unknown-unknown --no-default-features --features web -- -D warnings
+
+# SharedWorker WASM. Set CC/AR to a wasm-capable clang when it is not on PATH.
+cargo check -p address-explorer-web-worker --target wasm32-unknown-unknown
+cargo clippy -p address-explorer-web-worker --target wasm32-unknown-unknown -- -D warnings
 
 # Inspect commands supported by the pinned Dioxus CLI
 dx --help
 ```
 
-The default `web` feature compiles only the client-side code. The `server`
-feature is required for the application, data, and server-function tests, so a
-complete test run includes both test commands above.
+The default `web` feature compiles only client-side code and is checked for the
+wasm target with `dx check` or `cargo check`. Native tests require `server` (or
+`desktop`, which includes it); the native test commands above use those
+features. `desktop` and `mobile` expand to the all-in-one native stack
+(`server` + `remote-backend`); use them for native compilation, tests, Clippy,
+and bundling. `web` enables the browser client and `web-client`; it **MUST NOT**
+enable `server`, `rusqlite`, or the native backend. The worker is a separate
+workspace crate; `build.rs` generates its web assets.
+
+### 4.0 Web PWA and native build commands
+
+The root `build.rs` makes web builds self-contained. For a web target it:
+
+- builds `address-explorer-web-worker` in release mode with a separate
+  `CARGO_TARGET_DIR`;
+- generates the classic worker with `wasm-bindgen-cli-support` in `no_modules`
+  mode;
+- writes `public/local-worker.js`, `public/worker/*`, and
+  `public/btc_usd.bin`;
+- leaves native desktop/mobile and pure-server builds untouched.
+
+No external `wasm-bindgen-cli`, no `cargo xtask`, and no precache manifest are
+required.
+
+```sh
+# Development: both commands build the SharedWorker and seed automatically
+dx serve
+dx serve --web
+# pass --port 8090 if 8080 is already in use
+
+# Deployable PWA
+dx build --web --release
+# or:
+dx bundle --web --release --no-default-features --features web
+# Output: target/dx/address-explorer/release/web/public
+```
+
+The deployable `public/` directory includes `index.html`, hashed JS/WASM,
+`local-worker.js`, `worker/*`, the manifest, service worker, icons, fonts,
+vendored ECharts, and stable `btc_usd.bin`. Static hosts **MUST** rewrite
+unknown paths to `index.html` for the client-side router and **MUST** serve the
+PWA over HTTPS (or `localhost`) for the service worker.
+
+Native and server builds remain:
+
+```sh
+dx bundle --desktop --release --no-default-features
+dx bundle --android --release --no-default-features
+dx bundle --ios --release --no-default-features
+cargo build --release --no-default-features --features server
+```
+
+`desktop` and `mobile` already include `server` and `remote-backend`; do not add
+those features again. The pure server build selects only `server` and cannot
+forward. These native commands **MUST NOT** invoke clang or build the worker.
 
 Before opening a pull request, contributors **MUST** run `cargo fmt --all` and
 `dx fmt`, the `dx check` commands for the affected targets, the Cargo test
@@ -179,7 +265,7 @@ Android work once the SDK/NDK environment is configured.
 `dx check` also performs Dioxus-specific static analysis. That analysis is
 syntactic and can report hooks called from a helper function as "hook called
 outside component or hook"; when a known false positive appears, the Cargo
-compile check (`cargo check --workspace --all-targets --features server`) is
+compile check (`cargo check -p address-explorer --all-targets --no-default-features --features server`) is
 the authoritative compile gate. Record the false positive rather than changing
 correct code to satisfy it.
 
@@ -203,11 +289,38 @@ This section defines the Dioxus-specific conventions for the application. The ex
 
 ### 5.1 Dependency features and application entry point
 
-The feature set in `Cargo.toml` is authoritative. The current defaults are
-`default = ["web"]`, with `web`, `desktop`, `mobile`, and `server` features.
-`server` enables `dioxus/server`, `rusqlite`, `dirs`, and `bitcoin` and is
-required for the application, data, and server-function tests. Build and test
-commands **MUST** select the feature for the target being exercised.
+The feature set in `Cargo.toml` is authoritative:
+
+```toml
+default = ["web"]
+web = ["dioxus/web", "web-client"]
+desktop = ["dioxus/desktop", "server", "remote-backend"]
+mobile = ["dioxus/mobile", "server", "remote-backend"]
+server = ["dioxus/server", "dioxus/fullstack", "dep:rusqlite", "dep:bitcoin", "dep:tower-http"]
+remote-backend = ["dep:tokio"]
+web-client = ["dep:tokio", "dep:address-explorer-core"]
+```
+
+`desktop` and `mobile` are **all-in-one native features**: they include
+`server` and `remote-backend`, so every native binary contains the local
+backend and can optionally use a remote backend. `server` enables the Dioxus
+server, SQLite, Bitcoin validation, and CORS and is required for the
+application, data, and server-function tests. `remote-backend` is an internal
+native feature; it gates the remote helper, runtime forwarding, native remote
+version checks, and the Backend settings section. The server-side version
+middleware is always compiled with `server`. `dirs` is a native-only target
+dependency.
+
+`web` enables the PWA client and `web-client`; it **MUST NOT** enable `server`,
+`rusqlite`, or the native backend. The browser `web-client` uses the SharedWorker
+for Local data and `reqwest`/fetch for Remote data. `crates/web-worker` is a
+separate workspace crate and is not linked into the main PWA WASM. The root
+`build.rs` generates its classic worker output.
+
+There are no local-only or remote-only native variants and no separate web
+Local/Remote bundles. Build native targets through `desktop` or `mobile`; build
+one web artifact with `dx build --web` or `dx bundle --web`. Local and Remote
+are runtime modes of that artifact.
 
 A native or web application **MUST** initialize the Dioxus runtime through the API documented for its pinned version. The minimal Dioxus 0.7 shape is:
 
@@ -223,6 +336,11 @@ fn App() -> Element {
     rsx! { "Hello, Dioxus!" }
 }
 ```
+
+The application root is `app::Root`, which provides the backend preference
+context and owns the mobile hard-reload remount. The pure web server uses
+`dioxus::serve` so it can install the API version middleware; native and web
+clients use `dioxus::launch`.
 
 ### 5.2 Components, props, and RSX
 
@@ -387,6 +505,35 @@ When the application needs in-app URL routing, contributors **MAY** use Dioxus R
 
 When fullstack/server functionality is intentionally enabled, server functions **MUST** be treated as client/server boundaries: server-only operations **MUST NOT** be assumed to execute locally in a native application without a configured server.
 
+Native builds in this repository are all-in-one: `desktop` and `mobile` include
+the `server` feature, so server-function bodies execute in-process when the
+active backend is the bundled local database. When the user selects a remote
+backend in **Settings → General**, the same functions forward to the remote
+REST server instead. Contributors **MUST** treat that runtime choice as a real
+transport boundary:
+
+- Remote calls **MUST** handle network errors, timeouts, and API version
+  mismatches through `ServerFnError`.
+- A server function **MUST NOT** assume it is executing locally merely because
+  the crate was compiled with `server`.
+- The backend URL is a local preference, never backend data. It **MUST** be
+  read before a backend is selected and **MUST NOT** be stored in the backend
+  SQLite `setting` table.
+- Switching backends **MUST** perform a hard application reload so no stale
+  signal, resource, or cached row from the previous backend remains visible.
+- The **pure server** build (`server` without `desktop`/`mobile`) **MUST**
+  force `BackendMode::Local` and **MUST NOT** forward API requests.
+- The **web PWA** dispatches at runtime. **Local** uses typed SharedWorker RPC
+  and **MUST NOT** issue HTTP requests to `/api/*`. **Remote** uses a full-URL
+  HTTP client, sends `x-address-explorer-api-version`, and reports CORS or
+  network failures as connection problems without inventing an HTTP status.
+- Web API wrappers **MUST** keep the same public `*_api` names and typed
+  signatures as native so screens do not branch on transport or mode. The worker
+  RPC and web remote client are transport adapters; they **MUST NOT** contain
+  business rules, SQL, or UI state.
+- A backend switch **MUST** hard-reload the page. Loading a second backend in
+  the same page session is forbidden.
+
 For a server-rendered web application, the initial client render **MUST** match the server-rendered UI for hydration to succeed. In a fullstack SSR flow, server-dependent initial data **SHOULD** use the documented `use_server_future` mechanism where appropriate. Browser-only APIs **MUST** run only after hydration, for example in `use_effect`, and **MUST NOT** be accessed during server rendering. These requirements apply only when the project intentionally enables and deploys the relevant fullstack/SSR architecture.
 
 ### 5.9 Dioxus development workflow
@@ -540,6 +687,105 @@ UI preferences (`FiatCurrency`, `InterfaceSettings`, theme) are loaded once by
 the app root and shared through context. Screens **MUST NOT** fetch the same
 setting independently or keep a second mutable copy.
 
+### 5.15 Backend selection, web modes, and API versioning
+
+Native builds support two runtime backends:
+
+- **Local:** the bundled SQLite database; server functions execute in-process.
+- **Remote:** the same Address Explorer server build, called over HTTP.
+
+The web PWA supports the same two modes in one bundle:
+
+- **Local:** browser SQLite owned by a SharedWorker; the UI calls it through
+  typed RPC and never through `/api/*`.
+- **Remote:** an arbitrary Address Explorer base URL called with the web HTTP
+  client and CORS.
+
+**Native preference.** The active backend is a local preference in
+`backend.json` (`dirs::data_dir()/address-explorer/backend.json`; override with
+`BACKEND_CONFIG_PATH`). It **MUST NOT** be stored in the backend database.
+`BackendMode`, `BackendConfig`, URL validation, the startup health check, and
+the hard-reload helper live in `src/backend.rs`.
+
+**Web preference.** The web preference is stored in `localStorage` under the
+versioned key `address-explorer.backend`:
+
+```json
+{ "version": 1, "mode": "local", "base_url": "https://addresses.example.com" }
+```
+
+- `mode` is `"local"` or `"remote"`; the first-run default is `"local"`.
+- `base_url` is retained when switching to Local.
+- The key is per-origin and is not backend data. It **MUST** be read before the
+  backend is initialized. A schema change **MUST** bump `version` and define a
+  migration or reset path.
+- If `localStorage` is unavailable, Local still works; warn that the mode will
+  reset on reload.
+
+**Remote URL validation.** A remote URL **MUST** be an absolute `http://` or
+`https://` base URL with a host and optional port/base path. It **MUST NOT**
+include `/api`, a query, or a fragment. Trailing slashes are normalized. HTTPS is
+required except on loopback; an HTTP page cannot call an HTTP remote because
+browsers block mixed content.
+
+**Connection test.** Settings “Test connection” calls `GET <base>/api/health`
+and compares `API_VERSION`. Saving a remote URL is allowed only after a
+successful matching test. A mismatch **MUST** block saving and show both
+versions in a toast.
+
+**Remote transport.** The native forwarding macros in `src/api/macros.rs` and
+`src/api/remote.rs` mirror the Dioxus server-function wire contract. The web
+remote client mirrors the same contract with a full base URL: path parameters in
+the URL, `serde_qs`/URL-encoded query parameters, a JSON body keyed by argument
+name, plain JSON on success, and the `{ message, code, data }` error envelope.
+The absolute endpoint path **MUST** match the server function’s explicit
+`#[get]`/`#[post]` route. Do not use anonymous `#[server]` paths for
+remote-capable endpoints. CORS/network failures **MUST** be reported as a
+connection problem, not as an API error with an invented status.
+
+**API versioning.** `src/domain/health.rs` owns `API_VERSION` and
+`API_VERSION_HEADER` (`x-address-explorer-api-version`). The client installs the
+header before the first request via `src/api/version.rs`. Every web remote
+`/api/*` request except `/api/health` **MUST** carry it. The pure server applies
+`api::version::guard` and returns HTTP 426 with a structured error when the
+header is missing or mismatched. The client checks `/api/health` at native
+startup, in web Settings “Test connection”, and periodically while a remote
+backend is active. A mismatch **MUST** block the remote backend and show a toast
+with both versions; it **MUST NOT** be silently accepted.
+
+**Server CORS.** The server **MUST** read `ADDRESS_EXPLORER_CORS_ORIGINS` as a
+comma-separated allowlist of absolute origins (scheme + host + optional port, no
+path or trailing slash). There is **no** permissive `*` default. When the
+variable is unset or empty, the server sends no CORS headers and only
+same-origin requests are accepted. The CORS layer **MUST** allow `GET`, `POST`,
+`PUT`, `DELETE`, `OPTIONS`, the `content-type` and
+`x-address-explorer-api-version` headers, and **MUST** answer `OPTIONS`
+preflight before the API-version guard (a valid preflight **MUST NOT** receive
+426). CORS **MUST** be the outermost layer so error responses also carry the
+headers the browser needs. Example:
+
+```sh
+ADDRESS_EXPLORER_CORS_ORIGINS="https://addresses.example.com,https://staging.example.com"
+```
+
+**Worker protocol.** `crates/core` owns `WORKER_PROTOCOL_VERSION`, separate from
+`API_VERSION`. The PWA and worker **MUST** compare it on connection. A mismatch
+**MUST** block Local mode with an update/reload message; it **MUST NOT** silently
+run mismatched RPC payloads.
+
+**Switching.** Saving a backend change **MUST** hard-reload the application:
+release desktop restarts the process, web reloads the page, and mobile uses a
+webview reload or a full-root remount with a blocking overlay. Debug desktop
+builds use the full-root remount so the reload can coexist with `dx serve`
+without spawning a second managed process. Local and remote data are separate;
+switching **MUST NOT** attempt to merge or migrate them.
+
+**Bump policy.** Increment `API_VERSION` whenever an endpoint path or a
+request/response body shape changes incompatibly. Increment
+`WORKER_PROTOCOL_VERSION` whenever an RPC request/response variant or payload
+shape changes. Update the native remote helper, web remote wrapper, worker RPC,
+and endpoint checklist in the same change.
+
 ## 6. SQLite and `rusqlite` conventions
 
 ### 6.1 Connection lifecycle and file location
@@ -550,6 +796,9 @@ setting independently or keep a second mutable copy.
 - The database filename and application-data directory **SHOULD** remain stable across releases so upgrades can find existing user data.
 - Tests **SHOULD** use an in-memory database for isolated repository tests and a temporary on-disk database for reopening, persistence, or file-system behavior.
 - A `rusqlite::Connection` **SHOULD** have a clear owner and lifecycle. A connection **MUST NOT** be stored in a Dioxus UI signal.
+- The active backend preference is **not** database data. Native builds store it in the local `backend.json` described in Section 5.15; the web PWA stores it in `localStorage`. Both can be read before a backend is selected. The SQLite database is used only when the active mode is `Local`.
+- The browser database is not a filesystem path. It uses the fixed virtual filename `address-explorer.db`, an IndexedDB database behind `relaxed-idb`, and no `std::fs`, `dirs`, `Path`, or `DATABASE_PATH`.
+- The virtual filename **MUST** remain stable so upgrades find the same browser data. Export produces an ordinary SQLite file; import accepts one. Neither operation makes the live browser database a filesystem file.
 
 Contributors **SHOULD** choose deliberately whether to use `rusqlite`'s `bundled` feature. Bundling SQLite can make the SQLite version and native dependency more consistent and reduce reliance on a system SQLite development package, but it can increase compile time and **MUST** be verified for every target. When using it, contributors **MUST** keep the dependency range compatible with the repository's supported version and **MUST** commit the lockfile. If linking system SQLite instead, CI and packaging documentation **MUST** describe the required system library and minimum version.
 
@@ -566,6 +815,10 @@ SQLite supports concurrent readers but only one active writer per database at a 
 - Lock waits **SHOULD** be bounded with an intentional busy-timeout policy if concurrent access is expected.
 - WAL mode **MAY** help workloads with concurrent readers and a writer, but it is not a default requirement. It **SHOULD** be tested on all supported platforms and **MUST NOT** be assumed to remove SQLite's single-writer constraint.
 - Database operations **MUST NOT** hold a global application lock while performing unrelated computation or waiting for user input.
+- In the web build, the SharedWorker is the only owner of the `rusqlite::Connection`. The main thread **MUST NOT** open a connection, and multiple tabs **MUST NOT** open the IndexedDB VFS directly.
+- Each tab owns one `MessagePort`. Requests are typed, correlated by request ID, and serialized by the worker; no connection or `rusqlite::Statement` crosses the port.
+- Write endpoints run one at a time. The worker **MUST** await the patched commit barrier before returning success.
+- Long syncs and seed imports **MUST** send progress and support cancellation without leaving a partial transaction or a stuck loading state.
 
 ### 6.3 SQL safety and repository boundaries
 
@@ -631,8 +884,9 @@ entry under `src/data/migrations/`.
   (`0015_historical_prices_data`, `0019_addresses_data`) live in
   `src/data/seeds.rs` as `Migration::Seed` entries and consume their ordinal.
   `0019_addresses_data` reads the checked-in
-  `src/data/migrations/0019_addresses_data.sql` catalog. Seeds run only for
-  on-disk databases; in-memory databases advance past the version without
+  `src/data/migrations/0019_addresses_data.sql` catalog. Seeds run for
+  persistent databases (native on-disk and browser-local); in-memory databases
+  advance past the version without
   importing, so both kinds follow the same linear `user_version` sequence.
 - **Transactions.** The runner opens one `IMMEDIATE` transaction per entry,
   executes the SQL or seed, updates `user_version`, and commits. A failing
@@ -690,6 +944,82 @@ entry under `src/data/migrations/`.
 | 22 | `0022_exchange_transactions_btc_fee_sats.sql` | data backfill + triggers |
 
 The current `CURRENT_SCHEMA_VERSION` is `22`.
+
+#### 6.6 Browser-local SQLite (web Local mode)
+
+- **Engine.** `rusqlite` compiles to `wasm32-unknown-unknown` through
+  `sqlite-wasm-rs`. The worker installs `sqlite-wasm-vfs` `relaxed-idb`, opens
+  the virtual database, enables `PRAGMA foreign_keys = ON`, and uses the
+  `synchronous = OFF` setting the VFS requires.
+- **Commit barrier.** The repository vendors `sqlite-wasm-vfs` under
+  `vendor/sqlite-wasm-vfs` and exposes `wait_committed(filename)` for normal
+  writes. The worker **MUST** await it after every write endpoint, before
+  export, and before the last port closes. Reporting a save as successful
+  without waiting for the IndexedDB commit is forbidden. Reapply and test the
+  patch when the crate version changes.
+- **One schema.** The browser database uses the exact same `MIGRATIONS` list and
+  `CURRENT_SCHEMA_VERSION` as native. A web-only schema or migration list is
+  forbidden. A migration change **MUST** be tested against a native database and
+  a browser database.
+- **Seeds.** On WASM, `0015_historical_prices_data` reads the stable
+  `public/btc_usd.bin` asset generated by `build.rs` and fetched by the worker; it **MUST NOT** use `std::fs` or
+  `include_bytes!` for the 6.2 MB pack. `0019_addresses_data` remains
+  `include_str!`. A new browser database runs migrations and the full seed; a
+  failed seed leaves Local unavailable but keeps Remote usable.
+- **Storage and backup.** Request `navigator.storage.persist()` automatically
+  on every Local-mode start; a denial or unsupported browser must not block
+  Local mode. Settings shows `navigator.storage.estimate()` usage only. Export
+  downloads the virtual database as `.sqlite`; import validates the
+  header, `PRAGMA integrity_check`, `user_version`, and expected tables, then
+  restores the previous database if validation fails. The file is unencrypted;
+  warn users. Browser SQLite is unencrypted in v1; do not store secrets.
+- **External sync.** Local mode may call Coin Metrics Community, Mempool, and
+  Frankfurter directly; all three allow browser CORS. Handle offline, timeout,
+  rate-limit, and CORS failures without corrupting local data.
+- **Browser floor.** Local mode requires SharedWorker and IndexedDB. On an
+  unsupported browser, show a blocking compatibility message and keep Remote
+  available; do not attempt a best-effort multi-tab database.
+- **Migrations across targets.** Exported SQLite files are portable across
+  native and web builds. Import validates the file, runs the same migration
+  list on older backups, and rejects backups whose schema is newer than the
+  running build. Backend preferences (`backend.json` / `localStorage`) are not
+  part of the database and are never imported.
+
+#### 6.7 Database backup, import, and reset
+
+Settings → General → **Data** manages the **active backend**. The same
+`export_data_api`, `import_data_api`, and `clear_data_api` names select worker
+RPC in web Local mode, an in-process server function in native Local mode, and
+the remote HTTP transport in Remote mode. Screens and components **MUST NOT**
+branch on the transport.
+
+- **Export.** Produce a consistent SQLite snapshot with the SQLite online
+  backup API (native/server) or the worker VFS export (web Local). The worker
+  **MUST** await the commit barrier before exporting browser data.
+- **Import.** Check the SQLite header, size limit, `PRAGMA integrity_check`,
+  `user_version`, and required tables. Older backups run the normal migration
+  list; newer backups are rejected with a clear message. The live database is
+  backed up before replacement; any restore or commit failure restores it.
+- **Reset.** Create a fresh database through the normal migration and seed
+  path, back up the live database, restore the fresh copy, and restore the
+  safety copy on failure. The result matches the browser's existing clear
+  behavior: user data is removed and bundled reference rows return.
+- **Browser worker.** Keep the previous database in memory during import and
+  clear. A failed replacement **MUST** restore it and reopen Local mode.
+- **Remote endpoints.** `POST /api/data/export`, `POST /api/data/import`, and
+  `POST /api/data/clear` act on the server database. These endpoints inherit
+  the CORS origin allowlist and API version guard; there is no authentication,
+  so a server **MUST NOT** be exposed to untrusted origins.
+- **Remote clients.** The client that performed the import or clear reloads.
+  Other clients connected to the same remote server are not notified and must
+  refresh before they see the replaced data.
+- **Files.** Exports use the normalized filename chosen in the in-app modal.
+  Web downloads use the browser's download location; desktop writes to the
+  user's Downloads folder; mobile writes to the app documents folder and shows
+  the absolute path. Exported files are ordinary, unencrypted SQLite files.
+- **Versions.** Adding these endpoints bumps `API_VERSION`; renaming the worker
+  RPC endpoints bumps `WORKER_PROTOCOL_VERSION`. No schema migration is
+  introduced by the data section itself.
 
 ## 7. Single Responsibility Principle and module design
 
@@ -815,6 +1145,12 @@ Coverage expectations by change type:
 - **UI behavior:** verification of loading, success, empty, and failure states when applicable.
 - **Currency and fiat conversion:** tests for default-currency propagation, BTC-to-fiat calculations, conversion idempotency, preservation of existing/manual prices, and non-fatal failure warnings where applicable.
 - **Platform-specific code:** build or execute checks on the affected platform; mock the OS boundary when practical.
+- **Browser worker and SQLite:** worker browser tests for VFS install/open, migrations, seed import, write plus commit barrier, export/import round-trip, invalid import rollback, and worker protocol mismatch.
+- **Data backup and restore:** export/import round-trip, older-schema upgrade, newer-schema rejection, missing-table rejection, non-SQLite input, reset-to-defaults, and rollback that preserves the previous database.
+- **Worker protocol:** request IDs, sequential writes, progress/cancel, `DataChanged` broadcast, and a two-tab RPC check.
+- **Endpoint parity:** every endpoint exposed by native server functions is also exposed by the worker RPC and the web remote wrapper; a test fails when one is missing.
+- **Remote HTTP and CORS:** JSON, query, path, error envelope, 426, missing version header, allowlisted origin success, unlisted origin denial, and OPTIONS preflight.
+- **PWA and offline:** first-run local seed, persistence across reload, offline reload after installation, multi-tab writes, unsupported-browser message, and export/import.
 
 Tests **MUST NOT** depend on a developer's real database, home directory, network connection, or manually prepared application state. Tests **SHOULD** be deterministic and clean up temporary files they create.
 
@@ -828,6 +1164,11 @@ The baseline pre-PR commands are listed in Section 4. Release builds and target-
 - Android lifecycle transitions, background restrictions, permission prompts, and low-memory behavior **SHOULD** be considered for long-running work.
 - A feature unavailable on a platform **MUST** fail gracefully or be explicitly marked unsupported; it **MUST NOT** silently report success.
 - CI **SHOULD** include Linux and macOS builds and Android compilation/package checks. Platform packaging, signing, and notarization requirements **MUST** be documented separately from ordinary development builds.
+- The web PWA is supported only on latest 2026+ Chrome (desktop/Android), Edge, Firefox, and Safari (macOS/iOS). Do not add legacy polyfills or a dedicated-worker fallback for older browsers.
+- On an unsupported browser, Local mode **MUST** fail gracefully with a clear message; Remote remains available. It **MUST NOT** silently create a second database or report Local as ready.
+- Service workers, `navigator.storage.persist()`, and persistent browser storage require HTTPS or `localhost`. A plain-HTTP deployment can run the app but not the offline shell.
+- iOS/Safari storage eviction and private browsing **MUST** be considered; SQLite export is the user-facing recovery path.
+- A static host **MUST** rewrite unknown paths to `index.html` for the client-side router.
 
 ## 11. Pull requests and review
 
@@ -847,6 +1188,16 @@ Before requesting review, contributors **MUST**:
 - [ ] Include a migration for database schema changes, named with the next `00NN_` version (Section 6.5), and update the schema reference in Section 12.
 - [ ] Verify every new or changed fiat display and conversion uses the `FiatCurrency` context and the default currency, without hardcoded USD assumptions (Section 3.1).
 - [ ] Check that no secrets, local database files, build artifacts, or unintended changes are included; describe formatting churn in the pull request.
+- [ ] Web changes build with plain `dx serve`/`dx build`; `build.rs` generated `local-worker.js`, `worker/*`, and `btc_usd.bin`. No xtask or precache manifest is required.
+- [ ] A new or changed endpoint is implemented in the native controller, exposed through worker RPC, exposed through the web remote wrapper, and covered by the endpoint parity test.
+- [ ] API request/response shape changes bump `API_VERSION`; worker RPC changes bump `WORKER_PROTOCOL_VERSION`; both remote transports and the docs are updated.
+- [ ] CORS changes update `ADDRESS_EXPLORER_CORS_ORIGINS` documentation and the allowlist/preflight tests. No `*` default was introduced.
+- [ ] Web Local writes await the patched commit barrier before reporting success; export/import and migration behavior were tested.
+- [ ] Data export/import/reset was exercised against the active local and remote backends, including cross-target import and rollback on a rejected file.
+- [ ] Browser localStorage keys and JSON shapes are versioned; an incompatible change has a reset/migration path.
+- [ ] Local mode was tested offline after an installed PWA load; Remote mode was tested against an allowlisted cross-origin server and an API-version mismatch.
+- [ ] No native↔web migration or encryption guarantee is implied beyond what is implemented.
+- [ ] The supported browser floor was not weakened, and unsupported browsers still get the Local message plus Remote.
 - [ ] Describe any validation that could not be performed.
 
 Reviewers **SHOULD** evaluate correctness, readability, error handling, concurrency, SQL safety, migration safety, privacy, respect for the layer boundaries in Section 7, currency handling (Section 3.1), and platform compatibility—not only whether the code compiles.
@@ -854,7 +1205,15 @@ Reviewers **SHOULD** evaluate correctness, readability, error handling, concurre
 ## 12. Database tables and reference data
 
 `src/data/migrations/` is the only schema source of truth; do not duplicate
-the SQL here. A database at `CURRENT_SCHEMA_VERSION = 22` has these tables:
+the SQL here. The browser-local database uses the same tables, migrations,
+invariants, and `CURRENT_SCHEMA_VERSION`; web-only tables or seed variants are
+forbidden. `historical_prices` is seeded in the browser from the generated stable
+`public/btc_usd.bin` (source `assets/pricing/btc_usd.bin`); `addresses` is seeded from the checked-in
+`0019_addresses_data.sql`. Export produces a normal SQLite snapshot; import
+validates the header, `PRAGMA integrity_check`, schema version, and required
+tables, upgrades older schemas through the same migration list, and rejects
+newer schemas. The operation is a portable cross-target backup, not a backend
+preference migration. A database at `CURRENT_SCHEMA_VERSION = 22` has these tables:
 
 | Table | Purpose | Reference rows |
 | --- | --- | --- |
@@ -915,6 +1274,13 @@ Contributors **MUST** use documentation matching the versions pinned by the repo
 - [`rusqlite::Connection`](https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html)
 - [`rusqlite::Transaction`](https://docs.rs/rusqlite/latest/rusqlite/struct.Transaction.html)
 - [SQLite documentation](https://www.sqlite.org/docs.html)
+- [`sqlite-wasm-rs`](https://docs.rs/sqlite-wasm-rs/)
+- [`sqlite-wasm-vfs`](https://docs.rs/sqlite-wasm-vfs/)
+- [MDN SharedWorker](https://developer.mozilla.org/en-US/docs/Web/API/SharedWorker)
+- [MDN Service Worker API](https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API)
+- [MDN IndexedDB API](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+- [MDN Storage API](https://developer.mozilla.org/en-US/docs/Web/API/Storage_API)
+- [`tower-http` CORS](https://docs.rs/tower-http/latest/tower_http/cors/)
 - [Rust Design Patterns](https://rust-unofficial.github.io/patterns/)
 - [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119)
 - [RFC 8174](https://www.rfc-editor.org/rfc/rfc8174)

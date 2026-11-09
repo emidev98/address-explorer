@@ -15,7 +15,7 @@ pub async fn sync_prices_bulk(
     symbol: &str,
     from_time: i64,
     to_time: i64,
-    fetch_fx_series: &(dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync),
+    fetch_fx_series: &FetchSeriesFn<'_>,
 ) -> Result<BulkSyncSummary, PriceServiceError> {
     let symbol = normalize_symbol(symbol)?;
     if symbol == USD_SYMBOL {
@@ -90,7 +90,7 @@ pub async fn sync_prices_bulk(
 pub async fn ensure_currency_history(
     database: &Database,
     symbol: &str,
-    fetch_fx_series: &(dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync),
+    fetch_fx_series: &FetchSeriesFn<'_>,
 ) -> Result<CurrencyHistorySummary, PriceServiceError> {
     let symbol = normalize_symbol(symbol)?;
     let mut summary = CurrencyHistorySummary {

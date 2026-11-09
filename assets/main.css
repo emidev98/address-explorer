@@ -1547,35 +1547,40 @@ select.md3-input option {
 
 /* Settings additions */
 
-/* Related settings cards (Safety, Default fiat currency) sit side by side on
-   wide viewports and stack when two readable columns no longer fit. */
-.md3-settings-row {
+/* The settings cards are placed by one grid: the Theme card holds every
+   interface and input preference and takes the full width, then Backend and
+   Data share the second row. Everything stacks into one column when two
+   readable columns no longer fit. */
+.md3-settings-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.5rem;
 }
 
 @media (max-width: 46rem) {
-    .md3-settings-row {
+    .md3-settings-grid {
         grid-template-columns: 1fr;
     }
 }
 
-/* Appearance mode is a cell of the palette grid so every theme choice sits in
-   one group; the tile mirrors the palette option cards. It spans two columns
-   when the grid has room so the mode chips stay on one line. */
+/* A card that stands on its own spans every column so the paired cards keep
+   their row. */
+.md3-settings-span {
+    grid-column: 1 / -1;
+}
+
+/* Cards are wider than a form control needs; cap the single-line controls
+   that sit in them so they keep a readable width instead of stretching. */
+.md3-settings-control {
+    max-width: 20rem;
+}
+
+/* Appearance mode sits between the palette picker and the navigation group, so
+   it stays on the card surface instead of a tile. */
 .md3-theme-appearance {
     display: flex;
     flex-direction: column;
-    justify-content: center;
     gap: 0.5rem;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--md-sys-color-outline-variant);
-    border-radius: var(--radius-md3-md);
-    background-color: var(--md-sys-color-surface-container-lowest);
-    /* One grid cell, like a theme option, so the appearance selector sits in
-       the same row as the five palette cards when the grid has room. */
-    grid-column: span 1;
 }
 
 .md3-scoring-grid {

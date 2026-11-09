@@ -14,6 +14,7 @@ use dioxus::prelude::*;
 #[server]
 #[get("/api/prices/latest?symbol")]
 pub async fn latest_price_api(symbol: String) -> Result<Price, ServerFnError> {
+    remote_get!("/api/prices/latest", [], [symbol]);
     PriceService::connect(open_database()?)
         .latest_price(&symbol)
         .await
@@ -26,6 +27,7 @@ pub async fn latest_price_api(symbol: String) -> Result<Price, ServerFnError> {
 #[server]
 #[post("/api/prices/list")]
 pub async fn list_prices_api(query: PriceTableQuery) -> Result<PricePage, ServerFnError> {
+    remote_post!("/api/prices/list", [], [], [query]);
     prices::list_price_page(
         &open_database()?,
         &query.symbol,
@@ -49,6 +51,12 @@ pub async fn sync_prices_api(
     to_time: i64,
     granularity: SyncGranularity,
 ) -> Result<PriceSyncSummary, ServerFnError> {
+    remote_post!(
+        "/api/prices/sync",
+        [],
+        [],
+        [symbol, from_time, to_time, granularity]
+    );
     PriceService::connect(open_database()?)
         .sync_prices(&symbol, from_time, to_time, granularity)
         .await
@@ -65,6 +73,7 @@ pub async fn sync_prices_api(
 pub async fn ensure_currency_history_api(
     symbol: String,
 ) -> Result<CurrencyHistorySummary, ServerFnError> {
+    remote_post!("/api/prices/ensure-currency-history", [], [], [symbol]);
     PriceService::connect(open_database()?)
         .ensure_currency_history(&symbol)
         .await
@@ -78,6 +87,7 @@ pub async fn price_conversions_api(
     symbol: String,
     close_time: i64,
 ) -> Result<Vec<Price>, ServerFnError> {
+    remote_get!("/api/prices/conversions", [], [symbol, close_time]);
     prices::list_price_conversions(&open_database()?, &symbol, close_time)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -90,6 +100,7 @@ pub async fn update_price_api(
     close_time: i64,
     close: f64,
 ) -> Result<Price, ServerFnError> {
+    remote_post!("/api/prices/update", [], [], [symbol, close_time, close]);
     prices::update_stored_price(&open_database()?, &symbol, close_time, close)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -100,6 +111,7 @@ pub async fn update_price_api(
 #[server]
 #[post("/api/prices/delete")]
 pub async fn delete_prices_api(close_times: Vec<i64>) -> Result<usize, ServerFnError> {
+    remote_post!("/api/prices/delete", [], [], [close_times]);
     prices::delete_stored_prices(&open_database()?, &close_times)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -114,6 +126,7 @@ pub async fn price_series_api(
     from_time: i64,
     to_time: i64,
 ) -> Result<Option<PriceSeries>, ServerFnError> {
+    remote_get!("/api/prices/series", [], [symbol, from_time, to_time]);
     prices::price_series(&open_database()?, &symbol, from_time, to_time)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
@@ -122,6 +135,7 @@ pub async fn price_series_api(
 #[server]
 #[get("/api/prices/currencies")]
 pub async fn conversion_currencies_api() -> Result<Vec<FiatCurrency>, ServerFnError> {
+    remote_get!("/api/prices/currencies", [], []);
     PriceService::connect(open_database()?)
         .conversion_currencies()
         .await

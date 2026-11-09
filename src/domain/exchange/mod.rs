@@ -1,3 +1,4 @@
+#![allow(clippy::should_implement_trait)]
 #![cfg_attr(not(feature = "server"), allow(dead_code))]
 //! Exchange ledger domain: accounts, imported transaction rows, CSV column
 //! mappings, table queries, and on-chain reconciliation value types.

@@ -151,7 +151,7 @@ pub fn ImportAddressDialog(
             title,
             title_id: "import-address-title".to_string(),
             on_close: move | _
-                                                        | on_close.call(()),
+                                                                                                                                                                                                                                                                                                                                                                    | on_close.call(()),
             p { class: "text-body-medium text-on-surface-variant", "{guidance}" }
             label {
                 class: "text-body-medium text-on-surface-variant",
@@ -166,7 +166,7 @@ pub fn ImportAddressDialog(
                     placeholder: "Bitcoin address",
                     autofocus: true,
                     oninput: move | event |
-                                                                                        address.set(event.value()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            address.set(event.value()),
                     disabled: modifying || *loading.read(),
                 }
             }
@@ -203,7 +203,7 @@ pub fn ImportAddressDialog(
                     r#type: "button",
                     class: if selected_owner() == Some(OwnerKind::Wallet) { "md3-chip md3-chip-selected" } else { "md3-chip" },
                     aria_pressed: (selected_owner() == Some(OwnerKind::Wallet))
-                                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .to_string(),
                     disabled: *loading.read(),
                     onclick: move |_| {
                         selected_owner.set(Some(OwnerKind::Wallet));
@@ -216,7 +216,7 @@ pub fn ImportAddressDialog(
                     class: if selected_owner() == Some(OwnerKind::Exchange) { "md3-chip md3-chip-selected" } else { "md3-chip" },
                     aria_pressed: (selected_owner() == Some(OwnerKind::Exchange)).to_string(),
                     disabled: * loading
-                                                                                        .read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .read(),
                     onclick: move |_| {
                         selected_owner.set(Some(OwnerKind::Exchange));
                         wallet_id.set(None);
@@ -230,7 +230,7 @@ pub fn ImportAddressDialog(
                     value: wallet_id(),
                     on_change: move |selected| wallet_id.set(selected),
                     disabled: *
-                                                                                        loading.read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            loading.read(),
                     id: "import-address-wallet".to_string(),
                     placeholder: "Select a wallet type".to_string(),
                 }
@@ -258,7 +258,7 @@ pub fn ImportAddressDialog(
                     class: "md3-button-text",
                     onclick: move |_| on_close.call(()),
                     disabled: * loading
-                                                                                        .read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .read(),
                     "Cancel"
                 }
                 button {

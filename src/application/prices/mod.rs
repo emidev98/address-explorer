@@ -49,17 +49,52 @@ pub enum PriceServiceError {
     Frankfurter(#[from] FrankfurterError),
 }
 /// Owned future produced by a fetcher closure.
+#[cfg(not(target_arch = "wasm32"))]
 type FetchFuture = Pin<Box<dyn Future<Output = Result<f64, PriceServiceError>> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type FetchFuture = Pin<Box<dyn Future<Output = Result<f64, PriceServiceError>>>>;
 /// Owned future producing the FX series of a bulk sync: `(date, rate)`
 /// pairs covering the requested range.
+#[cfg(not(target_arch = "wasm32"))]
 type FetchSeriesFuture =
     Pin<Box<dyn Future<Output = Result<Vec<(String, f64)>, PriceServiceError>> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type FetchSeriesFuture =
+    Pin<Box<dyn Future<Output = Result<Vec<(String, f64)>, PriceServiceError>>>>;
 /// Owned future producing daily BTC/USD closes for a range.
+#[cfg(not(target_arch = "wasm32"))]
 type FetchDailyFuture = Pin<Box<dyn Future<Output = Result<Vec<Price>, PriceServiceError>> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type FetchDailyFuture = Pin<Box<dyn Future<Output = Result<Vec<Price>, PriceServiceError>>>>;
 /// Owned future producing reference-rate observations as `(interval start,
 /// value)` pairs for a frequency and range.
+#[cfg(not(target_arch = "wasm32"))]
 type FetchReferenceFuture =
     Pin<Box<dyn Future<Output = Result<Vec<(i64, f64)>, PriceServiceError>> + Send>>;
+#[cfg(target_arch = "wasm32")]
+type FetchReferenceFuture =
+    Pin<Box<dyn Future<Output = Result<Vec<(i64, f64)>, PriceServiceError>>>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+type FetchUsdFn<'a> = dyn Fn(String) -> FetchFuture + Send + Sync + 'a;
+#[cfg(target_arch = "wasm32")]
+type FetchUsdFn<'a> = dyn Fn(String) -> FetchFuture + 'a;
+#[cfg(not(target_arch = "wasm32"))]
+type FetchFxFn<'a> = dyn Fn(String, String) -> FetchFuture + Send + Sync + 'a;
+#[cfg(target_arch = "wasm32")]
+type FetchFxFn<'a> = dyn Fn(String, String) -> FetchFuture + 'a;
+#[cfg(not(target_arch = "wasm32"))]
+type FetchDailyFn<'a> = dyn Fn(i64, i64) -> FetchDailyFuture + Send + Sync + 'a;
+#[cfg(target_arch = "wasm32")]
+type FetchDailyFn<'a> = dyn Fn(i64, i64) -> FetchDailyFuture + 'a;
+#[cfg(not(target_arch = "wasm32"))]
+type FetchReferenceFn<'a> = dyn Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync + 'a;
+#[cfg(target_arch = "wasm32")]
+type FetchReferenceFn<'a> = dyn Fn(&str, i64, i64) -> FetchReferenceFuture + 'a;
+#[cfg(not(target_arch = "wasm32"))]
+type FetchSeriesFn<'a> = dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync + 'a;
+#[cfg(target_arch = "wasm32")]
+type FetchSeriesFn<'a> = dyn Fn(String, String) -> FetchSeriesFuture + 'a;
 /// One 15-minute interval in seconds: the spacing of the imported history and
 /// of the finest intraday closes the sync stores.
 const FIFTEEN_MINUTES: i64 = 15 * 60;

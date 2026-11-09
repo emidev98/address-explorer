@@ -14,7 +14,7 @@ pub fn CsvDropzone(
         div {
             class: "md3-import-data-dropzone",
             ondragover: move | event | event
-                                                        .prevent_default(),
+                                                                                                                                                                                                                                                                                                                                                                    .prevent_default(),
             ondrop: move |event| {
                 event.prevent_default();
                 if let Some(file) = event.files().into_iter().next() {

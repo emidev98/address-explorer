@@ -1,13 +1,11 @@
 use super::*;
-/// Owned future produced by a fetcher closure.
-type FetchFuture = Pin<Box<dyn Future<Output = Result<f64, PriceServiceError>> + Send>>;
 /// Daily BTC/USD close unavailable in the table: asks `fetch_usd` exactly
 /// once for the calendar day of the request and remembers the answer.
 async fn usd_close_at(
     database: &Database,
     day_close_time: i64,
     date: &str,
-    fetch_usd: &(dyn Fn(String) -> FetchFuture + Send + Sync),
+    fetch_usd: &FetchUsdFn<'_>,
 ) -> Result<f64, PriceServiceError> {
     if let Some(price) = price_repository::find_price(database, USD_SYMBOL, day_close_time)? {
         return Ok(price.close);
@@ -45,8 +43,8 @@ pub async fn resolve_price(
     database: &Database,
     symbol: &str,
     timestamp: i64,
-    fetch_usd: &(dyn Fn(String) -> FetchFuture + Send + Sync),
-    fetch_fx: &(dyn Fn(String, String) -> FetchFuture + Send + Sync),
+    fetch_usd: &FetchUsdFn<'_>,
+    fetch_fx: &FetchFxFn<'_>,
 ) -> Result<Price, PriceServiceError> {
     let symbol = normalize_symbol(symbol)?;
     if timestamp <= 0 {
@@ -120,8 +118,8 @@ pub async fn latest_price_at(
     database: &Database,
     symbol: &str,
     now: i64,
-    fetch_usd: &(dyn Fn(String) -> FetchFuture + Send + Sync),
-    fetch_fx: &(dyn Fn(String, String) -> FetchFuture + Send + Sync),
+    fetch_usd: &FetchUsdFn<'_>,
+    fetch_fx: &FetchFxFn<'_>,
 ) -> Result<Price, PriceServiceError> {
     match resolve_price(database, symbol, now, fetch_usd, fetch_fx).await {
         Ok(price) => Ok(price),

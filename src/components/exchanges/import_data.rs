@@ -179,7 +179,7 @@ pub fn ImportDataDialog(
                         value: "{name}",
                         placeholder: "e.g. India OKX 2020, Main Binance 2024, Revolut savings",
                         disabled: * loading
-                                                                                                        .read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .read(),
                         oninput: move |event| name.set(event.value()),
                     }
                 }
@@ -294,7 +294,7 @@ pub fn ImportDataDialog(
                         value: "{mapping().timestamp_format}",
                         placeholder: "YYYY-MM-DD HH:mm:ss",
                         disabled: *
-                                                                                                        loading.read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                loading.read(),
                         onchange: move |event| {
                             mapping
                                 .with_mut(|current| {
@@ -352,7 +352,7 @@ pub fn ImportDataDialog(
                     class: "md3-button-text",
                     disabled: *loading.read(),
                     onclick: move | _ |
-                                                                                        on_close.call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            on_close.call(()),
                     "Cancel"
                 }
                 button {

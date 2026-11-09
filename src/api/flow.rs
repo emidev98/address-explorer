@@ -12,6 +12,7 @@ use dioxus::prelude::*;
 #[server]
 #[get("/api/flow/filter-options")]
 pub async fn flow_filter_options_api() -> Result<FlowFilterOptions, ServerFnError> {
+    remote_get!("/api/flow/filter-options", [], []);
     FlowService::connect(open_database()?)
         .filter_options()
         .map_err(|error| ServerFnError::new(error.to_string()))
@@ -19,6 +20,7 @@ pub async fn flow_filter_options_api() -> Result<FlowFilterOptions, ServerFnErro
 #[server]
 #[post("/api/flow/overview")]
 pub async fn flow_overview_api(query: FlowQuery) -> Result<FlowOverview, ServerFnError> {
+    remote_post!("/api/flow/overview", [], [], [query]);
     FlowService::connect(open_database()?)
         .overview(&query)
         .map_err(|error| ServerFnError::new(error.to_string()))
@@ -28,6 +30,7 @@ pub async fn flow_overview_api(query: FlowQuery) -> Result<FlowOverview, ServerF
 pub async fn flow_link_table_api(
     query: FlowLinkTableQuery,
 ) -> Result<TablePage<crate::domain::flow::FlowLinkRow>, ServerFnError> {
+    remote_post!("/api/flow/links", [], [], [query]);
     FlowService::connect(open_database()?)
         .link_table(&query)
         .map_err(|error| ServerFnError::new(error.to_string()))
@@ -37,6 +40,7 @@ pub async fn flow_link_table_api(
 pub async fn flow_link_evidence_api(
     query: FlowEvidenceQuery,
 ) -> Result<TablePage<FlowEvidenceRow>, ServerFnError> {
+    remote_post!("/api/flow/links/evidence", [], [], [query]);
     FlowService::connect(open_database()?)
         .evidence(&query)
         .map_err(|error| ServerFnError::new(error.to_string()))

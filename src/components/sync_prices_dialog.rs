@@ -105,7 +105,7 @@ pub fn SyncPricesDialog(
         Modal {
             title: "Sync Prices".to_string(),
             title_id: "sync-prices-title"
-                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
             on_close: move |_| on_close.call(()),
             p { class: "text-body-medium text-on-surface-variant", "{description}" }
             label {
@@ -156,7 +156,7 @@ pub fn SyncPricesDialog(
                     id: "sync-prices-granularity",
                     class: "md3-input",
                     disabled: * loading.read() || !
-                                                                                        is_usd,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            is_usd,
                     onchange: move |event| {
                         if let Some(value) = SyncGranularity::from_key(&event.value()) {
                             granularity.set(value);
@@ -180,7 +180,7 @@ pub fn SyncPricesDialog(
             DatePicker {
                 id: "sync-prices-range".to_string(),
                 label: "Date range"
-                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
                 value: displayed_selection,
                 min_date: Some(first_day),
                 max_date: Some(today),
@@ -206,7 +206,7 @@ pub fn SyncPricesDialog(
                     class: "md3-button-text",
                     onclick: move |_| on_close.call(()),
                     disabled: *
-                                                                                        loading.read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            loading.read(),
                     "Close"
                 }
                 button {

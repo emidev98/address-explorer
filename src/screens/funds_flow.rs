@@ -216,7 +216,7 @@ pub fn FundsFlow() -> Element {
     rsx! {
         section { id: "flow", class: "md3-screen",
             PageHeader { title: "Funds Flow"
-                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
                 button {
                     r#type: "button",
                     class: "md3-button-tonal",
@@ -274,12 +274,12 @@ pub fn FundsFlow() -> Element {
                     }
                     DatePicker {
                         id: "flow-date-range"
-                                                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .to_string(),
                         label: "Date range".to_string(),
                         value: date_selection(),
                         min_date: date_bounds.as_ref().map(|(min, _)| *min),
                         max_date: date_bounds
-                                                                                                        .as_ref().map(| (_, max) | * max),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .as_ref().map(| (_, max) | * max),
                         popup_align_end: true,
                         on_change: move |value: DateSelection| {
                             let mut selection = date_selection;
@@ -457,7 +457,7 @@ pub fn FundsFlow() -> Element {
                                     SortableHeader {
                                         label: "Source".to_string(),
                                         active_direction: link_table
-                                                                                                                                                                        .direction_for("source"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .direction_for("source"),
                                         on_sort: move |_| {
                                             link_table.sort("source", SortDirection::Asc);
                                         },
@@ -480,7 +480,7 @@ pub fn FundsFlow() -> Element {
                                     SortableHeader {
                                         label: "Txs".to_string(),
                                         active_direction: link_table
-                                                                                                                                                                        .direction_for("txs"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .direction_for("txs"),
                                         on_sort: move |_| {
                                             link_table.sort("txs", SortDirection::Desc);
                                         },
@@ -546,7 +546,7 @@ pub fn FundsFlow() -> Element {
                         page_size: DEFAULT_PAGE_SIZE,
                         total: page_data.total,
                         on_page: move | next | link_table
-                                                                                                        .page.set(next),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .page.set(next),
                     }
                 }
             }
@@ -557,7 +557,7 @@ pub fn FundsFlow() -> Element {
                 evidence: evidence(),
                 table: evidence_table,
                 on_close: move | _ |
-                                                                        evidence_link.set(None),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        evidence_link.set(None),
             }
         }
     }
@@ -766,7 +766,7 @@ fn FlowEvidenceDialog(
                                     }
                                     SortableHeader {
                                         label: "BTC"
-                                                                                                                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .to_string(),
                                         active_direction: table.direction_for("value"),
                                         on_sort: move |_| {
                                             table.sort("value", SortDirection::Desc);

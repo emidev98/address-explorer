@@ -168,7 +168,7 @@ pub fn CatalogTypeDialog(
                     id: "catalog-type-category",
                     class: "md3-input",
                     value: category_id().map(| id | id
-                                                                                        .to_string()).unwrap_or_default(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .to_string()).unwrap_or_default(),
                     disabled: *saving.read(),
                     onchange: move |event| {
                         category_id.set(event.value().parse::<i64>().ok());
@@ -189,7 +189,7 @@ pub fn CatalogTypeDialog(
                     class: if custody().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
                     aria_pressed: custody().is_none().to_string(),
                     disabled: * saving
-                                                                                        .read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .read(),
                     onclick: move |_| custody.set(None),
                     "Not set"
                 }
@@ -214,10 +214,10 @@ pub fn CatalogTypeDialog(
                         r#type: "button",
                         class: if platform().is_none() { "md3-chip md3-chip-selected" } else { "md3-chip" },
                         aria_pressed: platform()
-                                                                                                        .is_none().to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .is_none().to_string(),
                         disabled: *saving.read(),
                         onclick: move | _ | platform
-                                                                                                        .set(None),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .set(None),
                         "Not set"
                     }
                     for value in WalletPlatform::ALL {
@@ -245,7 +245,7 @@ pub fn CatalogTypeDialog(
                     value: "{color}",
                     disabled: *saving.read(),
                     oninput: move | event | color.set(event
-                                                                                        .value()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .value()),
                 }
                 span { class: "md3-catalog-color-hex", "{color}" }
                 button {
@@ -253,7 +253,7 @@ pub fn CatalogTypeDialog(
                     class: "md3-button-text",
                     disabled: *saving.read(),
                     onclick: move
-                                                                                        | _ | color.set(derived_color(& name())),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | _ | color.set(derived_color(& name())),
                     "Suggested"
                 }
                 ProviderBadge {

@@ -90,7 +90,7 @@ pub fn CatalogImportDialog(
             CsvDropzone {
                 file_name: file_name(),
                 disabled: * validating.read() || * importing.read()
-                                                                        || summary().is_some(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        || summary().is_some(),
                 on_file,
             }
             if *validating.read() {
@@ -147,7 +147,7 @@ pub fn CatalogImportDialog(
                                                 td { "{row.slug.clone().unwrap_or_default()}" }
                                                 td { "{row.category.clone().unwrap_or_default()}" }
                                                 td { { import_status_chip(& row
-                                                                                                                                                                                                        .status) } }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .status) } }
                                             }
                                         }
                                     }
@@ -198,14 +198,14 @@ pub fn CatalogImportDialog(
                     class: "md3-button-text",
                     disabled: *importing.read(),
                     onclick: move | _ |
-                                                                                        on_close.call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            on_close.call(()),
                     "Close"
                 }
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
                     disabled: ! can_import || * importing.read() || *
-                                                                                        validating.read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            validating.read(),
                     onclick: start_import,
                     if *importing.read() {
                         "Importing..."

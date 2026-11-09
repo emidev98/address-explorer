@@ -1,20 +1,20 @@
 use crate::api::prices::ensure_currency_history_api;
 use crate::api::settings::{
-    save_confirm_destructive_actions_api, save_default_fiat_currency_api,
-    save_navigation_position_api, save_show_date_range_support_api, save_theme_api,
+    save_default_fiat_currency_api, save_navigation_position_api, save_show_date_range_support_api,
+    save_theme_api,
 };
 use crate::components::{
-    use_fiat_currency, use_interface_settings, use_toast, Checkbox, FiatCurrency,
-    InterfaceSettingsContext, PageHeader, Toast, ToastKind,
+    use_fiat_currency, use_interface_settings, use_toast, BackendSettingsSection, Checkbox,
+    DataSettingsSection, FiatCurrency, InterfaceSettingsContext, PageHeader, Toast, ToastKind,
 };
 use crate::domain::interface_settings::NavigationPosition;
 use crate::domain::price::{CurrencyHistorySummary, FIAT_CURRENCIES, USD_SYMBOL};
 use crate::domain::theme::{ThemeMode, ThemePalette, ThemePreference};
 use dioxus::prelude::*;
-/// General settings: theme, currency, interface hints, and safety.
+/// General settings: theme, currency, interface hints, backend, and data.
 #[component]
 pub fn SettingsGeneral() -> Element {
-    let mut toast = use_toast();
+    let toast = use_toast();
     let theme = use_context::<Signal<ThemePreference>>();
     let saving = use_signal(|| false);
     let currency = use_fiat_currency();
@@ -23,39 +23,31 @@ pub fn SettingsGeneral() -> Element {
     let interface_settings = use_interface_settings();
     let support_saving = use_signal(|| false);
     let navigation_saving = use_signal(|| false);
-    let confirm_saving = use_signal(|| false);
-    let confirm_destructive = interface_settings.get().confirm_destructive_actions;
     let currency_code = currency.code();
     rsx! {
         PageHeader { title: "General".to_string() }
-        section { class: "md3-settings-section",
-            div {
-                h3 { class: "text-title-medium leading-title-medium text-on-surface",
-                    "Theme"
-                }
-                p { class: "text-body-medium text-on-surface-variant",
-                    "Choose a Material 3 color palette and appearance. Your selection is saved automatically."
-                }
-            }
-            div { class: "md3-theme-grid",
-                for palette in ThemePalette::ALL {
-                    button {
-                        r#type: "button",
-                        class: "md3-theme-option",
-                        aria_pressed: (theme().palette ==
-                                                                                                        palette).to_string(),
-                        disabled: *saving.read(),
-                        onclick: move |_| {
-                            let next = ThemePreference {
-                                palette,
-                                ..theme()
-                            };
-                            persist_theme(theme, saving, toast, next);
-                        },
-                        span { class: "md3-theme-swatch md3-theme-swatch-{palette}" }
-                        span { "{palette.label()}" }
+        div { class: "md3-settings-grid",
+            section { class: "md3-settings-section md3-settings-span",
+                div {
+                    h3 { class: "text-title-medium leading-title-medium text-on-surface",
+                        "Theme"
+                    }
+                    p { class: "text-body-medium text-on-surface-variant",
+                        "Choose a Material 3 color palette and appearance. Your selection is saved automatically."
                     }
                 }
+                ThemePaletteSelect {
+                    value: theme().palette,
+                    disabled: *saving.read(),
+                    on_select: move |palette| {
+                        let next = ThemePreference {
+                            palette,
+                            ..theme()
+                        };
+                        persist_theme(theme, saving, toast, next);
+                    },
+                }
+                hr { class: "md3-divider" }
                 div { class: "md3-theme-appearance",
                     h4 { class: "text-title-small leading-title-small text-on-surface",
                         "Appearance"
@@ -79,108 +71,40 @@ pub fn SettingsGeneral() -> Element {
                         }
                     }
                 }
-            }
-        }
-        section { class: "md3-settings-section",
-            div {
-                h3 { class: "text-title-medium leading-title-medium text-on-surface",
-                    "Navigation"
-                }
-                p { class: "text-body-medium text-on-surface-variant",
-                    "Choose where primary navigation appears on tablet and wider windows. Auto keeps the top app bar until wide windows, then moves to the side panel. Top always keeps the top app bar; Side uses the side panel from tablet widths. On phones, every option uses the menu button and slide-in drawer."
-                }
-            }
-            div {
-                class: "md3-chip-group",
-                role: "group",
-                aria_label: "Navigation position",
-                for position in NavigationPosition::ALL {
-                    button {
-                        r#type: "button",
-                        class: if interface_settings.get().navigation_position == position { "md3-chip md3-chip-selected" } else { "md3-chip" },
-                        aria_pressed: (interface_settings.get().navigation_position == position).to_string(),
-                        disabled: *navigation_saving.read(),
-                        onclick: move |_| {
-                            persist_navigation_position(
-                                interface_settings,
-                                navigation_saving,
-                                toast,
-                                position,
-                            );
-                        },
-                        "{position.label()}"
-                    }
-                }
-            }
-        }
-        section { class: "md3-settings-section",
-            div {
-                h3 { class: "text-title-medium leading-title-medium text-on-surface",
-                    "Date range"
-                }
-                p { class: "text-body-medium text-on-surface-variant",
-                    "Show the YYYY-MM-DD – YYYY-MM-DD hint and validation message below date range fields across the application. Supporting text is hidden by default."
-                }
-            }
-            Checkbox {
-                checked: interface_settings.get().show_date_range_support,
-                disabled: *support_saving.read(),
-                label: "Show date range support text"
-                                                                        .to_string(),
-                on_change: move |enabled| {
-                    persist_date_range_support(interface_settings, support_saving, toast, enabled);
-                },
-            }
-        }
-        div { class: "md3-settings-row",
-            section { class: "md3-settings-section",
+                hr { class: "md3-divider" }
                 div {
-                    h3 { class: "text-title-medium leading-title-medium text-on-surface",
-                        "Safety"
+                    h4 { class: "text-title-small leading-title-small text-on-surface",
+                        "Navigation"
                     }
                     p { class: "text-body-medium text-on-surface-variant",
-                        "Ask before deleting or replacing data."
+                        "Choose where primary navigation appears on tablet and wider windows. Auto keeps the top app bar until wide windows, then moves to the side panel. Top always keeps the top app bar; Side uses the side panel from tablet widths. On phones, every option uses the menu button and slide-in drawer."
                     }
                 }
-                Checkbox {
-                    checked: confirm_destructive,
-                    disabled: *confirm_saving.read(),
-                    label: "Confirm destructive actions".to_string(),
-                    on_change: move |enabled| {
-                        let previous = interface_settings.get();
-                        let mut next = previous;
-                        next.confirm_destructive_actions = enabled;
-                        interface_settings.set(next);
-                        let mut saving = confirm_saving;
-                        saving.set(true);
-                        spawn(async move {
-                            match save_confirm_destructive_actions_api(enabled).await {
-                                Ok(()) => {
-                                    toast
-                                        .success(
-                                            if enabled {
-                                                "Destructive action confirmations enabled."
-                                            } else {
-                                                "Destructive action confirmations disabled."
-                                            },
-                                        )
-                                }
-                                Err(error) => {
-                                    interface_settings.set(previous);
-                                    toast
-                                        .error(
-                                            format!("Could not save the confirmation setting: {error}"),
-                                        );
-                                }
-                            }
-                            saving.set(false);
-                        });
-                    },
-                }
-            }
-            section { class: "md3-settings-section",
                 div {
-                    h3 { class: "text-title-medium leading-title-medium text-on-surface",
+                    class: "md3-chip-group",
+                    role: "group",
+                    aria_label: "Navigation position",
+                    for position in NavigationPosition::ALL {
+                        button {
+                            r#type: "button",
+                            class: if interface_settings.get().navigation_position == position { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                            aria_pressed: (interface_settings.get().navigation_position == position).to_string(),
+                            disabled: *navigation_saving.read(),
+                            onclick: move |_| {
+                                persist_navigation_position(
+                                    interface_settings,
+                                    navigation_saving,
+                                    toast,
+                                    position,
+                                );
+                            },
+                            "{position.label()}"
+                        }
+                    }
+                }
+                hr { class: "md3-divider" }
+                div {
+                    h4 { class: "text-title-small leading-title-small text-on-surface",
                         "Default fiat currency"
                     }
                     p { class: "text-body-medium text-on-surface-variant",
@@ -192,7 +116,7 @@ pub fn SettingsGeneral() -> Element {
                     r#for: "default-fiat-currency",
                     "Currency"
                 }
-                div { class: "md3-text-field",
+                div { class: "md3-text-field md3-settings-control",
                     select {
                         id: "default-fiat-currency",
                         class: "md3-input",
@@ -218,6 +142,94 @@ pub fn SettingsGeneral() -> Element {
                         role: "status",
                         aria_live: "polite",
                         "{status}"
+                    }
+                }
+                hr { class: "md3-divider" }
+                div {
+                    h4 { class: "text-title-small leading-title-small text-on-surface",
+                        "Date range"
+                    }
+                    p { class: "text-body-medium text-on-surface-variant",
+                        "Show the YYYY-MM-DD – YYYY-MM-DD hint and validation message below date range fields across the application. Supporting text is hidden by default."
+                    }
+                }
+                Checkbox {
+                    checked: interface_settings.get().show_date_range_support,
+                    disabled: *support_saving.read(),
+                    label: "Show date range support text".to_string(),
+                    on_change: move |enabled| {
+                        persist_date_range_support(interface_settings, support_saving, toast, enabled);
+                    },
+                }
+            }
+            BackendSettingsSection {}
+            DataSettingsSection {}
+        }
+    }
+}
+/// Compact palette picker. A native `<option>` cannot render the palette
+/// swatches, so the trigger and its listbox show each palette's swatch and
+/// name instead.
+#[component]
+fn ThemePaletteSelect(
+    value: ThemePalette,
+    #[props(default)] disabled: bool,
+    on_select: EventHandler<ThemePalette>,
+) -> Element {
+    let mut open = use_signal(|| false);
+    rsx! {
+        div {
+            class: "md3-select md3-settings-control",
+            onkeydown: move |event| {
+                if event.key() == Key::Escape {
+                    open.set(false);
+                }
+            },
+            button {
+                r#type: "button",
+                class: "md3-select-trigger",
+                aria_haspopup: "listbox",
+                aria_expanded: open().to_string(),
+                aria_controls: "theme-palette-options",
+                aria_label: "Theme palette",
+                disabled,
+                onclick: move |_| open.set(!open()),
+                span { class: "md3-theme-swatch md3-theme-swatch-{value}" }
+                span { class: "md3-select-value", "{value.label()}" }
+                span { class: "md3-select-chevron", aria_hidden: "true", "⌄" }
+            }
+            if open() {
+                div {
+                    class: "md3-select-scrim",
+                    role: "presentation",
+                    onclick: move |_| open.set(false),
+                }
+                div {
+                    id: "theme-palette-options",
+                    class: "md3-select-menu",
+                    role: "listbox",
+                    aria_label: "Theme palette",
+                    onclick: move |event| event.stop_propagation(),
+                    for palette in ThemePalette::ALL {
+                        button {
+                            r#type: "button",
+                            class: "md3-select-option",
+                            role: "option",
+                            aria_selected: (palette == value).to_string(),
+                            onclick: move |_| {
+                                open.set(false);
+                                on_select.call(palette);
+                            },
+                            span { class: "md3-theme-swatch md3-theme-swatch-{palette}" }
+                            span { class: "md3-select-value", "{palette.label()}" }
+                            if palette == value {
+                                span {
+                                    class: "md3-select-check",
+                                    aria_hidden: "true",
+                                    "✓"
+                                }
+                            }
+                        }
                     }
                 }
             }

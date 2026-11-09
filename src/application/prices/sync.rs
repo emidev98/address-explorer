@@ -128,9 +128,9 @@ pub fn plan_price_sync(
 /// Sources the unified sync calls. Closures keep the network out of the
 /// orchestration so the workflow is testable without HTTP.
 pub struct PriceSyncSources<'a> {
-    pub daily: &'a (dyn Fn(i64, i64) -> FetchDailyFuture + Send + Sync),
-    pub reference: &'a (dyn Fn(&str, i64, i64) -> FetchReferenceFuture + Send + Sync),
-    pub fx_series: &'a (dyn Fn(String, String) -> FetchSeriesFuture + Send + Sync),
+    pub daily: &'a FetchDailyFn<'a>,
+    pub reference: &'a FetchReferenceFn<'a>,
+    pub fx_series: &'a FetchSeriesFn<'a>,
 }
 /// Synchronize the stored BTC price history of `symbol` for `[from_time,
 /// to_time]`.

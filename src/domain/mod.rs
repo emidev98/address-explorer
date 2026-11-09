@@ -3,6 +3,7 @@
 //! Modules here are plain data and pure functions: they MUST NOT contain SQL,
 //! HTTP, RSX, or Dioxus signal code.
 pub mod address;
+pub mod backup;
 pub mod calendar;
 pub mod catalog;
 pub mod civil_time;
@@ -11,6 +12,7 @@ pub mod date_presets;
 pub mod date_selection;
 pub mod exchange;
 pub mod flow;
+pub mod health;
 pub mod interface_settings;
 pub mod price;
 pub mod table;

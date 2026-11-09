@@ -108,21 +108,21 @@ pub fn ExchangeKpiGrid(
             ExchangeAmountKpi {
                 kind: AmountKpiKind::Withdrawn,
                 metric: kpis
-                                                                        .as_ref().map(| kpis | kpis.withdrawn),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .as_ref().map(| kpis | kpis.withdrawn),
                 currency: currency.clone(),
                 loading,
             }
             ExchangeAmountKpi {
                 kind: AmountKpiKind::Deposited,
                 metric: kpis.as_ref().map(|
-                                                                        kpis | kpis.deposited),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        kpis | kpis.deposited),
                 currency: currency.clone(),
                 loading,
             }
             ExchangeAmountKpi {
                 kind: AmountKpiKind::Rewarded,
                 metric: kpis.as_ref().map(| kpis | kpis
-                                                                        .rewarded),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .rewarded),
                 currency: currency.clone(),
                 loading,
             }
@@ -134,9 +134,9 @@ pub fn ExchangeKpiGrid(
             }
             ExchangeOnChainKpi {
                 matched: kpis.as_ref().map(| kpis | kpis
-                                                                        .onchain_matched.count),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .onchain_matched.count),
                 total: kpis.as_ref().map(| kpis | kpis
-                                                                        .onchain_total_count),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .onchain_total_count),
                 loading,
             }
         }

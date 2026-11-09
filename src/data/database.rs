@@ -2,13 +2,18 @@
 //!
 //! `Database` owns the single connection behind a mutex so repository calls
 //! stay serialized and blocking work never reaches the UI path.
+#[cfg(any(not(target_arch = "wasm32"), test))]
 use super::migrations::run_migrations;
 use rusqlite::Connection;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
 const APP_NAME: &str = "address-explorer";
+#[cfg(not(target_arch = "wasm32"))]
 const DB_FILE_NAME: &str = "app.db";
 #[derive(Debug, Clone)]
 pub struct DatabaseError {
@@ -46,6 +51,7 @@ impl From<std::io::Error> for DatabaseError {
 #[derive(Clone)]
 pub struct Database {
     connection: std::sync::Arc<Mutex<Connection>>,
+    path: Option<PathBuf>,
 }
 impl Database {
     /// Resolve the database file location.
@@ -53,6 +59,7 @@ impl Database {
     /// Debug builds use `<workspace>/target/db/<file>`. Release builds use the
     /// platform application-data directory, falling back to the legacy
     /// `~/address-explorer/<file>` when that database already exists.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn default_path() -> Result<PathBuf, DatabaseError> {
         if let Ok(path) = std::env::var("DATABASE_PATH") {
             if !path.trim().is_empty() {
@@ -84,17 +91,33 @@ impl Database {
         fs::create_dir_all(&directory)?;
         Ok(directory.join(DB_FILE_NAME))
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {
-        let mut connection = Connection::open(path)?;
+        let path = path.as_ref().to_path_buf();
+        let mut connection = Connection::open(&path)?;
         connection.pragma_update(None, "foreign_keys", true)?;
         connection.busy_timeout(Duration::from_secs(5))?;
         run_migrations(&mut connection, true)?;
         Ok(Self {
             connection: std::sync::Arc::new(Mutex::new(connection)),
+            path: Some(path),
         })
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open_default() -> Result<Self, DatabaseError> {
         Self::open_path(Self::default_path()?)
+    }
+
+    /// Wrap an already configured connection. The browser worker uses this
+    /// after installing the relaxed-idb VFS and running migrations. Tests use
+    /// it to build file-backed databases without importing the large seeds.
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub fn from_connection(connection: Connection) -> Self {
+        Self {
+            connection: std::sync::Arc::new(Mutex::new(connection)),
+            path: None,
+        }
     }
     /// Open an in-memory database with schema migrations applied. Seed
     /// migrations are intentionally skipped: they import on-disk reference
@@ -107,12 +130,18 @@ impl Database {
         run_migrations(&mut connection, false)?;
         Ok(Self {
             connection: std::sync::Arc::new(Mutex::new(connection)),
+            path: None,
         })
     }
     pub fn connection(&self) -> Result<std::sync::MutexGuard<'_, Connection>, DatabaseError> {
         self.connection
             .lock()
             .map_err(|_| DatabaseError::new("database connection lock was poisoned"))
+    }
+
+    /// File path of a persistent database, when it has one.
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 }
 #[cfg(test)]

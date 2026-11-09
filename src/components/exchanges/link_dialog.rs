@@ -202,7 +202,7 @@ pub fn ExchangeLinkDialog(
                     r#type: "button",
                     class: "md3-button-tonal",
                     disabled: current_txid.is_none()
-                                                                                        || * loading.read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            || * loading.read(),
                     onclick: clear,
                     "Clear link"
                 }
@@ -211,7 +211,7 @@ pub fn ExchangeLinkDialog(
         if let Some((txid, info)) = duplicate() {
             ConfirmDialog {
                 title: "Reuse on-chain transaction"
-                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
                 message: format!(
                     "This on-chain transaction is already linked to another exchange row: {}. Link this row to the same transaction too?",
                     duplicate_summary(&info),

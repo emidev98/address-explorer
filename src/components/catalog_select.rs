@@ -96,9 +96,9 @@ pub fn CatalogOptionsSelect(
                 class: "md3-input",
                 value: value.map(|id| id.to_string()).unwrap_or_default(),
                 disabled: disabled ||
-                                                                        loading,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        loading,
                 onchange: move | event | on_change.call(event.value().parse::< i64 > ()
-                                                                        .ok()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .ok()),
                 option { value: "", "{placeholder}" }
                 for (group, entries) in grouped {
                     optgroup { label: "{group}",

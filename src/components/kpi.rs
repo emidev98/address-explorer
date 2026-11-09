@@ -46,7 +46,7 @@ pub fn Kpi(
                     aria_expanded: details_open().to_string(),
                     onmouseenter: move |_| help_hovered.set(true),
                     onmouseleave: move | _ |
-                                                                                        help_hovered.set(false),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            help_hovered.set(false),
                     onclick: move |_| {
                         if details_open() {
                             details_open.set(false);

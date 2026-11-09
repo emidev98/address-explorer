@@ -1,4 +1,5 @@
 mod app_shell;
+mod backend_settings;
 mod catalog;
 mod catalog_select;
 mod charts;
@@ -6,6 +7,7 @@ mod checkbox;
 mod clipboard;
 mod confirm_dialog;
 mod csv_dropzone;
+mod data_settings;
 mod date_picker;
 mod edit_price_dialog;
 mod exchange_kpis;
@@ -27,6 +29,7 @@ mod table_controls;
 pub mod theme;
 mod toast;
 pub use app_shell::AppShell;
+pub use backend_settings::{request_app_reload, BackendSettingsContext, BackendSettingsSection};
 pub use catalog::{
     catalog_delete_summary_message, CatalogCategoriesDialog, CatalogDeleteDialog,
     CatalogImportDialog, CatalogTypeDialog,
@@ -39,6 +42,7 @@ pub use checkbox::Checkbox;
 pub use clipboard::{read_clipboard_text, write_clipboard_text};
 pub use confirm_dialog::ConfirmDialog;
 pub use csv_dropzone::CsvDropzone;
+pub use data_settings::DataSettingsSection;
 pub use date_picker::DatePicker;
 pub use edit_price_dialog::EditPriceDialog;
 pub use exchange_kpis::{ExchangeCountKpi, ExchangeKpiGrid};

@@ -107,7 +107,7 @@ pub fn TablePagination(
                 class: "md3-button-tonal",
                 disabled: page == 0,
                 onclick: move | _ | on_page.call(page
-                                                                        .saturating_sub(1)),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .saturating_sub(1)),
                 "Previous"
             }
             form {
@@ -123,7 +123,7 @@ pub fn TablePagination(
                     aria_label: "Page number",
                     value: editing().unwrap_or_else(|| current_page.to_string()),
                     oninput: move |
-                                                                                        event | editing.set(Some(event.value())),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            event | editing.set(Some(event.value())),
                     onblur: move |_| commit(()),
                 }
             }
@@ -135,7 +135,7 @@ pub fn TablePagination(
                 class: "md3-button-tonal",
                 disabled: current_page >= total_pages,
                 onclick: move | _ |
-                                                                        on_page.call(page + 1),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        on_page.call(page + 1),
                 "Next"
             }
         }
@@ -278,7 +278,7 @@ pub fn TableSelectionHeader(
                 aria_label: select_all_label,
                 disabled,
                 on_change: move |
-                                                                        checked | on_toggle_all.call(checked),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        checked | on_toggle_all.call(checked),
             }
         }
         th { class: "md3-table-select-actions", {children} }
@@ -295,12 +295,12 @@ pub fn TableSelectionCell(checked: bool, label: String, on_change: EventHandler<
         td {
             class: "md3-table-select-cell",
             onclick: move | event | event
-                                                        .stop_propagation(),
+                                                                                                                                                                                                                                                                                                                                                                    .stop_propagation(),
             Checkbox {
                 checked,
                 aria_label: label,
                 on_change: move |
-                                                                        checked | on_change.call(checked),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        checked | on_change.call(checked),
             }
         }
     }

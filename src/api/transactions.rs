@@ -11,6 +11,7 @@ use dioxus::prelude::*;
 pub async fn sync_address_transactions_api(
     address: String,
 ) -> Result<TransactionSyncSummary, ServerFnError> {
+    remote_post!("/api/addresses/{}/transactions/sync", [address], [], []);
     TransactionService::connect(open_database()?)
         .sync_address_transactions(&address)
         .await
@@ -27,6 +28,7 @@ pub async fn sync_address_transactions_api(
 pub async fn sync_addresses_transactions_api(
     addresses: Vec<String>,
 ) -> Result<TransactionSyncBatchSummary, ServerFnError> {
+    remote_post!("/api/addresses/transactions/sync", [], [], [addresses]);
     TransactionService::connect(open_database()?)
         .sync_addresses_transactions(&addresses)
         .await

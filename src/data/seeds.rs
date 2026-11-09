@@ -15,18 +15,26 @@
 //! ignored so an existing address keeps the user's description and
 //! classification.
 //!
-//! Seed migrations run only for on-disk databases (`open_path`,
-//! `open_default`); see `run_migrations` in `migrations.rs`.
+//! Seed migrations run for persistent databases: native on-disk databases
+//! (`open_path`, `open_default`) and the browser-local database opened by the
+//! web worker. In-memory test databases skip them; see `run_migrations` in
+//! `migrations.rs`.
 use super::pricing_format;
 use super::DatabaseError;
 use crate::data::repositories::exchanges as exchange_repository;
 use rusqlite::{params, Connection};
 use std::collections::BTreeMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
+#[cfg(target_arch = "wasm32")]
+use std::sync::{LazyLock, Mutex};
 /// Quote symbol of the imported price history.
 pub const BTC_USD_SYMBOL: &str = "USD";
+#[cfg(not(target_arch = "wasm32"))]
 const PACKED_RELATIVE_PATH: &str = "assets/pricing/btc_usd.bin";
+#[cfg(not(target_arch = "wasm32"))]
 const PACKED_ENV_VAR: &str = "ADDRESS_EXPLORER_PRICING_FILE";
 /// Researched exchange-wallet catalog imported by the `0019_addresses_data`
 /// seed migration. Every row is tagged by exchange name and existing addresses
@@ -35,19 +43,48 @@ const EXCHANGE_ADDRESS_CATALOG_SQL: &str = include_str!("migrations/0019_address
 /// Number of exchange wallets the catalog is expected to cover. Keep in sync
 /// with the SQL file; the seed fails loudly when a catalog name is missing.
 const EXCHANGE_ADDRESS_CATALOG_SIZE: i64 = 296;
+
+/// Packed price text supplied by the browser worker. The PWA precaches the
+/// 6.2 MB asset and fetches it before opening a new local database, so the
+/// WASM seed never touches `std::fs`.
+#[cfg(target_arch = "wasm32")]
+static PACKED_PRICING_TEXT: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Install the packed pricing text fetched by the browser worker.
+#[cfg(target_arch = "wasm32")]
+pub fn set_packed_pricing_text(text: String) {
+    *PACKED_PRICING_TEXT
+        .lock()
+        .expect("packed pricing text lock poisoned") = Some(text);
+}
 /// Data migration `0015_historical_prices_data` entry point.
 ///
 /// Fails loudly when the packed pricing file cannot be located or yields no
 /// importable rows, because a migration MUST NOT silently produce an empty
 /// reference table.
 pub fn historical_prices(connection: &Connection) -> Result<(), DatabaseError> {
-    let path = packed_pricing_path()?;
-    let imported = import_packed_prices(connection, &path)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let imported = {
+        let path = packed_pricing_path()?;
+        import_packed_prices(connection, &path)?
+    };
+    #[cfg(target_arch = "wasm32")]
+    let imported = {
+        let text = PACKED_PRICING_TEXT
+            .lock()
+            .expect("packed pricing text lock poisoned")
+            .clone()
+            .ok_or_else(|| {
+                DatabaseError::new(
+                    "the browser worker did not provide the packed pricing asset before opening the database",
+                )
+            })?;
+        import_packed_prices_text(connection, &text)?
+    };
     if imported == 0 {
-        return Err(DatabaseError::new(format!(
-            "historical price import produced no rows from {}",
-            path.display(),
-        )));
+        return Err(DatabaseError::new(
+            "historical price import produced no rows",
+        ));
     }
     Ok(())
 }
@@ -55,6 +92,7 @@ pub fn historical_prices(connection: &Connection) -> Result<(), DatabaseError> {
 /// `ADDRESS_EXPLORER_PRICING_FILE` environment variable takes precedence,
 /// then the workspace checkout and the directory next to the executable (for
 /// packaged builds).
+#[cfg(not(target_arch = "wasm32"))]
 fn packed_pricing_path() -> Result<PathBuf, DatabaseError> {
     if let Ok(path) = std::env::var(PACKED_ENV_VAR) {
         if path.trim().is_empty() {
@@ -96,9 +134,20 @@ fn packed_pricing_path() -> Result<PathBuf, DatabaseError> {
 /// record into `historical_prices`. Returns the number of rows attempted
 /// (including rows rejected by the primary key, which keeps the first
 /// occurrence).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn import_packed_prices(connection: &Connection, path: &Path) -> Result<usize, DatabaseError> {
     let contents = fs::read_to_string(path).map_err(DatabaseError::from)?;
-    let records = pricing_format::parse_records(&contents);
+    import_packed_prices_text(connection, &contents)
+}
+
+/// Parse packed pricing text and insert one row per decoded record.
+///
+/// Shared by the native file reader and the browser worker's precached asset.
+pub fn import_packed_prices_text(
+    connection: &Connection,
+    contents: &str,
+) -> Result<usize, DatabaseError> {
+    let records = pricing_format::parse_records(contents);
     let mut statement = connection.prepare(
         "INSERT OR IGNORE INTO historical_prices (close_time, close, symbol)
          VALUES (?1, ?2, ?3)",

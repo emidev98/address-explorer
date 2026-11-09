@@ -982,7 +982,7 @@ pub fn DatePicker(
                             aria_label: "Previous month",
                             disabled: !previous_enabled,
                             onclick: move | _
-                                                                                                                        | prev_state.step_month(- 1, bounds),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | prev_state.step_month(- 1, bounds),
                             Icon { name: IconName::ChevronLeft, size: 20 }
                         }
                         div { class: "md3-date-picker-heading",
@@ -1255,7 +1255,7 @@ fn month_menu(
                             class: if selected { "md3-date-picker-menu-item md3-date-picker-menu-item-selected" } else { "md3-date-picker-menu-item" },
                             role: "option",
                             aria_selected: selected
-                                                                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
                             aria_disabled: (!enabled).to_string(),
                             disabled: !enabled,
                             onclick: move |_| menu_state.set_view(year, month, bounds),
@@ -1322,7 +1322,7 @@ fn year_menu(
                             class: if selected { "md3-date-picker-menu-item md3-date-picker-menu-item-selected" } else { "md3-date-picker-menu-item" },
                             role: "option",
                             aria_selected: selected
-                                                                                                                        .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
                             aria_disabled: (!enabled).to_string(),
                             disabled: !enabled,
                             onclick: move |_| {
@@ -1410,7 +1410,7 @@ fn month_grid_view(
                             class: "md3-date-picker-weekday",
                             role: "columnheader",
                             aria_label: crate
-                                                                                                                        ::domain::calendar::WEEKDAY_NAMES[index],
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ::domain::calendar::WEEKDAY_NAMES[index],
                             "{WEEKDAYS[index]}"
                         }
                     }
@@ -1527,7 +1527,7 @@ fn day_cell(
             aria_selected: (selected_start || selected_end || in_preview).to_string(),
             aria_current: if is_today { "date" } else { "false" },
             aria_disabled: (!
-                                                        enabled).to_string(),
+                                                                                                                                                                                                                                                                                                                                                                    enabled).to_string(),
             disabled: !enabled,
             onclick: move |_| {
                 click_state

@@ -151,9 +151,9 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 TableSelectionHeader {
                                     all_selected,
                                     indeterminate: selection.some_selected(& page_ids) && !
-                                                                                                                                                                all_selected,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    all_selected,
                                     select_all_label: "Select all types on this page"
-                                                                                                                                                                .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
                                     disabled: page_ids.is_empty(),
                                     on_toggle_all: move |checked| {
                                         selection.set_many(&selectable_ids, checked);
@@ -192,7 +192,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 }
                                 SortableHeader {
                                     label: "Name"
-                                                                                                                                                                .to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .to_string(),
                                     active_direction: table.direction_for("name"),
                                     on_sort: move |_| {
                                         table.sort("name", SortDirection::Asc);
@@ -210,7 +210,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                 SortableHeader {
                                     label: "Custody".to_string(),
                                     active_direction: table
-                                                                                                                                                                .direction_for("custody"),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    .direction_for("custody"),
                                     on_sort: move |_| {
                                         table.sort("custody", SortDirection::Asc);
                                         selection.clear();
@@ -256,7 +256,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                                                 checked: row_checked,
                                                 label: format!("Select {row_name}"),
                                                 on_change: move |
-                                                                                                                                                                                                                checked | selection.set(row_id, checked),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                checked | selection.set(row_id, checked),
                                             }
                                             td {
                                                 div { class: "md3-table-actions",
@@ -348,7 +348,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                     r#type: "button",
                     class: "md3-button-tonal",
                     onclick: move | _ |
-                                                                                        show_categories.set(true),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            show_categories.set(true),
                     "Manage categories"
                 }
                 button {
@@ -445,7 +445,7 @@ fn CatalogSettingsPage(kind: CatalogKind) -> Element {
                 preview: request.preview,
                 busy: deleting(),
                 on_cancel: move | _ |
-                                                                        delete_request.set(None),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        delete_request.set(None),
                 on_confirm: confirm_delete,
             }
         }

@@ -15,10 +15,11 @@
 //!
 //! Progress is versioned with SQLite's `PRAGMA user_version`. Schema and SQL
 //! data migrations run on every database, including the in-memory databases
-//! used by tests. Seed migrations import reference datasets from files on
-//! disk, so they run only for on-disk databases; on in-memory databases the
-//! version still advances past them, keeping the linear `user_version`
-//! sequence identical on both kinds of databases.
+//! used by tests. Seed migrations import reference datasets from files or the
+//! browser-precached asset, so they run for persistent databases (native on-disk
+//! and browser-local); on in-memory databases the version still advances past
+//! them, keeping the linear `user_version` sequence identical on both kinds of
+//! databases.
 //!
 //! New migrations MUST be appended with a new ordinal and name; a migration
 //! that has shipped MUST NOT be edited in place, and entries MUST NOT be
@@ -155,8 +156,9 @@ pub(crate) fn schema_sql(table: &str) -> Option<&'static str> {
 }
 /// Apply pending migrations in order.
 ///
-/// `include_seeds` is set for on-disk databases; in-memory test databases skip
-/// the seed imports but still advance `user_version` past them.
+/// `include_seeds` is set for persistent databases (native on-disk and
+/// browser-local); in-memory test databases skip the seed imports but still
+/// advance `user_version` past them.
 pub(crate) fn run_migrations(
     connection: &mut Connection,
     include_seeds: bool,

@@ -15,6 +15,7 @@ use dioxus::prelude::*;
 pub async fn addresses_overview_api(
     query: AddressOverviewQuery,
 ) -> Result<AddressOverview, ServerFnError> {
+    remote_post!("/api/addresses/overview", [], [], [query]);
     AddressService::connect(open_database()?)
         .addresses_overview(&query)
         .map_err(|error| ServerFnError::new(error.to_string()))
@@ -26,6 +27,7 @@ pub async fn addresses_overview_api(
 #[server]
 #[post("/api/addresses/validate")]
 pub async fn validate_address_api(address: String) -> Result<String, ServerFnError> {
+    remote_post!("/api/addresses/validate", [], [], [address]);
     addresses::validate_address(&address).map_err(|error| ServerFnError::new(error.to_string()))
 }
 /// Import an address and index its transaction history.
@@ -42,6 +44,12 @@ pub async fn save_address_api(
     exchange_id: Option<i64>,
     wallet_id: Option<i64>,
 ) -> Result<AddressSaveOutcome, ServerFnError> {
+    remote_post!(
+        "/api/addresses",
+        [],
+        [],
+        [address, description, exchange_id, wallet_id]
+    );
     let result = AddressService::connect(open_database()?)
         .import_address_and_sync(&address, description.as_deref(), exchange_id, wallet_id)
         .await;
@@ -66,6 +74,12 @@ pub async fn update_address_api(
     exchange_id: Option<i64>,
     wallet_id: Option<i64>,
 ) -> Result<StoredAddress, ServerFnError> {
+    remote_put!(
+        "/api/addresses/{}",
+        [address],
+        [],
+        [description, exchange_id, wallet_id]
+    );
     AddressService::connect(open_database()?)
         .update_address(&address, description.as_deref(), exchange_id, wallet_id)
         .map_err(|error| ServerFnError::new(error.to_string()))
@@ -75,6 +89,7 @@ pub async fn update_address_api(
 #[server]
 #[post("/api/addresses/delete")]
 pub async fn delete_addresses_api(addresses: Vec<String>) -> Result<usize, ServerFnError> {
+    remote_post!("/api/addresses/delete", [], [], [addresses]);
     AddressService::connect(open_database()?)
         .delete_addresses(&addresses)
         .map_err(|error| ServerFnError::new(error.to_string()))

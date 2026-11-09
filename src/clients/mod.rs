@@ -1,3 +1,4 @@
+#![allow(ambiguous_glob_reexports)]
 #![allow(dead_code, unused_imports)]
 pub mod coinmetrics;
 pub mod frankfurter;

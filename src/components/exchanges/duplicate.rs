@@ -31,7 +31,7 @@ pub fn ExchangeDuplicateDialog(
         Modal {
             title: "Duplicate transaction".to_string(),
             on_close: move | _ |
-                                                        on_cancel.call(()),
+                                                                                                                                                                                                                                                                                                                                                                    on_cancel.call(()),
             p { class: "text-body-medium text-on-surface-variant",
                 "Another row already has the same fingerprint: {duplicate_summary(&duplicate)}. Choose whether to replace the existing row, keep both rows as an intentional duplicate, or cancel."
             }
@@ -46,14 +46,14 @@ pub fn ExchangeDuplicateDialog(
                     r#type: "button",
                     class: "md3-button-tonal",
                     onclick: move | _ | on_choice
-                                                                                        .call(ExchangeDuplicateChoice::KeepBoth),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .call(ExchangeDuplicateChoice::KeepBoth),
                     "Add duplicated row"
                 }
                 button {
                     r#type: "button",
                     class: "md3-button-filled",
                     onclick: move | _ | on_choice
-                                                                                        .call(ExchangeDuplicateChoice::Replace),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .call(ExchangeDuplicateChoice::Replace),
                     "Replace existing row"
                 }
             }
