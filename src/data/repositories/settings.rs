@@ -1,6 +1,7 @@
 //! SQL access to the `setting` key/value table, holding the theme preference,
 //! the default fiat currency, and interface preferences.
 use crate::data::{Database, DatabaseError};
+use crate::domain::encryption::IdleTimeout;
 use crate::domain::exchange::OnChainLinkScoringSettings;
 use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
 use crate::domain::price::USD_SYMBOL;
@@ -14,6 +15,8 @@ const ON_CHAIN_SCORING_KEY: &str = "on_chain_link_scoring";
 const SHOW_DATE_RANGE_SUPPORT_KEY: &str = "show_date_range_support";
 const NAVIGATION_POSITION_KEY: &str = "navigation_position";
 const SIDE_NAV_COLLAPSED_KEY: &str = "side_nav_collapsed";
+const ENCRYPTION_IDLE_TIMEOUT_KEY: &str = "encryption_idle_timeout";
+const ENCRYPTION_PROMPT_SEEN_KEY: &str = "encryption_prompt_seen";
 /// Key used by the earlier Flow-only helper preference. It is read as a
 /// fallback so an existing preference survives the generic rename; saves
 /// always write [`SHOW_DATE_RANGE_SUPPORT_KEY`].
@@ -139,6 +142,40 @@ pub fn save_side_nav_collapsed(database: &Database, collapsed: bool) -> Result<(
         if collapsed { "true" } else { "false" },
     )
 }
+/// Load the idle-lock preference, defaulting to one hour.
+pub fn load_encryption_idle_timeout(database: &Database) -> Result<IdleTimeout, DatabaseError> {
+    let connection = database.connection()?;
+    Ok(read_setting(&connection, ENCRYPTION_IDLE_TIMEOUT_KEY)?
+        .and_then(|value| IdleTimeout::from_value(&value))
+        .unwrap_or_default())
+}
+
+/// Persist the idle-lock preference.
+pub fn save_encryption_idle_timeout(
+    database: &Database,
+    timeout: IdleTimeout,
+) -> Result<(), DatabaseError> {
+    let connection = database.connection()?;
+    write_setting(&connection, ENCRYPTION_IDLE_TIMEOUT_KEY, timeout.as_str())
+}
+
+/// Whether the first-run encryption prompt was already answered.
+pub fn load_encryption_prompt_seen(database: &Database) -> Result<bool, DatabaseError> {
+    let connection = database.connection()?;
+    Ok(read_setting(&connection, ENCRYPTION_PROMPT_SEEN_KEY)?
+        .and_then(|value| value.parse::<bool>().ok())
+        .unwrap_or(false))
+}
+
+/// Record that the first-run encryption prompt was answered.
+pub fn save_encryption_prompt_seen(database: &Database, seen: bool) -> Result<(), DatabaseError> {
+    let connection = database.connection()?;
+    write_setting(
+        &connection,
+        ENCRYPTION_PROMPT_SEEN_KEY,
+        if seen { "true" } else { "false" },
+    )
+}
 fn read_setting(connection: &Connection, key: &str) -> Result<Option<String>, DatabaseError> {
     connection
         .query_row("SELECT value FROM setting WHERE key = ?1", [key], |row| {
@@ -159,6 +196,39 @@ fn write_setting(connection: &Connection, key: &str, value: &str) -> Result<(), 
 mod tests {
     use super::*;
     use crate::domain::theme::{ThemeMode, ThemePalette};
+
+    #[test]
+    fn encryption_settings_default_and_round_trip() {
+        let database = Database::open_in_memory().unwrap(); // allow-unwrap: test setup.
+        assert_eq!(
+            load_encryption_idle_timeout(&database).unwrap(), // allow-unwrap: test setup.
+            IdleTimeout::OneHour
+        );
+        assert!(!load_encryption_prompt_seen(&database).unwrap()); // allow-unwrap: test setup.
+        for timeout in IdleTimeout::ALL {
+            save_encryption_idle_timeout(&database, timeout).unwrap(); // allow-unwrap: test setup.
+            assert_eq!(
+                load_encryption_idle_timeout(&database).unwrap(), // allow-unwrap: test setup.
+                timeout
+            );
+        }
+        save_encryption_prompt_seen(&database, true).unwrap(); // allow-unwrap: test setup.
+        assert!(load_encryption_prompt_seen(&database).unwrap()); // allow-unwrap: test setup.
+        database
+            .connection()
+            .unwrap() // allow-unwrap: test setup.
+            .execute(
+                "INSERT INTO setting (key, value) VALUES ('encryption_idle_timeout', 'bogus')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap(); // allow-unwrap: test setup.
+        assert_eq!(
+            load_encryption_idle_timeout(&database).unwrap(), // allow-unwrap: test setup.
+            IdleTimeout::OneHour
+        );
+    }
+
     #[test]
     fn missing_settings_use_defaults() {
         let database = Database::open_in_memory().unwrap();

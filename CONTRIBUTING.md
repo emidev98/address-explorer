@@ -477,7 +477,7 @@ Primary navigation is owned by the `AppShell` layout in
   that phone behavior usable with keyboard, Escape, the scrim, and the close
   button.
 
-The persistent side panel is compressible through the footer button at its
+The persistent side panel is compressible through the footer control at its
 bottom. The `side_nav_collapsed` interface setting stores that state; it
 defaults to expanded and requires no schema migration because it lives in the
 existing `setting` key/value table. Expanded and compact presentations share
@@ -486,13 +486,14 @@ destinations **MUST** be added to `Destination::PRIMARY` or
 `Destination::SETTINGS` in `src/navigation.rs` so every presentation stays in
 sync, including an icon for each top-level destination.
 
-- The expanded panel shows icon + label links, pins the Settings group to the
-  bottom with a flexible gap above it, and places the compress button below
-  Settings in a dedicated footer.
-- The compact panel is a 5 rem icon rail. Settings becomes a bottom gear whose
-  flyout exposes the four subsections. The flyout closes on Escape, outside
-  click, route change, or selection.
-- The mobile drawer always stays expanded and never shows the compress button;
+- The expanded panel shows icon + label links and places compress, lock (when
+  encryption is configured), and Settings actions in a footer row from left
+  to right. Settings opens the flyout that exposes the four subsections.
+- The compact panel is a 5 rem icon rail. The same footer actions are stacked
+  from top to bottom as Settings, lock (when encryption is configured), and
+  compress, and Settings opens the same flyout. The flyout closes on Escape,
+  outside click, route change, or selection.
+- The mobile drawer always stays expanded and never shows the footer actions;
   it keeps the destination links followed by the Settings subsections.
 - The top app bar keeps its hover/tap Settings dropdown. Contributors
   **SHOULD** verify expanded and compact side panels, Top mode, and the mobile

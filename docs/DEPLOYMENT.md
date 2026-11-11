@@ -133,18 +133,31 @@ browser CORS allowlist, not access control: direct HTTP clients can still read
 and modify the data. Do not expose the server to untrusted networks or origins.
 Keep the URL private or add authentication before making it public.
 
-The server database, browser database, and exported files are unencrypted. Do
-not store secrets in them.
+The server database and browser database can be encrypted at rest from
+**Settings → General → Data**. Encryption is off until a password is set.
+The password is never stored, and there is no recovery path: losing it means
+erasing the encrypted database. A remote client sends the password to the
+server only to unlock it, so use HTTPS except on loopback. After unlocking,
+the server keeps the derived key in memory until the configured idle timeout;
+the existing lack of authentication still applies to every request made while
+the database is unlocked.
+
+Exported SQLite files are always unencrypted. Store them accordingly, and do
+not expose a remote server to untrusted networks or origins.
 
 ## Backups and upgrades
 
-Back up the SQLite file before upgrading, using the SQLite backup API or:
+Back up before upgrading. For an unencrypted database, use the SQLite backup
+API or:
 
 ```sh
 sqlite3 /data/app.db ".backup '/data/backups/app-$(date +%Y%m%d%H%M%S).db'"
 ```
 
-Settings → General → Data can also export, import, or reset the active
+When encryption is enabled, `app.db` is a SQLCipher database and the plain
+`sqlite3` command cannot read it. Use **Settings → General → Data → Export**
+for a portable plaintext backup, or copy the encrypted file together with the
+knowledge of its password. Settings can also import or reset the active
 database. Exports are ordinary unencrypted SQLite files. Import validates the
 file, upgrades older schemas through the normal migration list, and rejects
 backups created by a newer schema.

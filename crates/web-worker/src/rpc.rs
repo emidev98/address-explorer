@@ -619,7 +619,7 @@ pub async fn dispatch(
         // ---- data management ----
         "data.export" => {
             db.wait_committed().await?;
-            let bytes = db.export()?;
+            let bytes = db.export_plaintext()?;
             encode(base64::engine::general_purpose::STANDARD.encode(bytes))
         }
 

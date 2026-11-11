@@ -14,8 +14,12 @@ historical prices, and exchange ledgers built with Dioxus
   convert the history into the default fiat currency.
 - Run Local-first in the browser with SQLite in a SharedWorker, or point the
   same PWA at a remote Address Explorer server.
+- Optionally encrypt the active local or remote database at rest with a
+  password. The password is never stored; losing it requires erasing the
+  encrypted data.
 - Export, import, and reset the active local or remote database from
-  **Settings → General → Data**. Exported SQLite files are unencrypted.
+  **Settings → General → Data**. Exported SQLite files are always plaintext
+  so they can be moved between installations.
 - Use the installed PWA offline after the first load, on current browsers with
   SharedWorker and service-worker support.
 
@@ -90,6 +94,8 @@ transports, see [`docs/architecture.md`](docs/architecture.md).
 
 - [Architecture](docs/architecture.md) — build, deployment, and transport
   diagrams.
+- [Encryption](docs/ENCRYPTION.md) — database encryption, password handling,
+  idle locking, and recovery limits.
 - [Building](docs/BUILDING.md) — toolchains, commands, bundle matrix, and
   troubleshooting.
 - [Deployment](docs/deployment.md) — PWA hosting and the optional remote

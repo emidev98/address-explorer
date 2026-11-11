@@ -2,10 +2,12 @@
 use crate::api::settings::{
     get_default_fiat_currency_api, get_interface_settings_api, get_theme_api,
 };
-use crate::components::theme::{apply as apply_theme, attribute_script, FontFaces};
+use crate::components::theme::{
+    apply as apply_theme, attribute_script, default_attribute_script, FontFaces,
+};
 use crate::components::{
     use_toast, use_toast_provider, AppShell, BackendSettingsContext, FiatCurrency,
-    InterfaceSettingsContext, ToastHost,
+    InterfaceSettingsContext, ToastHost, VaultGate,
 };
 use crate::domain::interface_settings::InterfaceSettings;
 use crate::domain::price::USD_SYMBOL;
@@ -50,6 +52,7 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 #[component]
 pub fn Root() -> Element {
     rsx! {
+        DocumentHead {}
         RootContent {}
     }
 }
@@ -59,6 +62,17 @@ pub fn Root() -> Element {
 #[cfg(all(target_arch = "wasm32", feature = "web-client"))]
 #[component]
 pub fn Root() -> Element {
+    rsx! {
+        DocumentHead {}
+        WebBootGate {}
+    }
+}
+
+/// Web boot gate: initialize the browser worker or verify the remote server
+/// before mounting any screen that reads data.
+#[cfg(all(target_arch = "wasm32", feature = "web-client"))]
+#[component]
+fn WebBootGate() -> Element {
     use crate::backend::{self, BackendConfig, BackendMode};
 
     #[derive(Clone, PartialEq)]
@@ -178,6 +192,32 @@ pub fn Root() -> Element {
     }
 }
 
+/// Static document resources mounted outside the web boot gate and vault gate.
+/// They must stay in the document while the loading, failure, and locked
+/// screens are shown, because those screens render instead of `App`.
+#[component]
+fn DocumentHead() -> Element {
+    let register_service_worker = cfg!(all(target_arch = "wasm32", not(debug_assertions)));
+    rsx! {
+        document::Script { "{default_attribute_script()}" }
+        document::Link { rel: "manifest", href: "/manifest.webmanifest" }
+        document::Link { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" }
+        document::Meta { name: "theme-color", content: "#005a5a" }
+        document::Meta { name: "apple-mobile-web-app-capable", content: "yes" }
+        document::Meta {
+            name: "apple-mobile-web-app-status-bar-style",
+            content: "black-translucent",
+        }
+        FontFaces {}
+        document::Link { rel: "icon", href: FAVICON }
+        document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Link { rel: "stylesheet", href: TAILWIND_CSS }
+        if register_service_worker {
+            document::Script { src: "/sw-register.js" }
+        }
+    }
+}
+
 /// Shared root content: backend preference context, reload state, and the app.
 #[component]
 fn RootContent() -> Element {
@@ -202,7 +242,7 @@ fn RootContent() -> Element {
     });
 
     rsx! {
-        App { key: "{reload_generation}" }
+        VaultGate { generation: reload_generation() }
         if reloading() {
             div {
                 style: "position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface);",
@@ -264,7 +304,6 @@ pub fn App() -> Element {
     });
     use_effect(move || apply_theme(theme()));
     use_context_provider(|| theme);
-    let register_service_worker = cfg!(all(target_arch = "wasm32", not(debug_assertions)));
     let mut fiat_currency = use_signal(|| initial_currency);
     let mut currency_loaded = use_signal(|| false);
     use_effect(move || {
@@ -337,21 +376,6 @@ pub fn App() -> Element {
     });
     rsx! {
         document::Script { "{attribute_script(initial_theme)}" }
-        document::Link { rel: "manifest", href: "/manifest.webmanifest" }
-        document::Link { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png" }
-        document::Meta { name: "theme-color", content: "#005a5a" }
-        document::Meta { name: "apple-mobile-web-app-capable", content: "yes" }
-        document::Meta {
-            name: "apple-mobile-web-app-status-bar-style",
-            content: "black-translucent",
-        }
-        FontFaces {}
-        document::Link { rel: "icon", href: FAVICON }
-        document::Link { rel: "stylesheet", href: MAIN_CSS }
-        document::Link { rel: "stylesheet", href: TAILWIND_CSS }
-        if register_service_worker {
-            document::Script { src: "/sw-register.js" }
-        }
         Router::<Route> {}
         ToastHost {}
     }

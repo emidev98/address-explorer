@@ -74,6 +74,21 @@ pub fn attribute_script(preference: ThemePreference) -> String {
         preference.mode.as_str(),
     )
 }
+/// Build the inline script that supplies the default palette and mode only
+/// when the document does not have them yet. This keeps the boot and locked
+/// screens on Ocean/Dark without overriding a stored preference that was
+/// already applied.
+pub fn default_attribute_script() -> String {
+    let preference = ThemePreference::default();
+    format!(
+        "(() => {{ const root = document.documentElement; \
+         if (!root.dataset.theme) root.dataset.theme = '{}'; \
+         if (!root.dataset.mode) root.dataset.mode = '{}'; }})();",
+        preference.palette.as_str(),
+        preference.mode.as_str(),
+    )
+}
+
 /// Apply a preference to the document root after the app has loaded.
 pub fn apply(preference: ThemePreference) {
     document::eval(&attribute_script(preference));
@@ -91,6 +106,15 @@ mod tests {
         assert!(script.contains("dataset.theme = 'forest'"));
         assert!(script.contains("dataset.mode = 'dark'"));
     }
+    #[test]
+    fn default_theme_script_only_fills_missing_attributes() {
+        let script = default_attribute_script();
+        assert!(script.contains("if (!root.dataset.theme)"));
+        assert!(script.contains("dataset.theme = 'ocean'"));
+        assert!(script.contains("if (!root.dataset.mode)"));
+        assert!(script.contains("dataset.mode = 'dark'"));
+    }
+
     #[test]
     fn font_faces_declare_the_bundled_families() {
         let css = font_face_css();

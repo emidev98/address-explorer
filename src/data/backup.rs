@@ -36,6 +36,81 @@ pub fn has_sqlite_header(bytes: &[u8]) -> bool {
     bytes.starts_with(b"SQLite format 3\0")
 }
 
+/// Column names of an application table, quoted for a fixed-schema copy.
+#[cfg(target_arch = "wasm32")]
+fn quoted_columns(connection: &Connection, table: &str) -> Result<String, DatabaseError> {
+    let mut statement = connection.prepare(&format!("PRAGMA main.table_info({table})"))?;
+    let names = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if names.is_empty() {
+        return Err(DatabaseError::new(format!(
+            "the encrypted database is missing table {table}"
+        )));
+    }
+    Ok(names
+        .into_iter()
+        .map(|name| format!("\"{}\"", name.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(", "))
+}
+
+/// Copy every application table from a plaintext database into an encrypted
+/// connection whose schema already exists.
+///
+/// SQLCipher and SQLite3MC both reject the backup API between plaintext and
+/// encrypted databases, so the conversion uses one attached plaintext schema
+/// and explicitly copies the fixed application tables. Data migrations are
+/// cleared first because the target schema was created through the normal
+/// migration list.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn copy_plaintext_into_encrypted(
+    plaintext_path: &str,
+    target: &mut Connection,
+) -> Result<(), DatabaseError> {
+    let escaped = plaintext_path.replace('\'', "''");
+    target.pragma_update(None, "foreign_keys", false)?;
+    let result = (|| -> Result<(), DatabaseError> {
+        target.execute_batch(&format!(
+            "ATTACH DATABASE '{}' AS plaintext KEY '';",
+            escaped
+        ))?;
+        for table in APPLICATION_TABLES {
+            target.execute(&format!("DELETE FROM main.{table}"), [])?; // allow-sql-format: fixed table allowlist.
+        }
+        let sequence_exists: i64 = target.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence'",
+            [],
+            |row| row.get(0),
+        )?;
+        if sequence_exists > 0 {
+            target.execute("DELETE FROM main.sqlite_sequence", [])?;
+        }
+        let version: i32 =
+            target.pragma_query_value(Some("plaintext"), "user_version", |row| row.get(0))?;
+        for table in APPLICATION_TABLES {
+            let columns = quoted_columns(target, table)?;
+            // allow-sql-format: tables come from APPLICATION_TABLES and columns from the schema.
+            target.execute(
+                &format!( // allow-sql-format: tables come from APPLICATION_TABLES and columns from the schema.
+                    "INSERT INTO main.\"{table}\" ({columns}) SELECT {columns} FROM plaintext.\"{table}\""
+                ),
+                [],
+            )?;
+        }
+        target.pragma_update(None, "user_version", version)?;
+        target.execute_batch("DETACH DATABASE plaintext;")?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = target.execute_batch("DETACH DATABASE plaintext;");
+    }
+    target.pragma_update(None, "foreign_keys", true)?;
+    result?;
+    foreign_key_check(target)?;
+    Ok(())
+}
+
 /// Run SQLite's integrity check and turn a failed check into a clear error.
 pub fn integrity_check(connection: &Connection) -> Result<(), DatabaseError> {
     let result: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
@@ -103,16 +178,14 @@ mod files {
     const BUSY_RETRIES: usize = 6;
     const BUSY_SLEEP: Duration = Duration::from_millis(100);
 
-    /// Export a consistent copy of the live database.
+    /// Export a consistent, plaintext SQLite copy of the live database.
+    ///
+    /// SQLCipher's serializer decrypts the pages in memory, so an encrypted
+    /// database produces the same portable plaintext backup as before.
     pub fn export_to_bytes(database: &Database) -> Result<Vec<u8>, DatabaseError> {
-        let directory = temp_directory(database);
-        fs::create_dir_all(&directory)?;
-        let temporary = TempPath::new(directory, "export");
-        {
-            let connection = database.connection()?;
-            backup_database(&connection, temporary.path())?;
-        }
-        let bytes = fs::read(temporary.path())?;
+        let connection = database.connection()?;
+        let data = connection.serialize(MAIN_DB)?;
+        let bytes = data.to_vec();
         if !has_sqlite_header(&bytes) {
             return Err(DatabaseError::new(
                 "the exported database is not a valid SQLite file",
@@ -125,6 +198,7 @@ mod files {
     ///
     /// The live database is backed up first. Any failure restores that safety
     /// copy so a rejected import never destroys the current data.
+    #[allow(dead_code)]
     pub fn import_from_bytes(database: &Database, bytes: &[u8]) -> Result<(), DatabaseError> {
         if bytes.is_empty() {
             return Err(DatabaseError::new("the selected SQLite file is empty"));
@@ -160,6 +234,7 @@ mod files {
     }
 
     /// Replace the live database with a freshly migrated and seeded database.
+    #[allow(dead_code)]
     pub fn reset_to_defaults(database: &Database) -> Result<(), DatabaseError> {
         let directory = temp_directory(database);
         fs::create_dir_all(&directory)?;
@@ -188,6 +263,7 @@ mod files {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn validate_candidate(path: &Path) -> Result<(), DatabaseError> {
         precheck_candidate(path)?;
         let candidate = Database::open_path(path)?;
@@ -200,9 +276,15 @@ mod files {
 
     /// Reject files that are not an older or current Address Explorer backup
     /// before the migration runner gets a chance to create tables in them.
-    fn precheck_candidate(path: &Path) -> Result<(), DatabaseError> {
+    #[allow(dead_code)]
+    pub(crate) fn precheck_candidate(path: &Path) -> Result<(), DatabaseError> {
         let connection = Connection::open(path)?;
         connection.pragma_update(None, "foreign_keys", true)?;
+        precheck_connection(&connection)
+    }
+
+    /// Validate an already open plaintext backup connection.
+    pub(crate) fn precheck_connection(connection: &Connection) -> Result<(), DatabaseError> {
         let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if version <= 0 {
             return Err(DatabaseError::new(
@@ -224,10 +306,11 @@ mod files {
                 "the selected file is not an Address Explorer backup",
             ));
         }
-        integrity_check(&connection)?;
+        integrity_check(connection)?;
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn backup_database(connection: &Connection, path: &Path) -> Result<(), DatabaseError> {
         for attempt in 0..BUSY_RETRIES {
             match connection.backup(MAIN_DB, path, None) {
@@ -243,6 +326,7 @@ mod files {
         ))
     }
 
+    #[allow(dead_code)]
     fn restore_database(connection: &mut Connection, path: &Path) -> Result<(), DatabaseError> {
         for attempt in 0..BUSY_RETRIES {
             match connection.restore(MAIN_DB, path, None::<fn(rusqlite::backup::Progress)>) {
@@ -258,6 +342,7 @@ mod files {
         ))
     }
 
+    #[allow(dead_code)]
     fn is_busy(error: &rusqlite::Error) -> bool {
         matches!(
             error,
@@ -269,6 +354,7 @@ mod files {
         )
     }
 
+    #[allow(dead_code)]
     fn temp_directory(database: &Database) -> PathBuf {
         if let Some(parent) = database.path().and_then(Path::parent) {
             if !parent.as_os_str().is_empty() {
@@ -319,7 +405,11 @@ mod files {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use files::{export_to_bytes, import_from_bytes, reset_to_defaults};
+pub use files::export_to_bytes;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use files::precheck_connection;
+#[cfg(test)]
+pub use files::{import_from_bytes, reset_to_defaults};
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {

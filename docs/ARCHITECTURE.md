@@ -356,13 +356,22 @@ address catalog. The browser worker fetches `/btc_usd.bin` and imports it when
 the database is new or its `user_version` is below the price-seed migration.
 The same migration list and `CURRENT_SCHEMA_VERSION` are used on every target.
 
-Export produces an ordinary SQLite snapshot. Native/server import checks the
-SQLite header before replacing the live database. Browser import decodes the
-base64 file, imports it into the VFS, then validates `PRAGMA integrity_check`,
+An optional encryption vault protects the database at rest. Native and server
+builds use SQLCipher; the browser worker uses SQLite3MC's SQLCipher-compatible
+codec. Argon2id derives a 256-bit raw key from the password, and the public
+16-byte salt is the SQLCipher header salt. The key is kept in zeroizing memory
+only while unlocked and is discarded after the configured idle timeout or an
+explicit lock. The password itself is never stored. See
+[`ENCRYPTION.md`](ENCRYPTION.md).
+
+Export produces an ordinary plaintext SQLite snapshot, including from an
+encrypted database. Native/server import checks the SQLite header, validates
+the candidate, migrates it, and writes it into the active database. Browser
+import decodes the base64 file, validates `PRAGMA integrity_check`,
 `user_version > 0`, the `setting` table, the migration chain, the current
-schema, and foreign keys. A rejected import restores the previous database.
-There is no backup file-size limit; the export dialog limits only the
-normalized file name.
+schema, and foreign keys, then writes it into the active database. A rejected
+import restores the previous database. There is no backup file-size limit; the
+export dialog limits only the normalized file name.
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the normative backup, migration,
 and commit-barrier rules.
@@ -375,6 +384,8 @@ and commit-barrier rules.
   troubleshooting.
 - [`deployment.md`](deployment.md) — PWA hosting, server tarball/container,
   environment, CORS, security, and backups.
+- [`ENCRYPTION.md`](ENCRYPTION.md) — database encryption, key handling, idle
+  locking, and recovery limits.
 - [`release.md`](release.md) — release validation, artifacts, Vercel, and
   changelog.
 - [`installation.md`](installation.md) — end-user installation notes.

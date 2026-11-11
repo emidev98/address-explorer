@@ -320,6 +320,31 @@ pub fn validate_base_url(input: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
+/// Reject sending a password to a remote backend over plain HTTP.
+///
+/// Loopback HTTP is allowed for local development; every other remote origin
+/// must use HTTPS so the password cannot be observed on the network.
+pub fn remote_password_transport_error() -> Option<String> {
+    if !is_remote() {
+        return None;
+    }
+    let url = remote_base_url()?;
+    let Ok(parsed) = reqwest::Url::parse(&url) else {
+        return Some("The remote backend URL is invalid.".to_string());
+    };
+    if parsed.scheme() == "https" {
+        return None;
+    }
+    let host = parsed.host_str().unwrap_or_default();
+    if parsed.scheme() == "http" && matches!(host, "localhost" | "127.0.0.1" | "::1") {
+        return None;
+    }
+    Some(
+        "Refusing to send a database password over plain HTTP. Use an HTTPS remote server."
+            .to_string(),
+    )
+}
+
 /// True when a URL is plain HTTP to a non-loopback/non-private host. The
 /// Settings UI uses this to show a warning without blocking the choice.
 pub fn uses_insecure_remote_http(base_url: &str) -> bool {

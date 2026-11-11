@@ -1156,6 +1156,11 @@ select.md3-input option {
     white-space: nowrap;
 }
 
+/* Every body row of the account-detail ledger opens the transaction editor. */
+.md3-exchange-transactions-table tbody tr {
+    cursor: pointer;
+}
+
 .md3-exchange-row {
     cursor: pointer;
 }
@@ -1575,12 +1580,17 @@ select.md3-input option {
     max-width: 20rem;
 }
 
-/* Appearance mode sits between the palette picker and the navigation group, so
-   it stays on the card surface instead of a tile. */
-.md3-theme-appearance {
+/* The palette picker and appearance chips share one row so the card stays
+   compact; the chips wrap under the picker when the row runs out of width. */
+.md3-theme-controls {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+}
+
+.md3-theme-controls .md3-select {
+    flex: 0 1 20rem;
 }
 
 .md3-scoring-grid {

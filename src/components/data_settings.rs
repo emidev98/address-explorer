@@ -285,7 +285,7 @@ pub fn DataSettingsSection() -> Element {
     };
 
     rsx! {
-        section { class: "md3-settings-section",
+        section { class: "md3-settings-section md3-settings-span",
             div {
                 h3 { class: "text-title-medium leading-title-medium text-on-surface",
                     "Data"
@@ -360,7 +360,7 @@ pub fn DataSettingsSection() -> Element {
                     "Safety"
                 }
                 p { class: "text-body-medium text-on-surface-variant",
-                    "Ask before deleting or replacing data."
+                    "Show a confirmation dialog before removing addresses, exchange accounts, exchange transactions, catalog entries, or stored prices. When this is off, those deletes run immediately. Importing, replacing, or clearing the database always asks for confirmation."
                 }
             }
             Checkbox {

@@ -9,6 +9,8 @@ pub mod addresses;
 pub mod catalogs;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod database_backup;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod encryption;
 pub mod exchange_fiat;
 pub mod exchanges;
 pub mod flow;

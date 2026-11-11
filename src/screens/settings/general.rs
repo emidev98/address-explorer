@@ -5,13 +5,14 @@ use crate::api::settings::{
 };
 use crate::components::{
     use_fiat_currency, use_interface_settings, use_toast, BackendSettingsSection, Checkbox,
-    DataSettingsSection, FiatCurrency, InterfaceSettingsContext, PageHeader, Toast, ToastKind,
+    DataSettingsSection, EncryptionSettings, FiatCurrency, InterfaceSettingsContext, PageHeader,
+    Toast, ToastKind,
 };
 use crate::domain::interface_settings::NavigationPosition;
 use crate::domain::price::{CurrencyHistorySummary, FIAT_CURRENCIES, USD_SYMBOL};
 use crate::domain::theme::{ThemeMode, ThemePalette, ThemePreference};
 use dioxus::prelude::*;
-/// General settings: theme, currency, interface hints, backend, and data.
+/// General settings: theme, currency, interface hints, backend, encryption, and data.
 #[component]
 pub fn SettingsGeneral() -> Element {
     let toast = use_toast();
@@ -36,21 +37,17 @@ pub fn SettingsGeneral() -> Element {
                         "Choose a Material 3 color palette and appearance. Your selection is saved automatically."
                     }
                 }
-                ThemePaletteSelect {
-                    value: theme().palette,
-                    disabled: *saving.read(),
-                    on_select: move |palette| {
-                        let next = ThemePreference {
-                            palette,
-                            ..theme()
-                        };
-                        persist_theme(theme, saving, toast, next);
-                    },
-                }
-                hr { class: "md3-divider" }
-                div { class: "md3-theme-appearance",
-                    h4 { class: "text-title-small leading-title-small text-on-surface",
-                        "Appearance"
+                div { class: "md3-theme-controls",
+                    ThemePaletteSelect {
+                        value: theme().palette,
+                        disabled: *saving.read(),
+                        on_select: move |palette| {
+                            let next = ThemePreference {
+                                palette,
+                                ..theme()
+                            };
+                            persist_theme(theme, saving, toast, next);
+                        },
                     }
                     div {
                         class: "md3-chip-group",
@@ -163,6 +160,9 @@ pub fn SettingsGeneral() -> Element {
                 }
             }
             BackendSettingsSection {}
+            section { class: "md3-settings-section",
+                EncryptionSettings {}
+            }
             DataSettingsSection {}
         }
     }

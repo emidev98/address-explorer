@@ -1232,9 +1232,6 @@
     padding-top: 1rem;
     border-top: 1px solid var(--md-sys-color-outline-variant);
   }
-  .md3-nav-panel-settings-bottom .md3-nav-panel-settings {
-    margin-top: auto;
-  }
   .md3-nav-panel-label {
     display: flex;
     align-items: center;
@@ -1258,44 +1255,33 @@
   .md3-nav-panel-compact .md3-nav-panel-primary {
     width: 100%;
   }
-  .md3-nav-panel-compact .md3-nav-panel-link, .md3-nav-compact-settings-toggle {
+  .md3-nav-panel-compact .md3-nav-panel-link {
     justify-content: center;
     width: 3rem;
     margin-inline: auto;
     padding-inline: 0;
   }
-  .md3-nav-compact-settings-toggle {
-    padding-block: 0;
-    border: 0;
-    background-color: transparent;
-    font: inherit;
-    cursor: pointer;
-  }
-  .md3-nav-panel-compact-settings {
-    display: flex;
-    flex-direction: column;
-    margin-top: auto;
-    padding-top: 1rem;
-    border-top: 1px solid var(--md-sys-color-outline-variant);
-  }
   .md3-side-nav-footer {
+    position: relative;
     display: flex;
     flex: none;
+    gap: 0.25rem;
   }
-  .md3-side-nav-compress {
+  .md3-side-nav-footer-action {
+    position: relative;
     display: flex;
+    flex: 1 1 0;
     align-items: center;
-    gap: 0.75rem;
-    width: 100%;
+    justify-content: center;
+    min-width: 0;
     min-height: 3rem;
     padding-block: 0;
-    padding-inline: 1rem;
+    padding-inline: 0.75rem;
     border: 0;
     border-radius: var(--radius-md3-full);
     background-color: transparent;
     color: var(--md-sys-color-on-surface-variant);
     font: inherit;
-    text-align: start;
     cursor: pointer;
     touch-action: manipulation;
     font-size: var(--text-label-large);
@@ -1304,35 +1290,75 @@
     font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
     transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
   }
-  .md3-side-nav-compress:hover:not(:disabled) {
+  .md3-side-nav-footer-action:hover:not(:disabled) {
     background-color: var(--md-sys-color-on-surface);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
     }
     color: var(--md-sys-color-on-surface);
   }
-  .md3-side-nav-compress:disabled {
+  .md3-side-nav-footer-action.active, .md3-side-nav-footer-action.active:hover:not(:disabled) {
+    background-color: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .md3-side-nav-footer-action:disabled {
     cursor: not-allowed;
     opacity: 0.38;
   }
-  .md3-side-nav-compress-rail {
-    justify-content: center;
+  .md3-side-nav-footer-action::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 0.5rem);
+    left: 50%;
+    z-index: 1;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-md3-xs);
+    background-color: var(--md-sys-color-inverse-surface);
+    color: var(--md-sys-color-inverse-on-surface);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(-50%);
+    font-size: var(--text-body-small);
+    line-height: var(--tw-leading, var(--text-body-small--line-height));
+    letter-spacing: var(--tw-tracking, var(--text-body-small--letter-spacing));
+    font-weight: var(--tw-font-weight, var(--text-body-small--font-weight));
+    transition: opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+  }
+  .md3-side-nav-footer-action:hover::after, .md3-side-nav-footer-action:focus-visible::after {
+    opacity: 1;
+    visibility: visible;
+  }
+  .md3-app-shell[data-side-nav-collapsed="true"] .md3-side-nav-footer {
+    flex-direction: column;
+    align-items: center;
+    padding-top: 1rem;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .md3-app-shell[data-side-nav-collapsed="true"] .md3-side-nav-footer-action {
+    flex: none;
     width: 3rem;
-    margin-inline: auto;
     padding-inline: 0;
+  }
+  .md3-app-shell[data-side-nav-collapsed="true"] .md3-side-nav-footer-action::after {
+    top: 50%;
+    bottom: auto;
+    left: calc(100% + 0.5rem);
+    transform: translateY(-50%);
   }
   .md3-nav-compact-settings-backdrop {
     position: fixed;
     inset-block: 0;
-    inset-inline-start: var(--md3-side-nav-rail-width);
+    inset-inline-start: var(--md3-side-nav-width);
     inset-inline-end: 0;
     z-index: 49;
     background-color: transparent;
   }
   .md3-nav-compact-settings-menu {
-    position: fixed;
-    bottom: calc(1.25rem + 3rem + 1.25rem);
-    inset-inline-start: calc(var(--md3-side-nav-rail-width) + 0.5rem);
+    position: absolute;
+    bottom: calc(100% + 0.5rem);
+    inset-inline-start: calc(var(--md3-side-nav-width) - 0.25rem);
     z-index: 50;
     display: flex;
     flex-direction: column;
@@ -1345,6 +1371,9 @@
     border-radius: var(--radius-md3-lg);
     background-color: var(--md-sys-color-surface-container-high);
     box-shadow: var(--md-sys-elevation-2);
+  }
+  .md3-app-shell[data-side-nav-collapsed="true"] .md3-nav-compact-settings-menu {
+    max-height: min(20rem, calc(100dvh - 13.5rem));
   }
   .md3-nav-compact-settings-item {
     display: flex;
@@ -2249,6 +2278,7 @@
     background-color: transparent;
     color: var(--md-sys-color-on-surface-variant);
     white-space: nowrap;
+    cursor: pointer;
     font-size: var(--text-label-large);
     line-height: var(--tw-leading, var(--text-label-large--line-height));
     letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
@@ -2260,6 +2290,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
     }
+  }
+  .md3-chip:disabled {
+    cursor: not-allowed;
   }
   .md3-chip-selected {
     border-color: transparent;
@@ -2304,6 +2337,7 @@
     height: 2.5rem;
     border-radius: var(--radius-md3-full);
     color: var(--md-sys-color-on-surface-variant);
+    cursor: pointer;
     transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
   }
   .md3-icon-button:hover:not(:disabled) {
@@ -2379,6 +2413,7 @@
     box-shadow: inset 0 -1px 0 var(--md-sys-color-on-surface-variant);
     color: var(--md-sys-color-on-surface);
     text-align: start;
+    cursor: pointer;
     font-size: var(--text-body-medium);
     line-height: var(--text-body-medium--line-height);
     letter-spacing: var(--text-body-medium--letter-spacing);
@@ -2466,6 +2501,7 @@
     background: transparent;
     color: var(--md-sys-color-on-surface);
     text-align: start;
+    cursor: pointer;
   }
   .md3-multiselect-option:hover {
     background-color: var(--md-sys-color-on-surface);

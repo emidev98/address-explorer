@@ -21,7 +21,7 @@ fn main() {
 
     #[cfg(feature = "server")]
     if backend::is_local() {
-        if let Err(error) = crate::data::Database::open_default() {
+        if let Err(error) = crate::data::vault::init() {
             eprintln!("database initialization failed: {error}");
         }
     }

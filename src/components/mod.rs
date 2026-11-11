@@ -10,6 +10,7 @@ mod csv_dropzone;
 mod data_settings;
 mod date_picker;
 mod edit_price_dialog;
+mod encryption;
 mod exchange_kpis;
 mod exchanges;
 mod fiat_currency;
@@ -45,6 +46,7 @@ pub use csv_dropzone::CsvDropzone;
 pub use data_settings::DataSettingsSection;
 pub use date_picker::DatePicker;
 pub use edit_price_dialog::EditPriceDialog;
+pub use encryption::{use_encryption, EncryptionContext, EncryptionSettings, VaultGate};
 pub use exchange_kpis::{ExchangeCountKpi, ExchangeKpiGrid};
 pub use exchanges::{
     import_data_summary_message, ExchangeAccountDialog, ExchangeInspector, ExchangeLinkDialog,

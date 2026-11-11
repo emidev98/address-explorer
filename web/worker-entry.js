@@ -23,6 +23,11 @@ self.onconnect = (event) => {
 wasm_bindgen('./worker/address_explorer_web_worker_bg.wasm')
   .then((initialized) => {
     wasm = initialized;
+    setInterval(() => {
+      if (wasm && wasm.vault_tick) {
+        wasm.vault_tick();
+      }
+    }, 1000);
     for (const port of pendingPorts.splice(0)) {
       wasm.connect_port(port);
     }

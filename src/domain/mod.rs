@@ -10,6 +10,7 @@ pub mod civil_time;
 pub mod csv;
 pub mod date_presets;
 pub mod date_selection;
+pub mod encryption;
 pub mod exchange;
 pub mod flow;
 pub mod health;

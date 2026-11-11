@@ -2,6 +2,8 @@
 //!
 //! `Database` owns the single connection behind a mutex so repository calls
 //! stay serialized and blocking work never reaches the UI path.
+#[cfg(not(target_arch = "wasm32"))]
+use super::encryption::{VaultKey, SALT_LEN};
 #[cfg(any(not(target_arch = "wasm32"), test))]
 use super::migrations::run_migrations;
 use rusqlite::Connection;
@@ -104,15 +106,30 @@ impl Database {
         })
     }
 
+    /// Open an existing or new SQLCipher database with a raw Argon2id key.
+    ///
+    /// The key pragma must run before any statement that reads the schema.
+    /// SQLCipher raw-key mode bypasses its own PBKDF2, so unlocking once and
+    /// passing this key per request stays cheap.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn open_default() -> Result<Self, DatabaseError> {
-        Self::open_path(Self::default_path()?)
+    pub fn open_path_with_key(
+        path: impl AsRef<Path>,
+        key: &VaultKey,
+        salt: &[u8; SALT_LEN],
+    ) -> Result<Self, DatabaseError> {
+        let path = path.as_ref().to_path_buf();
+        let mut connection = open_connection_with_key(&path, key, salt)?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        run_migrations(&mut connection, true)?;
+        Ok(Self {
+            connection: std::sync::Arc::new(Mutex::new(connection)),
+            path: Some(path),
+        })
     }
 
     /// Wrap an already configured connection. The browser worker uses this
     /// after installing the relaxed-idb VFS and running migrations. Tests use
     /// it to build file-backed databases without importing the large seeds.
-    #[cfg(any(target_arch = "wasm32", test))]
     pub fn from_connection(connection: Connection) -> Self {
         Self {
             connection: std::sync::Arc::new(Mutex::new(connection)),
@@ -144,12 +161,48 @@ impl Database {
         self.path.as_deref()
     }
 }
+
+/// Open a SQLCipher connection with the public salt and derived raw key.
+/// Used for temporary conversion targets as well as normal opens.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn open_connection_with_key(
+    path: &Path,
+    key: &VaultKey,
+    salt: &[u8; SALT_LEN],
+) -> Result<Connection, DatabaseError> {
+    let connection = Connection::open(path)?;
+    apply_sqlcipher_key(&connection, key, salt)?;
+    connection.pragma_update(None, "foreign_keys", true)?;
+    connection.pragma_update(None, "temp_store", "MEMORY")?;
+    Ok(connection)
+}
+
+/// Configure an already open SQLCipher connection. The compatibility pragma
+/// must precede the key pragma; the schema query verifies the key.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn apply_sqlcipher_key(
+    connection: &Connection,
+    key: &VaultKey,
+    salt: &[u8; SALT_LEN],
+) -> Result<(), DatabaseError> {
+    connection.pragma_update(None, "cipher_compatibility", 4)?;
+    let spec = zeroize::Zeroizing::new(key.key_spec(salt));
+    connection.pragma_update(None, "key", spec.as_str())?;
+    connection.query_row("SELECT COUNT(*) FROM sqlite_master", [], |row| {
+        row.get::<_, i64>(0)
+    })?;
+    Ok(())
+}
+#[cfg(test)]
+pub(crate) static DEFAULT_PATH_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn dev_default_path_uses_target_db() {
-        let path = Database::default_path().unwrap();
+        let _guard = DEFAULT_PATH_TEST_LOCK.lock().unwrap(); // allow-unwrap: test-only lock.
+        let path = Database::default_path().unwrap(); // allow-unwrap: test setup.
         assert!(path.ends_with(DB_FILE_NAME));
         assert!(path.to_string_lossy().contains("target/db"));
     }

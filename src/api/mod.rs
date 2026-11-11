@@ -34,6 +34,11 @@ pub mod cors;
 pub mod data;
 #[cfg_attr(
     all(feature = "web-client", target_arch = "wasm32"),
+    path = "web/encryption.rs"
+)]
+pub mod encryption;
+#[cfg_attr(
+    all(feature = "web-client", target_arch = "wasm32"),
     path = "web/exchanges.rs"
 )]
 pub mod exchanges;
@@ -71,7 +76,7 @@ pub mod version;
 /// Open the application database for one request.
 #[cfg(feature = "server")]
 pub(crate) fn open_database() -> Result<Database, ServerFnError> {
-    Database::open_default().map_err(|error| ServerFnError::new(error.to_string()))
+    crate::data::vault::open_database().map_err(|error| ServerFnError::new(error.to_string()))
 }
 
 #[cfg(all(test, feature = "remote-backend", not(target_arch = "wasm32")))]

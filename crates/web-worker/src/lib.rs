@@ -16,6 +16,7 @@ pub mod domain;
 
 mod db;
 mod rpc;
+mod vault;
 mod worker;
 
 #[wasm_bindgen::prelude::wasm_bindgen(start)]

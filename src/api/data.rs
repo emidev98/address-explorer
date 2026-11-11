@@ -17,6 +17,8 @@ pub async fn export_data_api() -> Result<String, ServerFnError> {
         [],
         crate::api::remote::DATA_TRANSFER_TIMEOUT
     );
+    let _operation = crate::data::vault::begin_operation()
+        .map_err(|error| ServerFnError::new(error.to_string()))?;
     let database = open_database()?;
     let bytes = database_backup::export_database(&database)
         .map_err(|error| ServerFnError::new(error.to_string()))?;
@@ -37,8 +39,10 @@ pub async fn import_data_api(file: String) -> Result<(), ServerFnError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(file.trim())
         .map_err(|_| ServerFnError::new("the backup upload is not valid base64 data"))?;
-    let database = open_database()?;
-    database_backup::import_database(&database, &bytes)
+    let _operation = crate::data::vault::begin_operation()
+        .map_err(|error| ServerFnError::new(error.to_string()))?;
+    crate::data::vault::import_plaintext(&bytes)
+        .map(|_| ())
         .map_err(|error| ServerFnError::new(error.to_string()))
 }
 
@@ -53,7 +57,9 @@ pub async fn clear_data_api() -> Result<(), ServerFnError> {
         [],
         crate::api::remote::DATA_TRANSFER_TIMEOUT
     );
-    let database = open_database()?;
-    database_backup::reset_database(&database)
+    let _operation = crate::data::vault::begin_operation()
+        .map_err(|error| ServerFnError::new(error.to_string()))?;
+    crate::data::vault::reset_to_defaults()
+        .map(|_| ())
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

@@ -1,7 +1,9 @@
+use crate::api::encryption::lock_encryption_api;
 use crate::api::settings::save_side_nav_collapsed_api;
 use crate::app::Route;
 use crate::components::{
-    use_interface_settings, use_toast, Icon, IconName, InterfaceSettingsContext, Toast,
+    use_encryption, use_interface_settings, use_toast, EncryptionContext, Icon, IconName,
+    InterfaceSettingsContext, Toast,
 };
 use crate::navigation::Destination;
 use dioxus::prelude::*;
@@ -57,6 +59,22 @@ fn persist_side_nav_collapsed(
         saving.set(false);
     });
 }
+/// Lock the encrypted database and publish the locked status to the vault gate.
+fn lock_database(encryption: EncryptionContext, mut saving: Signal<bool>, mut toast: Toast) {
+    if *saving.read() {
+        return;
+    }
+    saving.set(true);
+    let mut status = encryption.status;
+    spawn(async move {
+        let result = lock_encryption_api().await;
+        saving.set(false);
+        match result {
+            Ok(saved) => status.set(Some(saved)),
+            Err(error) => toast.error(format!("Could not lock the database: {error}")),
+        }
+    });
+}
 /// One destination link. Expanded presentations show an icon and label;
 /// compact presentations show the icon only, with an accessible label and a
 /// native tooltip.
@@ -95,20 +113,14 @@ fn NavLink(
         }
     }
 }
-/// Full navigation: destinations at the top and Settings beneath them.
-/// `settings_bottom` pins the Settings group to the bottom of the side panel;
-/// the mobile drawer keeps the settings directly after the destinations.
+/// Full navigation: destinations at the top and, in the mobile drawer,
+/// Settings directly after them. The side panel keeps Settings in its footer.
 #[component]
-fn FullNavPanel(current: Route, settings_bottom: bool, on_navigate: EventHandler<()>) -> Element {
+fn FullNavPanel(current: Route, show_settings: bool, on_navigate: EventHandler<()>) -> Element {
     let current_destination = Destination::from_route(&current);
     let settings_active = current_destination.is_some_and(Destination::is_settings);
-    let class = if settings_bottom {
-        "md3-nav-panel md3-nav-panel-settings-bottom"
-    } else {
-        "md3-nav-panel"
-    };
     rsx! {
-        nav { class, aria_label: "Primary",
+        nav { class: "md3-nav-panel", aria_label: "Primary",
             div { class: "md3-nav-panel-primary",
                 for destination in Destination::PRIMARY {
                     NavLink {
@@ -122,40 +134,39 @@ fn FullNavPanel(current: Route, settings_bottom: bool, on_navigate: EventHandler
                     }
                 }
             }
-            div { class: "md3-nav-panel-settings",
-                p { class: if settings_active { "md3-nav-panel-label active" } else { "md3-nav-panel-label" },
-                    {nav_icon(IconName::Settings)}
-                    span { "Settings" }
-                }
-                for destination in Destination::SETTINGS {
-                    NavLink {
-                        to: destination.route(),
-                        label: destination
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .label().to_string(),
-                        icon: None,
-                        active: current_destination ==
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        Some(destination),
-                        compact: false,
-                        nested: true,
-                        on_navigate,
+            if show_settings {
+                div { class: "md3-nav-panel-settings",
+                    p { class: if settings_active { "md3-nav-panel-label active" } else { "md3-nav-panel-label" },
+                        {nav_icon(IconName::Settings)}
+                        span { "Settings" }
+                    }
+                    for destination in Destination::SETTINGS {
+                        NavLink {
+                            to: destination.route(),
+                            label: destination
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .label().to_string(),
+                            icon: None,
+                            active: current_destination ==
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        Some(destination),
+                            compact: false,
+                            nested: true,
+                            on_navigate,
+                        }
                     }
                 }
             }
         }
     }
 }
-/// Compact icon-rail navigation. Settings is a single gear at the bottom; its
-/// flyout is rendered by the shell so the scrolling panel cannot clip it.
+/// Compact icon-rail navigation. The Settings flyout is owned by the shell
+/// footer so both side-panel presentations share the same actions.
 #[component]
 fn CompactNavPanel(
     current: Route,
-    settings_menu_open: bool,
-    on_toggle_settings: EventHandler<()>,
     on_close_settings: EventHandler<()>,
     on_navigate: EventHandler<()>,
 ) -> Element {
     let current_destination = Destination::from_route(&current);
-    let settings_active = current_destination.is_some_and(Destination::is_settings);
     rsx! {
         nav {
             class: "md3-nav-panel md3-nav-panel-compact",
@@ -170,29 +181,13 @@ fn CompactNavPanel(
                     NavLink {
                         to: destination.route(),
                         label: destination
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .label().to_string(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .label().to_string(),
                         icon: Some(destination.icon()),
                         active: current_destination == Some(destination),
                         compact: true,
                         nested: false,
                         on_navigate,
                     }
-                }
-            }
-            div { class: "md3-nav-panel-compact-settings",
-                button {
-                    id: "md3-compact-settings-toggle",
-                    r#type: "button",
-                    class: if settings_active { "md3-nav-panel-link md3-nav-compact-settings-toggle active" } else { "md3-nav-panel-link md3-nav-compact-settings-toggle" },
-                    aria_label: "Settings sections",
-                    aria_haspopup: "menu",
-                    aria_expanded: settings_menu_open
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .to_string(),
-                    aria_controls: "md3-compact-settings-menu",
-                    title: "Settings",
-                    onclick: move |_| on_toggle_settings.call(()),
-                    { nav_icon(IconName::Settings)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        }
                 }
             }
         }
@@ -203,12 +198,20 @@ fn CompactNavPanel(
 /// in a hover/tap dropdown attached to the Settings item. On tablet and wider
 /// windows the same destinations can move into a persistent side panel; on
 /// phones they collapse into a menu button and slide-in drawer. The side
-/// panel can be compressed into an icon rail, with its Settings group pinned
-/// above the compress/expand button in the footer.
+/// panel can be compressed into an icon rail. Its footer exposes Settings,
+/// compress/expand, and, when encryption is on, lock actions. The compact rail
+/// stacks Settings, lock, and compress; the expanded panel shows compress,
+/// lock, and Settings in a row.
 #[component]
 pub fn AppShell() -> Element {
     let current = use_route::<Route>();
     let interface_settings = use_interface_settings();
+    let encryption = use_encryption();
+    let encryption_configured = encryption
+        .status
+        .read()
+        .as_ref()
+        .is_some_and(|status| status.configured);
     let navigation_position = interface_settings.get().navigation_position;
     let side_nav_collapsed = interface_settings.get().side_nav_collapsed;
     let toast = use_toast();
@@ -218,6 +221,7 @@ pub fn AppShell() -> Element {
     let mut compact_settings_menu_open = use_signal(|| false);
     let mut restore_compact_settings_focus = use_signal(|| false);
     let side_nav_saving = use_signal(|| false);
+    let lock_saving = use_signal(|| false);
     let current_destination = Destination::from_route(&current);
     let settings_active = current_destination.is_some_and(Destination::is_settings);
     let general_active = current_destination == Some(Destination::SettingsGeneral);
@@ -242,11 +246,85 @@ pub fn AppShell() -> Element {
         mobile_menu_open.set(false);
         compact_settings_menu_open.set(false);
     });
+    let settings_action = rsx! {
+        button {
+            id: "md3-compact-settings-toggle",
+            r#type: "button",
+            class: if settings_active { "md3-side-nav-footer-action active" } else { "md3-side-nav-footer-action" },
+            aria_label: "Settings sections",
+            aria_haspopup: "menu",
+            aria_expanded: compact_settings_menu_open().to_string(),
+            aria_controls: "md3-compact-settings-menu",
+            "data-tooltip": "Settings",
+            onclick: move |_| {
+                compact_settings_menu_open.set(!compact_settings_menu_open());
+            },
+            {nav_icon(IconName::Settings)}
+        }
+    };
+    let compress_action = rsx! {
+        button {
+            id: "md3-side-nav-compress",
+            r#type: "button",
+            class: "md3-side-nav-footer-action",
+            aria_label: if side_nav_collapsed { "Expand side panel" } else { "Compress side panel" },
+            aria_controls: "md3-side-nav",
+            aria_expanded: (!side_nav_collapsed).to_string(),
+            "data-tooltip": if side_nav_collapsed { "Expand side panel" } else { "Compress side panel" },
+            disabled: *side_nav_saving.read(),
+            onclick: move |_| {
+                compact_settings_menu_open.set(false);
+                persist_side_nav_collapsed(
+                    interface_settings,
+                    side_nav_saving,
+                    toast,
+                    !side_nav_collapsed,
+                );
+            },
+            {
+                nav_icon(
+                    if side_nav_collapsed {
+                        IconName::ChevronRight
+                    } else {
+                        IconName::ChevronLeft
+                    },
+                )
+            }
+        }
+    };
+    let lock_action = encryption_configured.then(|| {
+        rsx! {
+            button {
+                id: "md3-side-nav-lock",
+                r#type: "button",
+                class: "md3-side-nav-footer-action",
+                aria_label: "Lock database",
+                "data-tooltip": "Lock database",
+                disabled: *lock_saving.read(),
+                onclick: move |_| {
+                    compact_settings_menu_open.set(false);
+                    lock_database(encryption, lock_saving, toast);
+                },
+                {nav_icon(IconName::Lock)}
+            }
+        }
+    });
+    let footer_actions: Vec<Element> = if side_nav_collapsed {
+        std::iter::once(settings_action)
+            .chain(lock_action)
+            .chain(std::iter::once(compress_action))
+            .collect()
+    } else {
+        std::iter::once(compress_action)
+            .chain(lock_action)
+            .chain(std::iter::once(settings_action))
+            .collect()
+    };
     rsx! {
         div {
             class: "md3-app-shell",
             "data-nav-position": navigation_position
-                                                                                                                                                                                                                                                                                                                                                                                                                                                        .as_str(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            .as_str(),
             "data-side-nav-collapsed": side_nav_collapsed.to_string(),
             header { class: "md3-top-app-bar",
                 button {
@@ -294,7 +372,7 @@ pub fn AppShell() -> Element {
                                 to: Route::SettingsGeneral {},
                                 aria_current: if general_active { "page" } else { "false" },
                                 onclick: move | _ |
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        settings_menu_open.set(false),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        settings_menu_open.set(false),
                                 "Settings"
                             }
                             button {
@@ -305,7 +383,7 @@ pub fn AppShell() -> Element {
                                 aria_expanded: settings_menu_open().to_string(),
                                 aria_controls: "settings-menu",
                                 onclick: move | _ | settings_menu_open.set(!
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        settings_menu_open()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        settings_menu_open()),
                                 svg {
                                     view_box: "0 0 24 24",
                                     width: "20",
@@ -350,10 +428,6 @@ pub fn AppShell() -> Element {
                 if side_nav_collapsed {
                     CompactNavPanel {
                         current: current.clone(),
-                        settings_menu_open: compact_settings_menu_open(),
-                        on_toggle_settings: move |_| {
-                            compact_settings_menu_open.set(!compact_settings_menu_open());
-                        },
                         on_close_settings: move |_| {
                             close_compact_settings(
                                 compact_settings_menu_open,
@@ -365,11 +439,11 @@ pub fn AppShell() -> Element {
                 } else {
                     FullNavPanel {
                         current: current.clone(),
-                        settings_bottom: true,
+                        show_settings: false,
                         on_navigate: move |_| {},
                     }
                 }
-                if side_nav_collapsed && compact_settings_menu_open() {
+                if compact_settings_menu_open() {
                     div {
                         class: "md3-nav-compact-settings-backdrop",
                         role: "presentation",
@@ -381,72 +455,56 @@ pub fn AppShell() -> Element {
                             );
                         },
                     }
-                    div {
-                        id: "md3-compact-settings-menu",
-                        class: "md3-nav-compact-settings-menu",
-                        role: "menu",
-                        aria_label: "Settings sections",
-                        onkeydown: move |event| {
-                            if event.key() == Key::Escape {
-                                event.prevent_default();
-                                close_compact_settings(
-                                    compact_settings_menu_open,
-                                    restore_compact_settings_focus,
-                                );
-                            }
-                        },
-                        for destination in Destination::SETTINGS {
-                            {
-                                let active = current_destination == Some(destination);
-                                rsx! {
-                                    Link {
-                                        to: destination.route(),
-                                        class: if active { "md3-nav-compact-settings-item active" } else { "md3-nav-compact-settings-item" },
-                                        role: "menuitem",
-                                        aria_current: if active { "page" } else { "false" },
-                                        onclick: move |_| {
-                                            close_compact_settings(
-                                                compact_settings_menu_open,
-                                                restore_compact_settings_focus,
-                                            );
-                                        },
-                                        "{destination.label()}"
+                }
+                div {
+                    class: "md3-side-nav-footer",
+                    onkeydown: move |event| {
+                        if event.key() == Key::Escape && compact_settings_menu_open() {
+                            event.prevent_default();
+                            close_compact_settings(
+                                compact_settings_menu_open,
+                                restore_compact_settings_focus,
+                            );
+                        }
+                    },
+                    for action in footer_actions {
+                        {action}
+                    }
+                    if compact_settings_menu_open() {
+                        div {
+                            id: "md3-compact-settings-menu",
+                            class: "md3-nav-compact-settings-menu",
+                            role: "menu",
+                            aria_label: "Settings sections",
+                            onkeydown: move |event| {
+                                if event.key() == Key::Escape {
+                                    event.prevent_default();
+                                    close_compact_settings(
+                                        compact_settings_menu_open,
+                                        restore_compact_settings_focus,
+                                    );
+                                }
+                            },
+                            for destination in Destination::SETTINGS {
+                                {
+                                    let active = current_destination == Some(destination);
+                                    rsx! {
+                                        Link {
+                                            to: destination.route(),
+                                            class: if active { "md3-nav-compact-settings-item active" } else { "md3-nav-compact-settings-item" },
+                                            role: "menuitem",
+                                            aria_current: if active { "page" } else { "false" },
+                                            onclick: move |_| {
+                                                close_compact_settings(
+                                                    compact_settings_menu_open,
+                                                    restore_compact_settings_focus,
+                                                );
+                                            },
+                                            "{destination.label()}"
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-                div { class: "md3-side-nav-footer",
-                    button {
-                        id: "md3-side-nav-compress",
-                        r#type: "button",
-                        class: if side_nav_collapsed { "md3-side-nav-compress md3-side-nav-compress-rail" } else { "md3-side-nav-compress" },
-                        aria_label: if side_nav_collapsed { "Expand side panel" } else { "Compress side panel" },
-                        aria_controls: "md3-side-nav",
-                        aria_expanded: (!side_nav_collapsed).to_string(),
-                        title: if side_nav_collapsed { "Expand side panel" } else { "Compress side panel" },
-                        disabled: *side_nav_saving.read(),
-                        onclick: move |_| {
-                            compact_settings_menu_open.set(false);
-                            persist_side_nav_collapsed(
-                                interface_settings,
-                                side_nav_saving,
-                                toast,
-                                !side_nav_collapsed,
-                            );
-                        },
-                        {
-                            nav_icon(
-                                if side_nav_collapsed {
-                                    IconName::ChevronRight
-                                } else {
-                                    IconName::ChevronLeft
-                                },
-                            )
-                        }
-                        if !side_nav_collapsed {
-                            span { class: "md3-side-nav-compress-label", "Compress side panel" }
                         }
                     }
                 }
@@ -495,7 +553,7 @@ pub fn AppShell() -> Element {
                 }
                 FullNavPanel {
                     current: current.clone(),
-                    settings_bottom: false,
+                    show_settings: true,
                     on_navigate: move |_| {
                         close_mobile_navigation(mobile_menu_open, restore_mobile_focus);
                     },
