@@ -7,7 +7,6 @@
 use crate::application;
 use crate::db::BrowserDatabase;
 use crate::domain;
-use base64::Engine;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
@@ -62,6 +61,7 @@ pub fn is_write(endpoint: &str) -> bool {
             | "settings.save_show_date_range_support"
             | "settings.save_navigation_position"
             | "settings.save_side_nav_collapsed"
+            | "settings.save_security"
             | "transactions.sync_address"
             | "transactions.sync_addresses"
     )
@@ -439,10 +439,14 @@ pub async fn dispatch(
             )
         }
 
+        // ---- session ----
+        "session.status" => Ok(serde_json::Value::Null),
+
         // ---- health ----
         "health.get" => encode(domain::health::Health {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             api_version: domain::health::API_VERSION,
+            tls_fingerprint: None,
         }),
 
         // ---- prices ----
@@ -595,6 +599,18 @@ pub async fn dispatch(
                     .map_err(|error| error.to_string())?,
             )
         }
+        "settings.get_security" => encode(
+            application::settings::load_security_settings(database)
+                .map_err(|error| error.to_string())?,
+        ),
+        "settings.save_security" => {
+            let settings: domain::security_settings::SecuritySettings =
+                arg(&payload, "settings_value")?;
+            encode(
+                application::settings::save_security_settings(database, &settings)
+                    .map_err(|error| error.to_string())?,
+            )
+        }
 
         // ---- transactions ----
         "transactions.sync_address" => {
@@ -617,12 +633,6 @@ pub async fn dispatch(
         }
 
         // ---- data management ----
-        "data.export" => {
-            db.wait_committed().await?;
-            let bytes = db.export_plaintext()?;
-            encode(base64::engine::general_purpose::STANDARD.encode(bytes))
-        }
-
         other => Err(format!("unknown worker endpoint: {other}")),
     }
 }

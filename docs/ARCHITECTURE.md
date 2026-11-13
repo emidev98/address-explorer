@@ -356,22 +356,24 @@ address catalog. The browser worker fetches `/btc_usd.bin` and imports it when
 the database is new or its `user_version` is below the price-seed migration.
 The same migration list and `CURRENT_SCHEMA_VERSION` are used on every target.
 
-An optional encryption vault protects the database at rest. Native and server
+A mandatory encryption vault protects the database at rest. Native and server
 builds use SQLCipher; the browser worker uses SQLite3MC's SQLCipher-compatible
 codec. Argon2id derives a 256-bit raw key from the password, and the public
-16-byte salt is the SQLCipher header salt. The key is kept in zeroizing memory
-only while unlocked and is discarded after the configured idle timeout or an
-explicit lock. The password itself is never stored. See
-[`ENCRYPTION.md`](ENCRYPTION.md).
+16-byte salt is the SQLCipher header salt. Every build requires a password
+before serving data. The key is kept in zeroizing memory only while unlocked
+and is discarded after the configured inactivity timeout or an explicit lock;
+the same timeout bounds the remote session. The password itself is never
+stored. See [`ENCRYPTION.md`](ENCRYPTION.md).
 
-Export produces an ordinary plaintext SQLite snapshot, including from an
-encrypted database. Native/server import checks the SQLite header, validates
-the candidate, migrates it, and writes it into the active database. Browser
-import decodes the base64 file, validates `PRAGMA integrity_check`,
-`user_version > 0`, the `setting` table, the migration chain, the current
-schema, and foreign keys, then writes it into the active database. A rejected
-import restores the previous database. There is no backup file-size limit; the
-export dialog limits only the normalized file name.
+Export produces an encrypted SQLCipher copy of the active database with a
+separate backup passphrase. Import authenticates and decrypts the backup in
+memory, checks the SQLite header, validates the candidate, migrates it, and
+re-encrypts it into the active database. Browser import decodes the base64
+file, validates `PRAGMA integrity_check`, `user_version > 0`, the `setting`
+table, the migration chain, the current schema, and foreign keys, then writes
+it into the active database. A rejected import restores the previous database.
+The import size is bounded by Security policy, and the schema must match the
+canonical version before migrations run.
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the normative backup, migration,
 and commit-barrier rules.
@@ -384,8 +386,8 @@ and commit-barrier rules.
   troubleshooting.
 - [`deployment.md`](deployment.md) — PWA hosting, server tarball/container,
   environment, CORS, security, and backups.
-- [`ENCRYPTION.md`](ENCRYPTION.md) — database encryption, key handling, idle
-  locking, and recovery limits.
+- [`ENCRYPTION.md`](ENCRYPTION.md) — database encryption, key handling,
+  inactivity locking, and recovery limits.
 - [`release.md`](release.md) — release validation, artifacts, Vercel, and
   changelog.
 - [`installation.md`](installation.md) — end-user installation notes.

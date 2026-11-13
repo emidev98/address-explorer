@@ -9,4 +9,8 @@ pub enum MempoolError {
     /// caller should resume later instead of retrying immediately.
     #[error("mempool API rate limit exceeded")]
     RateLimited,
+    #[error("invalid mempool request path value")]
+    InvalidPath,
+    #[error("the mempool response exceeded the size limit")]
+    ResponseTooLarge,
 }

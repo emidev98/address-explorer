@@ -16,7 +16,7 @@ const SHOW_DATE_RANGE_SUPPORT_KEY: &str = "show_date_range_support";
 const NAVIGATION_POSITION_KEY: &str = "navigation_position";
 const SIDE_NAV_COLLAPSED_KEY: &str = "side_nav_collapsed";
 const ENCRYPTION_IDLE_TIMEOUT_KEY: &str = "encryption_idle_timeout";
-const ENCRYPTION_PROMPT_SEEN_KEY: &str = "encryption_prompt_seen";
+const SECURITY_SETTINGS_KEY: &str = "security_settings";
 /// Key used by the earlier Flow-only helper preference. It is read as a
 /// fallback so an existing preference survives the generic rename; saves
 /// always write [`SHOW_DATE_RANGE_SUPPORT_KEY`].
@@ -142,7 +142,7 @@ pub fn save_side_nav_collapsed(database: &Database, collapsed: bool) -> Result<(
         if collapsed { "true" } else { "false" },
     )
 }
-/// Load the idle-lock preference, defaulting to one hour.
+/// Load the inactivity timeout, defaulting to one hour.
 pub fn load_encryption_idle_timeout(database: &Database) -> Result<IdleTimeout, DatabaseError> {
     let connection = database.connection()?;
     Ok(read_setting(&connection, ENCRYPTION_IDLE_TIMEOUT_KEY)?
@@ -150,7 +150,7 @@ pub fn load_encryption_idle_timeout(database: &Database) -> Result<IdleTimeout, 
         .unwrap_or_default())
 }
 
-/// Persist the idle-lock preference.
+/// Persist the inactivity timeout.
 pub fn save_encryption_idle_timeout(
     database: &Database,
     timeout: IdleTimeout,
@@ -159,22 +159,29 @@ pub fn save_encryption_idle_timeout(
     write_setting(&connection, ENCRYPTION_IDLE_TIMEOUT_KEY, timeout.as_str())
 }
 
-/// Whether the first-run encryption prompt was already answered.
-pub fn load_encryption_prompt_seen(database: &Database) -> Result<bool, DatabaseError> {
+/// Load the stored security policy. A missing or malformed row returns `None`
+/// so the caller can seed the recommended defaults.
+pub fn load_security_settings(
+    database: &Database,
+) -> Result<Option<crate::domain::security_settings::SecuritySettings>, DatabaseError> {
     let connection = database.connection()?;
-    Ok(read_setting(&connection, ENCRYPTION_PROMPT_SEEN_KEY)?
-        .and_then(|value| value.parse::<bool>().ok())
-        .unwrap_or(false))
+    let Some(value) = read_setting(&connection, SECURITY_SETTINGS_KEY)? else {
+        return Ok(None);
+    };
+    Ok(serde_json::from_str(&value)
+        .ok()
+        .map(crate::domain::security_settings::SecuritySettings::with_defaults))
 }
 
-/// Record that the first-run encryption prompt was answered.
-pub fn save_encryption_prompt_seen(database: &Database, seen: bool) -> Result<(), DatabaseError> {
+/// Persist a validated security policy.
+pub fn save_security_settings(
+    database: &Database,
+    settings: &crate::domain::security_settings::SecuritySettings,
+) -> Result<(), DatabaseError> {
+    let value =
+        serde_json::to_string(settings).map_err(|error| DatabaseError::new(error.to_string()))?;
     let connection = database.connection()?;
-    write_setting(
-        &connection,
-        ENCRYPTION_PROMPT_SEEN_KEY,
-        if seen { "true" } else { "false" },
-    )
+    write_setting(&connection, SECURITY_SETTINGS_KEY, &value)
 }
 fn read_setting(connection: &Connection, key: &str) -> Result<Option<String>, DatabaseError> {
     connection
@@ -204,7 +211,6 @@ mod tests {
             load_encryption_idle_timeout(&database).unwrap(), // allow-unwrap: test setup.
             IdleTimeout::OneHour
         );
-        assert!(!load_encryption_prompt_seen(&database).unwrap()); // allow-unwrap: test setup.
         for timeout in IdleTimeout::ALL {
             save_encryption_idle_timeout(&database, timeout).unwrap(); // allow-unwrap: test setup.
             assert_eq!(
@@ -212,8 +218,6 @@ mod tests {
                 timeout
             );
         }
-        save_encryption_prompt_seen(&database, true).unwrap(); // allow-unwrap: test setup.
-        assert!(load_encryption_prompt_seen(&database).unwrap()); // allow-unwrap: test setup.
         database
             .connection()
             .unwrap() // allow-unwrap: test setup.

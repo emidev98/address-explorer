@@ -14,6 +14,7 @@ pub struct CoinMetricsConfig {
     pub protocol: Option<String>,
     pub headers: Option<HeaderMap>,
     pub timeout: Option<Duration>,
+    pub max_response_bytes: usize,
 }
 impl CoinMetricsConfig {
     /// Configuration for the free Community API (`community-api.coinmetrics.io`).
@@ -36,7 +37,8 @@ impl Default for CoinMetricsConfig {
             api_key: None,
             protocol: None,
             headers: None,
-            timeout: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+            max_response_bytes: crate::clients::response::DEFAULT_MAX_RESPONSE_BYTES,
         }
     }
 }

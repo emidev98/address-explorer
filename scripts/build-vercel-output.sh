@@ -22,6 +22,19 @@ cat > "$OUTPUT_DIR/config.json" <<'JSON'
   "version": 3,
   "routes": [
     {
+      "src": "/(.*)",
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains"
+      },
+      "continue": true
+    },
+    {
       "src": "/index.html",
       "headers": { "Cache-Control": "public, max-age=0, must-revalidate" },
       "continue": true

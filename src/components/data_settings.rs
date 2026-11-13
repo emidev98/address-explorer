@@ -4,14 +4,15 @@
 //! the browser worker, the in-process local database, or the remote server; only
 //! the final file destination is platform-specific.
 
-use crate::api::data::{clear_data_api, export_data_api, import_data_api};
-use crate::api::settings::save_confirm_destructive_actions_api;
+use crate::api::data::{clear_data_api, export_encrypted_data_api, import_encrypted_data_api};
+use crate::api::settings::{get_security_settings_api, save_confirm_destructive_actions_api};
 use crate::backend;
 use crate::components::{
     request_app_reload, use_interface_settings, use_toast, BackendSettingsContext, Checkbox,
     ConfirmDialog, Modal, Toast,
 };
 use crate::domain::backup::{normalize_backup_file_name, DEFAULT_BACKUP_FILE_NAME};
+use crate::domain::security_settings::ExportFileMode;
 use base64::Engine;
 use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -53,7 +54,13 @@ pub fn DataSettingsSection() -> Element {
     let mut file_name = use_signal(|| DEFAULT_BACKUP_FILE_NAME.to_string());
     let mut export_error = use_signal(|| Option::<String>::None);
     let mut pending_import = use_signal(|| Option::<PendingImport>::None);
-    let mut import_open = use_signal(|| false);
+    let mut import_encrypted_open = use_signal(|| false);
+    let mut import_passphrase = use_signal(String::new);
+    let mut import_error = use_signal(|| Option::<String>::None);
+    let mut export_passphrase = use_signal(String::new);
+    let mut export_passphrase_confirm = use_signal(String::new);
+    let mut export_mode = use_signal(ExportFileMode::default);
+    let mut password_min = use_signal(|| 12u8);
     let mut clear_open = use_signal(|| false);
     let mut status = use_signal(|| Option::<String>::None);
     let mut error_message = use_signal(|| Option::<String>::None);
@@ -76,16 +83,15 @@ pub fn DataSettingsSection() -> Element {
             "the local database".to_string(),
         )
     };
+    let backup_note = "Exports are encrypted with a separate backup passphrase.";
     let description = if remote {
-        "The active backend is the remote server shown below. Export downloads a copy of its SQLite database, import replaces it, and clear resets it to bundled defaults. These actions affect every user of that server. The exported file is not encrypted."
+        format!("The active backend is the remote server shown below. Export downloads an encrypted backup, import replaces the database, and clear resets it to bundled defaults. These actions affect every user of that server. {backup_note}")
     } else if cfg!(target_arch = "wasm32") {
-        "The active backend is the local database stored in this browser profile with IndexedDB. Persistent storage is requested automatically when Local mode starts; if the browser declines, normal storage limits apply. Export a backup before clearing site data or moving browsers. The exported file is not encrypted."
+        format!("The active backend is the local database stored in this browser profile with IndexedDB. Persistent storage is requested automatically when Local mode starts; if the browser declines, normal storage limits apply. Export a backup before clearing site data or moving browsers. {backup_note}")
     } else {
-        "The active backend is the local SQLite database stored in the application data directory. Export a backup before clearing the data or moving to another device. The exported file is not encrypted."
+        format!("The active backend is the local SQLite database stored in the application data directory. Export a backup before clearing the data or moving to another device. {backup_note}")
     };
-    let export_description = format!(
-        "Export from {source_label}. The file is a standard SQLite database and is not encrypted."
-    );
+    let export_description = format!("Export from {source_label}. {backup_note}");
     let pending_name = {
         let pending = pending_import.read();
         pending.as_ref().map(|pending| pending.file_name.clone())
@@ -106,6 +112,10 @@ pub fn DataSettingsSection() -> Element {
                 storage.set(Some(estimate));
             }
         }
+        if let Ok(settings) = get_security_settings_api().await {
+            export_mode.set(settings.export_file_mode);
+            password_min.set(settings.password_min_length);
+        }
     });
 
     if !backend::local_available() {
@@ -123,21 +133,36 @@ pub fn DataSettingsSection() -> Element {
                 return;
             }
         };
+        let passphrase = export_passphrase();
+        if passphrase.chars().count() < password_min() as usize {
+            export_error.set(Some(format!(
+                "Use a backup passphrase of at least {} characters.",
+                password_min()
+            )));
+            return;
+        }
+        if passphrase != export_passphrase_confirm() {
+            export_error.set(Some("The backup passphrases do not match.".to_string()));
+            return;
+        }
         file_name.set(normalized.clone());
         export_error.set(None);
         error_message.set(None);
         operation.set(DataOperation::Exporting);
         status.set(Some("Preparing the database export…".to_string()));
+        let mode = export_mode();
         let mut operation = operation;
         let mut export_open = export_open;
         let mut export_error = export_error;
         let mut status = status;
         let mut toast = toast;
+        let mut export_passphrase = export_passphrase;
+        let mut export_passphrase_confirm = export_passphrase_confirm;
         spawn(async move {
-            let exported = export_data_api().await;
+            let exported = export_encrypted_data_api(passphrase.into()).await;
             let result = match exported {
                 Ok(encoded) => match base64::engine::general_purpose::STANDARD.decode(encoded) {
-                    Ok(bytes) => save_export(&normalized, &bytes),
+                    Ok(bytes) => save_export(&normalized, &bytes, mode),
                     Err(_) => Err("Could not decode the exported database.".to_string()),
                 },
                 Err(error) => Err(format!("Could not export the database: {error}")),
@@ -146,6 +171,8 @@ pub fn DataSettingsSection() -> Element {
             match result {
                 Ok(message) => {
                     export_open.set(false);
+                    export_passphrase.set(String::new());
+                    export_passphrase_confirm.set(String::new());
                     status.set(None);
                     toast.success(message);
                 }
@@ -167,12 +194,13 @@ pub fn DataSettingsSection() -> Element {
             return;
         };
         error_message.set(None);
+        import_error.set(None);
         operation.set(DataOperation::Reading);
         status.set(Some("Reading the selected backup…".to_string()));
         let key = import_key();
         let mut operation = operation;
         let mut pending_import = pending_import;
-        let mut import_open = import_open;
+        let mut import_encrypted_open = import_encrypted_open;
         let mut import_key = import_key;
         let mut status = status;
         let mut error_message = error_message;
@@ -184,7 +212,8 @@ pub fn DataSettingsSection() -> Element {
             match result {
                 Ok((file_name, encoded)) => {
                     pending_import.set(Some(PendingImport { file_name, encoded }));
-                    import_open.set(true);
+                    import_passphrase.set(String::new());
+                    import_encrypted_open.set(true);
                     status.set(None);
                 }
                 Err(message) => {
@@ -196,43 +225,57 @@ pub fn DataSettingsSection() -> Element {
         });
     };
 
-    let confirm_import = move |_| {
+    let confirm_import = EventHandler::new(move |_: ()| {
         if operation() != DataOperation::Idle {
             return;
         }
         let Some(pending) = pending_import() else {
             return;
         };
-        import_open.set(false);
-        pending_import.set(None);
+        let passphrase = import_passphrase();
+        if !backup_passphrase_present(&passphrase) {
+            import_error.set(Some("Enter the backup passphrase.".to_string()));
+            return;
+        }
+        import_error.set(None);
         error_message.set(None);
         operation.set(DataOperation::Importing);
         status.set(Some("Importing the database…".to_string()));
         let encoded = pending.encoded;
         let mut operation = operation;
         let mut status = status;
-        let mut error_message = error_message;
+        let error_message = error_message;
+        let mut import_encrypted_open = import_encrypted_open;
+        let mut pending_import = pending_import;
+        let mut import_passphrase = import_passphrase;
+        let mut import_error = import_error;
         let mut toast = toast;
         spawn(async move {
-            match import_data_api(encoded).await {
-                Ok(()) => reload_after_data_change(
-                    context,
-                    operation,
-                    status,
-                    error_message,
-                    toast,
-                    "Database imported.",
-                ),
+            match import_encrypted_data_api(encoded, passphrase.into()).await {
+                Ok(()) => {
+                    import_encrypted_open.set(false);
+                    pending_import.set(None);
+                    import_passphrase.set(String::new());
+                    import_error.set(None);
+                    reload_after_data_change(
+                        context,
+                        operation,
+                        status,
+                        error_message,
+                        toast,
+                        "Database imported.",
+                    );
+                }
                 Err(failure) => {
                     operation.set(DataOperation::Idle);
                     status.set(None);
                     let message = format!("Could not import the database: {failure}");
-                    error_message.set(Some(message.clone()));
+                    import_error.set(Some(message.clone()));
                     toast.error(message);
                 }
             }
         });
-    };
+    });
 
     let confirm_clear = move |_| {
         if operation() != DataOperation::Idle {
@@ -292,6 +335,9 @@ pub fn DataSettingsSection() -> Element {
                 }
                 p { class: "text-body-medium text-on-surface-variant", "{description}" }
                 p { class: "text-body-small text-on-surface-variant", "Active source: {source_label}" }
+                p { class: "text-body-small text-on-surface-variant",
+                    "Privacy: tracked addresses are sent to mempool.space or your configured mempool endpoint, which can link them as one wallet. See docs/PRIVACY.md."
+                }
             }
             if !remote {
                 if let Some((usage, quota)) = storage() {
@@ -360,7 +406,7 @@ pub fn DataSettingsSection() -> Element {
                     "Safety"
                 }
                 p { class: "text-body-medium text-on-surface-variant",
-                    "Show a confirmation dialog before removing addresses, exchange accounts, exchange transactions, catalog entries, or stored prices. When this is off, those deletes run immediately. Importing, replacing, or clearing the database always asks for confirmation."
+                    "Show a confirmation dialog before removing addresses, exchange accounts, exchange transactions, catalog entries, or stored prices. When this is off, deletes that remove no related data run immediately; deletes that would cascade still ask for confirmation. Importing, replacing, or clearing the database always asks for confirmation."
                 }
             }
             Checkbox {
@@ -430,6 +476,41 @@ pub fn DataSettingsSection() -> Element {
                         },
                     }
                 }
+                p { class: "text-body-small text-on-surface-variant",
+                    "The backup is encrypted with a separate passphrase. It cannot be recovered if you forget it."
+                }
+                label {
+                    class: "text-body-medium text-on-surface-variant",
+                    r#for: "data-export-passphrase",
+                    "Backup passphrase"
+                }
+                div { class: "md3-text-field",
+                    input {
+                        id: "data-export-passphrase",
+                        class: "md3-input",
+                        r#type: "password",
+                        autocomplete: "new-password",
+                        value: "{export_passphrase}",
+                        disabled: busy,
+                        oninput: move |event| export_passphrase.set(event.value()),
+                    }
+                }
+                label {
+                    class: "text-body-medium text-on-surface-variant",
+                    r#for: "data-export-passphrase-confirm",
+                    "Confirm backup passphrase"
+                }
+                div { class: "md3-text-field",
+                    input {
+                        id: "data-export-passphrase-confirm",
+                        class: "md3-input",
+                        r#type: "password",
+                        autocomplete: "new-password",
+                        value: "{export_passphrase_confirm}",
+                        disabled: busy,
+                        oninput: move |event| export_passphrase_confirm.set(event.value()),
+                    }
+                }
                 if let Some(message) = export_error() {
                     p {
                         class: "text-body-small",
@@ -456,18 +537,69 @@ pub fn DataSettingsSection() -> Element {
                 }
             }
         }
-        if import_open() {
-            if let Some(message) = import_message {
-                ConfirmDialog {
-                    title: "Import backup".to_string(),
-                    message,
-                    confirm_text: "Import".to_string(),
-                    cancel_text: "Cancel".to_string(),
-                    on_confirm: confirm_import,
-                    on_cancel: move |_| {
-                        import_open.set(false);
+        if import_encrypted_open() {
+            Modal {
+                title: "Import encrypted backup".to_string(),
+                title_id: "data-import-encrypted-title".to_string(),
+                dismissible: operation() == DataOperation::Idle,
+                on_close: move |_| {
+                    if operation() == DataOperation::Idle {
+                        import_encrypted_open.set(false);
                         pending_import.set(None);
-                    },
+                        import_passphrase.set(String::new());
+                        import_error.set(None);
+                    }
+                },
+                p { class: "text-body-medium text-on-surface-variant",
+                    "{import_message.clone().unwrap_or_default()}"
+                }
+                p { class: "text-body-small text-on-surface-variant",
+                    "Enter the backup passphrase. The imported database is sanitized before it replaces the active data."
+                }
+                label {
+                    class: "text-body-medium text-on-surface-variant",
+                    r#for: "data-import-passphrase",
+                    "Backup passphrase"
+                }
+                div { class: "md3-text-field",
+                    input {
+                        id: "data-import-passphrase",
+                        class: "md3-input",
+                        r#type: "password",
+                        autocomplete: "current-password",
+                        autofocus: true,
+                        value: "{import_passphrase}",
+                        disabled: busy,
+                        oninput: move |event| import_passphrase.set(event.value()),
+                    }
+                }
+                if let Some(message) = import_error() {
+                    p {
+                        style: "color: var(--md-sys-color-error);",
+                        role: "alert",
+                        "{message}"
+                    }
+                }
+                div { class: "md3-dialog-actions",
+                    button {
+                        r#type: "button",
+                        class: "md3-button-text",
+                        disabled: busy,
+                        onclick: move |_| {
+                            import_encrypted_open.set(false);
+                            pending_import.set(None);
+                            import_passphrase.set(String::new());
+                            import_error.set(None);
+                        },
+                        "Cancel"
+                    }
+                    button {
+                        r#type: "button",
+                        class: "md3-button-filled",
+                        disabled: busy,
+                        onclick: move |_| confirm_import.call(()),
+                        "Import"
+                    }
                 }
             }
         }
@@ -559,17 +691,19 @@ async fn read_mobile_file() -> Result<(String, String), String> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn save_export(file_name: &str, bytes: &[u8]) -> Result<String, String> {
+fn save_export(file_name: &str, bytes: &[u8], _mode: ExportFileMode) -> Result<String, String> {
     download_bytes(file_name, bytes, "application/x-sqlite3")?;
     Ok("Export started. Check your browser's Downloads folder.".to_string())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn save_export(file_name: &str, bytes: &[u8]) -> Result<String, String> {
+fn save_export(file_name: &str, bytes: &[u8], mode: ExportFileMode) -> Result<String, String> {
     let directory = native_export_directory()?;
     let path = unique_export_path(&directory, file_name);
-    std::fs::write(&path, bytes)
+    crate::security::files::write_private(&path, bytes)
         .map_err(|error| format!("Could not save the database: {error}"))?;
+    crate::security::files::apply_export_mode(&path, mode)
+        .map_err(|error| format!("Could not secure the export: {error}"))?;
     Ok(format!("Database exported to {}.", path.display()))
 }
 
@@ -692,5 +826,24 @@ fn format_bytes(bytes: u64) -> String {
         format!("{bytes} B")
     } else {
         format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+/// Importing authenticates the backup with its own passphrase, which is not
+/// governed by the database password policy; only an empty value is unusable.
+fn backup_passphrase_present(passphrase: &str) -> bool {
+    !passphrase.trim().is_empty()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::backup_passphrase_present;
+
+    #[test]
+    fn backup_passphrases_are_not_bound_to_the_database_password_policy() {
+        assert!(backup_passphrase_present("short"));
+        assert!(backup_passphrase_present("correct horse battery staple"));
+        assert!(!backup_passphrase_present(""));
+        assert!(!backup_passphrase_present("   "));
     }
 }

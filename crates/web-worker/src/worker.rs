@@ -4,7 +4,7 @@ use crate::data::encryption::{
     derive_key, generate_salt, is_plaintext_sqlite, VaultKey, SALT_LEN, VAULT_LOCKED_MESSAGE,
 };
 use crate::db::{apply_sqlcipher_key, open_connection, BrowserDatabase, BrowserDatabaseState};
-use crate::domain::encryption::IdleTimeout;
+use crate::domain::encryption::{IdleTimeout, UnlockResult};
 use crate::rpc;
 use crate::vault::WorkerVault;
 use address_explorer_core::{
@@ -20,6 +20,8 @@ use zeroize::Zeroizing;
 
 const CONVERT_TEMP: &str = "address-explorer-convert.db";
 const IMPORT_PLAIN_TEMP: &str = "address-explorer-import-plain.db";
+const EXPORT_PLAIN_TEMP: &str = "address-explorer-export-plain.db";
+const IMPORT_ENC_TEMP: &str = "address-explorer-import-encrypted.db";
 const ENCRYPTED_PAGE_SIZE: usize = 4096;
 
 struct State {
@@ -203,15 +205,26 @@ async fn handle_message(state: &mut State, port: &MessagePort, text: &str) {
         return;
     }
 
-    if state.vault.locked() {
-        post(
-            port,
-            &WorkerResponse::failure(request.id, VAULT_LOCKED_MESSAGE),
-        );
+    if !state.vault.unlocked() {
+        let message = if state.vault.configured() {
+            VAULT_LOCKED_MESSAGE
+        } else {
+            "no database password is set; create one before using the application"
+        };
+        post(port, &WorkerResponse::failure(request.id, message));
         return;
     }
 
-    if request.endpoint == "data.import" || request.endpoint == "data.clear" {
+    if request.endpoint == "data.export_encrypted" {
+        let result = export_encrypted_backup(state, &request.payload).await;
+        match result {
+            Ok(value) => post(port, &WorkerResponse::success(request.id, value)),
+            Err(error) => post(port, &WorkerResponse::failure(request.id, error)),
+        }
+        return;
+    }
+
+    if request.endpoint == "data.import_encrypted" || request.endpoint == "data.clear" {
         match replace_local_database(state, &request.endpoint, request.payload).await {
             Ok(()) => {
                 state.revision = state.revision.saturating_add(1);
@@ -232,7 +245,6 @@ async fn handle_message(state: &mut State, port: &MessagePort, text: &str) {
         return;
     }
 
-    state.vault.touch();
     let Some(db) = state.db.as_mut() else {
         post(
             port,
@@ -269,6 +281,8 @@ async fn handle_message(state: &mut State, port: &MessagePort, text: &str) {
 async fn initialize_database(state: &mut State, hello: &WorkerHello) -> Result<(), String> {
     let util = BrowserDatabase::install(hello.reset).await?;
     let _ = delete_named_file(&util, IMPORT_PLAIN_TEMP).await;
+    let _ = delete_named_file(&util, EXPORT_PLAIN_TEMP).await;
+    let _ = delete_named_file(&util, IMPORT_ENC_TEMP).await;
     let _ = delete_named_file(&util, CONVERT_TEMP).await;
     match BrowserDatabase::inspect(&util)? {
         BrowserDatabaseState::Encrypted(salt) => {
@@ -277,17 +291,11 @@ async fn initialize_database(state: &mut State, hello: &WorkerHello) -> Result<(
             state.db = None;
         }
         BrowserDatabaseState::Missing | BrowserDatabaseState::Plaintext => {
-            let db =
-                BrowserDatabase::open_with_util(&hello.seed_url, util.clone(), None, false).await?;
-            let prompt_seen =
-                crate::data::repositories::settings::load_encryption_prompt_seen(&db.database)
-                    .unwrap_or(false);
-            let timeout =
-                crate::data::repositories::settings::load_encryption_idle_timeout(&db.database)
-                    .unwrap_or_default();
-            state.vault.set_plaintext(prompt_seen, timeout);
+            // A password is mandatory. The plaintext file, when present, is
+            // encrypted in place by the setup flow before any data is served.
+            state.vault.set_needs_setup();
             state.util = Some(util);
-            state.db = Some(db);
+            state.db = None;
         }
     }
     Ok(())
@@ -303,12 +311,12 @@ async fn handle_encryption(
         "encryption.setup" => {
             let password: String = arg(&payload, "password")?;
             let password = Zeroizing::new(password);
-            setup_encryption(state, &password).await
+            encode(setup_encryption(state, &password).await?)
         }
         "encryption.unlock" => {
             let password: String = arg(&payload, "password")?;
             let password = Zeroizing::new(password);
-            unlock_encryption(state, &password).await
+            encode(unlock_encryption(state, &password).await?)
         }
         "encryption.lock" => lock_encryption(state).await,
         "encryption.touch" => {
@@ -320,25 +328,11 @@ async fn handle_encryption(
             let new: String = arg(&payload, "new_password")?;
             let current = Zeroizing::new(current);
             let new = Zeroizing::new(new);
-            change_password(state, &current, &new).await
+            encode(change_password(state, &current, &new).await?)
         }
         "encryption.save_idle_timeout" => {
             let timeout: IdleTimeout = arg(&payload, "timeout")?;
             save_idle_timeout(state, timeout).await
-        }
-        "encryption.dismiss_prompt" => {
-            let db = state
-                .db
-                .as_ref()
-                .ok_or_else(|| "the browser database is not ready".to_string())?;
-            if state.vault.configured() {
-                return Err("encryption is already configured".to_string());
-            }
-            crate::data::repositories::settings::save_encryption_prompt_seen(&db.database, true)
-                .map_err(|error| error.to_string())?;
-            db.wait_committed().await?;
-            state.vault.set_prompt_seen(true);
-            encode(state.vault.status())
         }
         "encryption.reset" => {
             let confirmation: String = arg(&payload, "confirmation")?;
@@ -355,44 +349,36 @@ async fn handle_encryption(
                     .unwrap_or(serde_json::Value::Null),
                 );
             }
-            result
+            encode(result?)
         }
         other => Err(format!("unknown worker endpoint: {other}")),
     }
 }
 
-async fn setup_encryption(state: &mut State, password: &str) -> Result<serde_json::Value, String> {
+async fn setup_encryption(state: &mut State, password: &str) -> Result<UnlockResult, String> {
     if state.vault.configured() {
         return Err("encryption is already configured".to_string());
-    }
-    if password.is_empty() {
-        return Err("the password must not be empty".to_string());
     }
     let util = state
         .util
         .clone()
         .ok_or_else(|| "the browser database is not ready".to_string())?;
-    let db = state
-        .db
-        .as_ref()
-        .ok_or_else(|| "the browser database is not ready".to_string())?;
-    db.wait_committed().await?;
-    let db = state
-        .db
-        .take()
-        .ok_or_else(|| "the browser database is not ready".to_string())?;
-    let plaintext_bytes = match db.export_plaintext() {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            state.db = Some(db);
-            return Err(error);
-        }
-    };
-    let timeout = state.vault.idle_timeout();
+    // Open (or create) the plaintext database so an upgrade keeps its policy,
+    // timeout, and data. It is converted and replaced before the vault opens.
+    let plaintext = BrowserDatabase::open_with_util(&state.seed_url, util.clone(), None, false)
+        .await
+        .map_err(|error| format!("could not prepare the database: {error}"))?;
+    let policy = crate::security::policy::load_from_database(&plaintext.database)
+        .map_err(|error| error.to_string())?;
+    crate::domain::security_settings::validate_password(password, policy.password_min_length)?;
+    let timeout =
+        crate::data::repositories::settings::load_encryption_idle_timeout(&plaintext.database)
+            .unwrap_or_default();
+    let plaintext_bytes = plaintext.export_plaintext()?;
+    drop(plaintext);
+
     let salt = generate_salt()?;
     let key = derive_key(password, &salt)?;
-    drop(db);
-
     let encrypted = match encrypted_snapshot_from_plaintext(
         &util,
         address_explorer_core::WEB_DATABASE_FILE,
@@ -403,13 +389,13 @@ async fn setup_encryption(state: &mut State, password: &str) -> Result<serde_jso
     {
         Ok(bytes) => bytes,
         Err(error) => {
-            let _ = restore_plaintext(state, &plaintext_bytes, timeout).await;
+            let _ = restore_plaintext(state, &plaintext_bytes).await;
             return Err(error);
         }
     };
 
     if let Err(error) = replace_main_with_encrypted(&util, &encrypted).await {
-        let _ = restore_plaintext(state, &plaintext_bytes, timeout).await;
+        let _ = restore_plaintext(state, &plaintext_bytes).await;
         return Err(error);
     }
     let new_db = match BrowserDatabase::open_with_util(
@@ -422,32 +408,30 @@ async fn setup_encryption(state: &mut State, password: &str) -> Result<serde_jso
     {
         Ok(db) => db,
         Err(error) => {
-            let _ = restore_plaintext(state, &plaintext_bytes, timeout).await;
+            let _ = restore_plaintext(state, &plaintext_bytes).await;
             return Err(error);
         }
     };
-    let settings_result = (|| -> Result<(), String> {
-        crate::data::repositories::settings::save_encryption_prompt_seen(&new_db.database, true)
-            .map_err(|error| error.to_string())?;
-        crate::data::repositories::settings::save_encryption_idle_timeout(
-            &new_db.database,
-            timeout,
-        )
-        .map_err(|error| error.to_string())?;
-        Ok(())
-    })();
-    state.vault.set_unlocked(key, salt, timeout, true);
+    let settings_result = crate::data::repositories::settings::save_encryption_idle_timeout(
+        &new_db.database,
+        timeout,
+    )
+    .map_err(|error| error.to_string());
+    state.vault.set_unlocked(key, salt, timeout);
     state.db = Some(new_db);
-    settings_result?;
-    encode(state.vault.status())
+    if let Err(error) = settings_result {
+        let _ = state.db.as_ref().map(|db| db.wait_committed());
+        return Err(error);
+    }
+    Ok(UnlockResult::local(state.vault.status()))
 }
 
-async fn unlock_encryption(state: &mut State, password: &str) -> Result<serde_json::Value, String> {
+async fn unlock_encryption(state: &mut State, password: &str) -> Result<UnlockResult, String> {
     if !state.vault.locked() {
         if state.vault.unlocked() {
-            return encode(state.vault.status());
+            return Ok(UnlockResult::local(state.vault.status()));
         }
-        return Err("encryption is not configured".to_string());
+        return Err("no database password is set".to_string());
     }
     if password.is_empty() {
         return Err("incorrect password".to_string());
@@ -466,12 +450,10 @@ async fn unlock_encryption(state: &mut State, password: &str) -> Result<serde_js
         .map_err(|_| "incorrect password or damaged database".to_string())?;
     let timeout = crate::data::repositories::settings::load_encryption_idle_timeout(&db.database)
         .unwrap_or_default();
-    let prompt_seen =
-        crate::data::repositories::settings::load_encryption_prompt_seen(&db.database)
-            .unwrap_or(true);
-    state.vault.set_unlocked(key, salt, timeout, prompt_seen);
+    crate::security::policy::load_from_database(&db.database).map_err(|error| error.to_string())?;
+    state.vault.set_unlocked(key, salt, timeout);
     state.db = Some(db);
-    encode(state.vault.status())
+    Ok(UnlockResult::local(state.vault.status()))
 }
 
 async fn lock_encryption(state: &mut State) -> Result<serde_json::Value, String> {
@@ -489,6 +471,7 @@ async fn lock_encryption(state: &mut State) -> Result<serde_json::Value, String>
         drop(db);
     }
     state.vault.set_locked(salt);
+    crate::security::policy::reset_to_defaults();
     encode(state.vault.status())
 }
 
@@ -496,13 +479,17 @@ async fn change_password(
     state: &mut State,
     current_password: &str,
     new_password: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<UnlockResult, String> {
     if !state.vault.unlocked() {
         return Err("the database is locked".to_string());
     }
-    if current_password.is_empty() || new_password.is_empty() {
-        return Err("the password must not be empty".to_string());
+    if current_password.is_empty() {
+        return Err("the current password must not be empty".to_string());
     }
+    crate::domain::security_settings::validate_password(
+        new_password,
+        crate::security::policy::current().password_min_length,
+    )?;
     let old_salt = state
         .vault
         .salt()
@@ -550,9 +537,9 @@ async fn change_password(
         Ok(new_db) => {
             state
                 .vault
-                .set_unlocked(new_key, new_salt, state.vault.idle_timeout(), true);
+                .set_unlocked(new_key, new_salt, state.vault.idle_timeout());
             state.db = Some(new_db);
-            encode(state.vault.status())
+            Ok(UnlockResult::local(state.vault.status()))
         }
         Err(error) => {
             let _ =
@@ -567,7 +554,7 @@ async fn save_idle_timeout(
     state: &mut State,
     timeout: IdleTimeout,
 ) -> Result<serde_json::Value, String> {
-    if state.vault.locked() {
+    if !state.vault.unlocked() {
         return Err(VAULT_LOCKED_MESSAGE.to_string());
     }
     {
@@ -586,7 +573,7 @@ async fn save_idle_timeout(
     encode(state.vault.status())
 }
 
-async fn reset_encryption(state: &mut State) -> Result<serde_json::Value, String> {
+async fn reset_encryption(state: &mut State) -> Result<UnlockResult, String> {
     let util = state
         .util
         .clone()
@@ -595,34 +582,11 @@ async fn reset_encryption(state: &mut State) -> Result<serde_json::Value, String
     delete_database_file(&util).await?;
     let _ = delete_named_file(&util, CONVERT_TEMP).await;
     let _ = delete_named_file(&util, IMPORT_PLAIN_TEMP).await;
-    let db = match BrowserDatabase::open_with_util(&state.seed_url, util, None, false).await {
-        Ok(db) => db,
-        Err(error) => {
-            if state.vault.configured() {
-                if let Some(salt) = state.vault.salt() {
-                    state.vault.set_locked(salt);
-                }
-            } else {
-                state.vault.set_plaintext(false, IdleTimeout::default());
-            }
-            return Err(error);
-        }
-    };
-    state.vault.set_plaintext(false, IdleTimeout::default());
-    state.db = Some(db);
-    let db = state
-        .db
-        .as_ref()
-        .ok_or_else(|| "the browser database is not ready".to_string())?;
-    crate::data::repositories::settings::save_encryption_prompt_seen(&db.database, false)
-        .map_err(|error| error.to_string())?;
-    crate::data::repositories::settings::save_encryption_idle_timeout(
-        &db.database,
-        IdleTimeout::default(),
-    )
-    .map_err(|error| error.to_string())?;
-    db.wait_committed().await?;
-    encode(state.vault.status())
+    let _ = delete_named_file(&util, EXPORT_PLAIN_TEMP).await;
+    let _ = delete_named_file(&util, IMPORT_ENC_TEMP).await;
+    state.vault.set_needs_setup();
+    crate::security::policy::reset_to_defaults();
+    Ok(UnlockResult::local(state.vault.status()))
 }
 
 async fn replace_local_database(
@@ -632,8 +596,7 @@ async fn replace_local_database(
 ) -> Result<(), String> {
     use base64::Engine;
 
-    let imported = endpoint == "data.import";
-    let import_bytes = if imported {
+    let import_bytes = if endpoint == "data.import_encrypted" {
         let encoded: String = serde_json::from_value(
             payload
                 .get("file")
@@ -647,67 +610,19 @@ async fn replace_local_database(
         if bytes.is_empty() {
             return Err("the selected SQLite file is empty".to_string());
         }
-        Some(bytes)
+        let passphrase: String = serde_json::from_value(
+            payload
+                .get("passphrase")
+                .cloned()
+                .ok_or_else(|| "missing `passphrase` argument".to_string())?,
+        )
+        .map_err(|error| format!("invalid `passphrase` argument: {error}"))?;
+        Some(decrypt_imported_backup(state, &bytes, &passphrase).await?)
     } else {
         None
     };
 
-    if state.vault.configured() {
-        return replace_encrypted_database(state, import_bytes).await;
-    }
-
-    let util = state
-        .util
-        .clone()
-        .ok_or_else(|| "the browser database is not ready".to_string())?;
-    let old = state
-        .db
-        .take()
-        .ok_or_else(|| "the browser database is not ready".to_string())?;
-    let safety = match old.export_plaintext() {
-        Ok(bytes) => bytes,
-        Err(error) => {
-            state.db = Some(old);
-            return Err(error);
-        }
-    };
-    drop(old);
-
-    let result = (|| async {
-        delete_database_file(&util).await?;
-        if let Some(bytes) = import_bytes {
-            let import = util
-                .import_db(address_explorer_core::WEB_DATABASE_FILE, &bytes)
-                .map_err(|error| format!("could not import the SQLite file: {error}"))?;
-            import
-                .await
-                .map_err(|error| format!("could not persist the SQLite file: {error}"))?;
-        }
-        let db =
-            BrowserDatabase::open_with_util(&state.seed_url, util.clone(), None, false).await?;
-        let timeout =
-            crate::data::repositories::settings::load_encryption_idle_timeout(&db.database)
-                .unwrap_or_default();
-        let prompt_seen =
-            crate::data::repositories::settings::load_encryption_prompt_seen(&db.database)
-                .unwrap_or(false);
-        state.vault.set_plaintext(prompt_seen, timeout);
-        state.db = Some(db);
-        Ok(())
-    })()
-    .await;
-
-    if let Err(error) = result {
-        if let Err(restore_error) =
-            restore_plaintext_bytes(state, &safety, state.vault.idle_timeout()).await
-        {
-            return Err(format!(
-                "{error}; restoring the previous database also failed: {restore_error}"
-            ));
-        }
-        return Err(error);
-    }
-    Ok(())
+    replace_encrypted_database(state, import_bytes).await
 }
 
 async fn replace_encrypted_database(
@@ -750,7 +665,7 @@ async fn replace_encrypted_database(
                 state.db = Some(restored);
                 state
                     .vault
-                    .set_unlocked(key, salt, state.vault.idle_timeout(), true);
+                    .set_unlocked(key, salt, state.vault.idle_timeout());
             }
             Err(restore_error) => {
                 state.vault.set_locked(salt);
@@ -807,10 +722,13 @@ async fn import_plaintext_into_encrypted(
             .await?;
     let timeout = crate::data::repositories::settings::load_encryption_idle_timeout(&db.database)
         .unwrap_or_default();
-    crate::data::repositories::settings::save_encryption_prompt_seen(&db.database, true)
-        .map_err(|error| error.to_string())?;
+    crate::data::repositories::settings::save_security_settings(
+        &db.database,
+        &crate::security::policy::current(),
+    )
+    .map_err(|error| error.to_string())?;
     db.wait_committed().await?;
-    state.vault.set_unlocked(key.clone(), *salt, timeout, true);
+    state.vault.set_unlocked(key.clone(), *salt, timeout);
     state.db = Some(db);
     Ok(())
 }
@@ -827,27 +745,18 @@ async fn reset_encrypted_database(
             .await?;
     let timeout = crate::data::repositories::settings::load_encryption_idle_timeout(&db.database)
         .unwrap_or_default();
-    crate::data::repositories::settings::save_encryption_prompt_seen(&db.database, true)
-        .map_err(|error| error.to_string())?;
+    crate::data::repositories::settings::save_security_settings(
+        &db.database,
+        &crate::security::policy::current(),
+    )
+    .map_err(|error| error.to_string())?;
     db.wait_committed().await?;
-    state.vault.set_unlocked(key.clone(), *salt, timeout, true);
+    state.vault.set_unlocked(key.clone(), *salt, timeout);
     state.db = Some(db);
     Ok(())
 }
 
-async fn restore_plaintext(
-    state: &mut State,
-    bytes: &[u8],
-    timeout: IdleTimeout,
-) -> Result<(), String> {
-    restore_plaintext_bytes(state, bytes, timeout).await
-}
-
-async fn restore_plaintext_bytes(
-    state: &mut State,
-    bytes: &[u8],
-    timeout: IdleTimeout,
-) -> Result<(), String> {
+async fn restore_plaintext(state: &mut State, bytes: &[u8]) -> Result<(), String> {
     let util = state
         .util
         .clone()
@@ -859,9 +768,8 @@ async fn restore_plaintext_bytes(
     import
         .await
         .map_err(|error| format!("could not persist the plaintext database: {error}"))?;
-    let db = BrowserDatabase::open_with_util(&state.seed_url, util, None, false).await?;
-    state.vault.set_plaintext(false, timeout);
-    state.db = Some(db);
+    state.db = None;
+    state.vault.set_needs_setup();
     Ok(())
 }
 
@@ -884,6 +792,84 @@ async fn restore_encrypted_database(
         .await
         .map_err(|error| format!("could not persist the encrypted database: {error}"))?;
     BrowserDatabase::open_with_util(seed_url, util.clone(), Some((key, salt)), false).await
+}
+
+async fn export_encrypted_backup(
+    state: &State,
+    payload: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use base64::Engine;
+    let passphrase: String = serde_json::from_value(
+        payload
+            .get("passphrase")
+            .cloned()
+            .ok_or_else(|| "missing `passphrase` argument".to_string())?,
+    )
+    .map_err(|error| format!("invalid `passphrase` argument: {error}"))?;
+    crate::domain::security_settings::validate_password(
+        &passphrase,
+        crate::security::policy::current().password_min_length,
+    )?;
+    let util = state
+        .util
+        .clone()
+        .ok_or_else(|| "the browser database is not ready".to_string())?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| "the browser database is not ready".to_string())?;
+    db.wait_committed().await?;
+    let plaintext = db.export_plaintext()?;
+    delete_named_file(&util, EXPORT_PLAIN_TEMP).await?;
+    let import = util
+        .import_db(EXPORT_PLAIN_TEMP, &plaintext)
+        .map_err(|error| format!("could not prepare the backup: {error}"))?;
+    import
+        .await
+        .map_err(|error| format!("could not persist the backup: {error}"))?;
+    let salt = generate_salt()?;
+    let key = derive_key(&passphrase, &salt)?;
+    let encrypted = encrypted_snapshot_from_plaintext(&util, EXPORT_PLAIN_TEMP, &key, &salt).await;
+    let _ = delete_named_file(&util, EXPORT_PLAIN_TEMP).await;
+    let encrypted = encrypted?;
+    Ok(serde_json::Value::String(
+        base64::engine::general_purpose::STANDARD.encode(encrypted),
+    ))
+}
+
+async fn decrypt_imported_backup(
+    state: &State,
+    bytes: &[u8],
+    passphrase: &str,
+) -> Result<Vec<u8>, String> {
+    let util = state
+        .util
+        .clone()
+        .ok_or_else(|| "the browser database is not ready".to_string())?;
+    let salt = crate::data::encryption::salt_from_header(bytes)
+        .map_err(|_| "the selected file is not an encrypted backup".to_string())?;
+    let key = derive_key(passphrase, &salt)?;
+    delete_named_file(&util, IMPORT_ENC_TEMP).await?;
+    let import = util
+        .import_db_unchecked(IMPORT_ENC_TEMP, bytes, ENCRYPTED_PAGE_SIZE)
+        .map_err(|error| format!("could not read the encrypted backup: {error}"))?;
+    import
+        .await
+        .map_err(|error| format!("could not persist the encrypted backup: {error}"))?;
+    let db = BrowserDatabase::open_named(
+        &state.seed_url,
+        util.clone(),
+        IMPORT_ENC_TEMP,
+        Some((&key, &salt)),
+        false,
+        false,
+    )
+    .await
+    .map_err(|_| "the backup passphrase is incorrect or the file is damaged".to_string())?;
+    let plaintext = db.export_plaintext()?;
+    drop(db);
+    let _ = delete_named_file(&util, IMPORT_ENC_TEMP).await;
+    Ok(plaintext)
 }
 
 async fn encrypted_snapshot_from_plaintext(

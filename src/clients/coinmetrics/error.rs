@@ -13,6 +13,8 @@ pub enum CoinMetricsError {
     },
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("the coin metrics response exceeded the size limit")]
+    ResponseTooLarge,
     #[error("invalid url: {0}")]
     Url(String),
 }

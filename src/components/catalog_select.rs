@@ -96,14 +96,18 @@ pub fn CatalogOptionsSelect(
                 class: "md3-input",
                 value: value.map(|id| id.to_string()).unwrap_or_default(),
                 disabled: disabled ||
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        loading,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        loading,
                 onchange: move | event | on_change.call(event.value().parse::< i64 > ()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .ok()),
-                option { value: "", "{placeholder}" }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .ok()),
+                option { value: "", selected: value.is_none(), "{placeholder}" }
                 for (group, entries) in grouped {
                     optgroup { label: "{group}",
                         for entry in entries {
-                            option { value: "{entry.id}", "{entry.name}" }
+                            option {
+                                value: "{entry.id}",
+                                selected: Some(entry.id) == value,
+                                "{entry.name}"
+                            }
                         }
                     }
                 }

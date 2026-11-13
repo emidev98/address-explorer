@@ -13,6 +13,7 @@ pub mod clients;
 pub mod data;
 #[path = "../../../src/domain/mod.rs"]
 pub mod domain;
+mod security;
 
 mod db;
 mod rpc;

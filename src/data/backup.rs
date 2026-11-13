@@ -151,6 +151,147 @@ pub fn validate_current_schema(connection: &Connection) -> Result<(), DatabaseEr
     Ok(())
 }
 
+/// Compare an untrusted backup's schema with the canonical schema for its
+/// declared `user_version`. Reject extra objects, missing objects, views,
+/// virtual tables, and altered SQL.
+pub fn validate_source_schema(connection: &Connection) -> Result<(), DatabaseError> {
+    let version: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let expected = super::migrations::expected_schema(version)?;
+    let actual_objects = schema_objects(connection)?;
+    let expected_objects = schema_objects(&expected)?;
+    if let Some(object) = actual_objects.difference(&expected_objects).next() {
+        return Err(DatabaseError::new(format!(
+            "the backup contains an unexpected schema object: {} {}",
+            object.0, object.1
+        )));
+    }
+    if let Some(object) = expected_objects.difference(&actual_objects).next() {
+        return Err(DatabaseError::new(format!(
+            "the backup is missing a required schema object: {} {}",
+            object.0, object.1
+        )));
+    }
+    Ok(())
+}
+
+/// Rebuild the application data into a fresh, canonical database.
+///
+/// Only the fixed application table and column allowlists are copied. The
+/// source schema is never used by the live connection, so malicious triggers,
+/// views, expression indexes, and extra objects cannot persist.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub fn copy_application_data(
+    source: &Connection,
+    target: &mut Connection,
+) -> Result<(), DatabaseError> {
+    target.pragma_update(None, "foreign_keys", false)?;
+    let transaction = target.transaction()?;
+    for table in APPLICATION_TABLES {
+        // The fresh target already contains seeded reference rows. A backup
+        // replaces the application data, so clear the table first.
+        // allow-sql-format: table comes from the fixed allowlist.
+        transaction.execute(&format!("DELETE FROM \"{table}\""), [])?; // allow-sql-format: fixed allowlist.
+        copy_table(source, &transaction, table)?;
+    }
+    transaction.commit()?;
+    target.pragma_update(None, "foreign_keys", true)?;
+    foreign_key_check(target)
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn copy_table(
+    source: &Connection,
+    target: &rusqlite::Transaction<'_>,
+    table: &str,
+) -> Result<(), DatabaseError> {
+    let source_columns = table_columns(source, table)?;
+    let target_columns = table_columns(target, table)?;
+    if source_columns.is_empty() || target_columns.is_empty() {
+        return Err(DatabaseError::new(format!(
+            "the backup is missing table {table}"
+        )));
+    }
+    let columns = target_columns
+        .iter()
+        .filter(|column| source_columns.iter().any(|source| source == *column))
+        .cloned()
+        .collect::<Vec<_>>();
+    if columns.is_empty() {
+        return Err(DatabaseError::new(format!(
+            "the backup is missing every known column of {table}"
+        )));
+    }
+    let quoted = columns
+        .iter()
+        .map(|column| quote_identifier(column))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // allow-sql-format: table and column names come from the fixed schema.
+    let select = format!("SELECT {quoted} FROM \"{table}\""); // allow-sql-format: fixed schema.
+                                                              // allow-sql-format: table and column names come from the fixed schema.
+    let placeholders = (1..=columns.len())
+        .map(|index| format!("?{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    // allow-sql-format: table and column names come from the fixed schema.
+    let insert = format!("INSERT INTO \"{table}\" ({quoted}) VALUES ({placeholders})"); // allow-sql-format: fixed schema.
+
+    let mut select_statement = source.prepare(&select)?;
+    let mut insert_statement = target.prepare(&insert)?;
+    let mut rows = select_statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let mut values = Vec::with_capacity(columns.len());
+        for index in 0..columns.len() {
+            values.push(row.get::<_, rusqlite::types::Value>(index)?);
+        }
+        insert_statement.execute(rusqlite::params_from_iter(values.iter()))?;
+    }
+    Ok(())
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn table_columns(connection: &Connection, table: &str) -> Result<Vec<String>, DatabaseError> {
+    // allow-sql-format: table comes from the fixed APPLICATION_TABLES allowlist.
+    let mut statement = connection.prepare(&format!("PRAGMA main.table_info(\"{table}\")"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(columns)
+}
+
+type SchemaObject = (String, String, String, Option<String>);
+
+fn schema_objects(connection: &Connection) -> Result<HashSet<SchemaObject>, DatabaseError> {
+    let mut statement = connection.prepare(
+        "SELECT type, name, tbl_name, sql FROM sqlite_master
+         WHERE name NOT LIKE 'sqlite_autoindex_%'",
+    )?;
+    let objects = statement
+        .query_map([], |row| {
+            let kind: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let table: String = row.get(2)?;
+            let sql: Option<String> = row.get(3)?;
+            let normalized = sql.map(|sql| sql.split_whitespace().collect::<Vec<_>>().join(" "));
+            Ok((kind, name, table, normalized))
+        })?
+        .collect::<Result<HashSet<_>, _>>()?;
+    for object in &objects {
+        if !matches!(object.0.as_str(), "table" | "index" | "trigger") {
+            return Err(DatabaseError::new(format!(
+                "the backup contains unsupported schema object type {}",
+                object.0
+            )));
+        }
+    }
+    Ok(objects)
+}
+
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn quote_identifier(identifier: &str) -> String {
+    format!("\"{}\"", identifier.replace('"', "\"\""))
+}
+
 /// Verify that no foreign-key constraint is violated.
 pub fn foreign_key_check(connection: &Connection) -> Result<(), DatabaseError> {
     let violations: i64 =
@@ -182,6 +323,7 @@ mod files {
     ///
     /// SQLCipher's serializer decrypts the pages in memory, so an encrypted
     /// database produces the same portable plaintext backup as before.
+    #[cfg(test)]
     pub fn export_to_bytes(database: &Database) -> Result<Vec<u8>, DatabaseError> {
         let connection = database.connection()?;
         let data = connection.serialize(MAIN_DB)?;
@@ -404,7 +546,7 @@ mod files {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 pub use files::export_to_bytes;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use files::precheck_connection;
@@ -430,7 +572,7 @@ mod tests {
                 "address-explorer-backup-test-{}-{counter}",
                 std::process::id()
             ));
-            std::fs::create_dir_all(&path).unwrap();
+            std::fs::create_dir_all(&path).unwrap(); // allow-unwrap: test setup.
             Self(path)
         }
 
@@ -446,11 +588,11 @@ mod tests {
     }
 
     fn test_database(path: &Path) -> Database {
-        let mut connection = Connection::open(path).unwrap();
+        let mut connection = Connection::open(path).unwrap(); // allow-unwrap: test setup.
         connection
             .pragma_update(None, "foreign_keys", true)
-            .unwrap();
-        migrations::run_migrations(&mut connection, false).unwrap();
+            .unwrap(); // allow-unwrap: test setup.
+        migrations::run_migrations(&mut connection, false).unwrap(); // allow-unwrap: test setup.
         Database::from_connection(connection)
     }
 
@@ -468,9 +610,9 @@ mod tests {
     fn fresh_test_database_has_every_required_table() {
         let directory = TestDir::new();
         let database = test_database(&directory.path().join("fresh.sqlite"));
-        let connection = database.connection().unwrap();
-        validate_current_schema(&connection).unwrap();
-        foreign_key_check(&connection).unwrap();
+        let connection = database.connection().unwrap(); // allow-unwrap: test setup.
+        validate_current_schema(&connection).unwrap(); // allow-unwrap: test setup.
+        foreign_key_check(&connection).unwrap(); // allow-unwrap: test setup.
     }
 
     #[test]
@@ -484,13 +626,13 @@ mod tests {
                 "INSERT INTO setting (key, value) VALUES ('theme', 'forest')",
                 [],
             )
-            .unwrap();
+            .unwrap(); // allow-unwrap: test setup.
 
-        let bytes = export_to_bytes(&source).unwrap();
+        let bytes = export_to_bytes(&source).unwrap(); // allow-unwrap: test setup.
         assert!(has_sqlite_header(&bytes));
 
         let target = test_database(&directory.path().join("target.sqlite"));
-        import_from_bytes(&target, &bytes).unwrap();
+        import_from_bytes(&target, &bytes).unwrap(); // allow-unwrap: test setup.
         assert_eq!(setting(&target, "theme").as_deref(), Some("forest"));
     }
 
@@ -503,9 +645,9 @@ mod tests {
             .connection()
             .unwrap()
             .pragma_update(None, "user_version", CURRENT_SCHEMA_VERSION + 1)
-            .unwrap();
+            .unwrap(); // allow-unwrap: test setup.
         drop(source);
-        let bytes = std::fs::read(&source_path).unwrap();
+        let bytes = std::fs::read(&source_path).unwrap(); // allow-unwrap: test setup.
 
         let target = test_database(&directory.path().join("target.sqlite"));
         target
@@ -515,7 +657,7 @@ mod tests {
                 "INSERT INTO setting (key, value) VALUES ('theme', 'ocean')",
                 [],
             )
-            .unwrap();
+            .unwrap(); // allow-unwrap: test setup.
         let error = import_from_bytes(&target, &bytes).unwrap_err();
         assert!(error.to_string().contains("newer Address Explorer version"));
         assert_eq!(setting(&target, "theme").as_deref(), Some("ocean"));
@@ -530,9 +672,9 @@ mod tests {
             .connection()
             .unwrap()
             .execute_batch("DROP TABLE fiat_exchange_rates")
-            .unwrap();
+            .unwrap(); // allow-unwrap: test setup.
         drop(source);
-        let bytes = std::fs::read(&source_path).unwrap();
+        let bytes = std::fs::read(&source_path).unwrap(); // allow-unwrap: test setup.
 
         let target = test_database(&directory.path().join("target.sqlite"));
         let error = import_from_bytes(&target, &bytes).unwrap_err();
@@ -548,6 +690,78 @@ mod tests {
     }
 
     #[test]
+    fn schema_validation_rejects_triggers_and_extra_objects() {
+        let mut connection = Connection::open_in_memory().unwrap(); // allow-unwrap: test setup.
+        connection
+            .pragma_update(None, "foreign_keys", true)
+            .unwrap(); // allow-unwrap: test setup.
+        migrations::run_migrations(&mut connection, false).unwrap(); // allow-unwrap: test setup.
+        validate_source_schema(&connection).unwrap(); // allow-unwrap: test setup.
+
+        connection
+            .execute_batch(
+                "CREATE TRIGGER evil_addresses AFTER INSERT ON addresses
+                 BEGIN UPDATE addresses SET description = 'tampered'; END;",
+            )
+            .unwrap(); // allow-unwrap: test setup.
+        assert!(validate_source_schema(&connection).is_err());
+
+        let mut extra = Connection::open_in_memory().unwrap(); // allow-unwrap: test setup.
+        extra.pragma_update(None, "foreign_keys", true).unwrap(); // allow-unwrap: test setup.
+        migrations::run_migrations(&mut extra, false).unwrap(); // allow-unwrap: test setup.
+        extra
+            .execute_batch("CREATE TABLE attacker_payload (id INTEGER PRIMARY KEY)")
+            .unwrap(); // allow-unwrap: test setup.
+        assert!(validate_source_schema(&extra).is_err());
+
+        let mut view = Connection::open_in_memory().unwrap(); // allow-unwrap: test setup.
+        view.pragma_update(None, "foreign_keys", true).unwrap(); // allow-unwrap: test setup.
+        migrations::run_migrations(&mut view, false).unwrap(); // allow-unwrap: test setup.
+        view.execute_batch("CREATE VIEW attacker_view AS SELECT address FROM addresses")
+            .unwrap(); // allow-unwrap: test setup.
+        assert!(validate_source_schema(&view).is_err());
+    }
+
+    #[test]
+    fn copying_application_data_never_copies_source_triggers() {
+        let mut source = Connection::open_in_memory().unwrap(); // allow-unwrap: test setup.
+        source.pragma_update(None, "foreign_keys", true).unwrap(); // allow-unwrap: test setup.
+        migrations::run_migrations(&mut source, false).unwrap(); // allow-unwrap: test setup.
+        source
+            .execute(
+                "INSERT INTO setting (key, value) VALUES ('theme', 'forest')",
+                [],
+            )
+            .unwrap(); // allow-unwrap: test setup.
+        source
+            .execute_batch(
+                "CREATE TRIGGER evil_setting AFTER INSERT ON setting
+                 BEGIN UPDATE setting SET value = 'tampered'; END;",
+            )
+            .unwrap(); // allow-unwrap: test setup.
+
+        let mut target = Connection::open_in_memory().unwrap(); // allow-unwrap: test setup.
+        target.pragma_update(None, "foreign_keys", true).unwrap(); // allow-unwrap: test setup.
+        migrations::run_migrations(&mut target, false).unwrap(); // allow-unwrap: test setup.
+        copy_application_data(&source, &mut target).unwrap(); // allow-unwrap: test setup.
+
+        let trigger_count: i64 = target
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'evil_setting'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap(); // allow-unwrap: test setup.
+        assert_eq!(trigger_count, 0);
+        let theme: String = target
+            .query_row("SELECT value FROM setting WHERE key = 'theme'", [], |row| {
+                row.get(0)
+            })
+            .unwrap(); // allow-unwrap: test setup.
+        assert_eq!(theme, "forest");
+    }
+
+    #[test]
     fn reset_replaces_user_rows_with_defaults() {
         let directory = TestDir::new();
         let database = test_database(&directory.path().join("reset.sqlite"));
@@ -558,10 +772,10 @@ mod tests {
                 "INSERT INTO setting (key, value) VALUES ('theme', 'forest')",
                 [],
             )
-            .unwrap();
-        reset_to_defaults(&database).unwrap();
+            .unwrap(); // allow-unwrap: test setup.
+        reset_to_defaults(&database).unwrap(); // allow-unwrap: test setup.
         assert_eq!(setting(&database, "theme"), None);
-        let connection = database.connection().unwrap();
-        validate_current_schema(&connection).unwrap();
+        let connection = database.connection().unwrap(); // allow-unwrap: test setup.
+        validate_current_schema(&connection).unwrap(); // allow-unwrap: test setup.
     }
 }

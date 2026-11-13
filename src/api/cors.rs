@@ -44,6 +44,7 @@ pub fn layer() -> tower_http::cors::CorsLayer {
         ])
         .allow_headers([
             HeaderName::from_static("content-type"),
+            HeaderName::from_static("authorization"),
             HeaderName::from_static(crate::domain::health::API_VERSION_HEADER),
         ]);
 

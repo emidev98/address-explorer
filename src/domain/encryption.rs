@@ -7,6 +7,10 @@
 use serde::{Deserialize, Serialize};
 
 /// How long an unlocked database may stay idle before the key is discarded.
+///
+/// The same value also bounds the remote server session, so there is exactly
+/// one inactivity timer for the application. `Never` is intentionally not an
+/// option: every build must lock eventually.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum IdleTimeout {
@@ -17,18 +21,17 @@ pub enum IdleTimeout {
     OneHour,
     SixHours,
     TwentyFourHours,
-    Never,
 }
 
+#[allow(dead_code)]
 impl IdleTimeout {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 6] = [
         Self::OneMinute,
         Self::FiveMinutes,
         Self::TenMinutes,
         Self::OneHour,
         Self::SixHours,
         Self::TwentyFourHours,
-        Self::Never,
     ];
 
     /// Stable value stored in the `setting` table and sent over the API.
@@ -40,7 +43,6 @@ impl IdleTimeout {
             Self::OneHour => "1h",
             Self::SixHours => "6h",
             Self::TwentyFourHours => "24h",
-            Self::Never => "never",
         }
     }
 
@@ -53,21 +55,39 @@ impl IdleTimeout {
             Self::OneHour => "1 hour",
             Self::SixHours => "6 hours",
             Self::TwentyFourHours => "24 hours",
-            Self::Never => "Never",
         }
     }
 
-    /// Idle duration in seconds, or `None` when the vault never auto-locks.
+    /// Whether a network server may serve this timeout. A server must never
+    /// stay unlocked for longer than one hour.
+    pub const fn is_server_allowed(self) -> bool {
+        matches!(
+            self,
+            Self::OneMinute | Self::FiveMinutes | Self::TenMinutes | Self::OneHour
+        )
+    }
+
+    /// The value a network server actually applies. A database carried over
+    /// from a local build keeps its stored preference but is never served
+    /// above the server ceiling.
+    pub const fn for_network_server(self) -> Self {
+        if self.is_server_allowed() {
+            self
+        } else {
+            Self::OneHour
+        }
+    }
+
+    /// Idle duration in seconds.
     #[cfg_attr(not(any(test, feature = "server")), allow(dead_code))]
-    pub const fn as_secs(self) -> Option<u64> {
+    pub const fn as_secs(self) -> u64 {
         match self {
-            Self::OneMinute => Some(60),
-            Self::FiveMinutes => Some(5 * 60),
-            Self::TenMinutes => Some(10 * 60),
-            Self::OneHour => Some(60 * 60),
-            Self::SixHours => Some(6 * 60 * 60),
-            Self::TwentyFourHours => Some(24 * 60 * 60),
-            Self::Never => None,
+            Self::OneMinute => 60,
+            Self::FiveMinutes => 5 * 60,
+            Self::TenMinutes => 10 * 60,
+            Self::OneHour => 60 * 60,
+            Self::SixHours => 6 * 60 * 60,
+            Self::TwentyFourHours => 24 * 60 * 60,
         }
     }
 
@@ -82,14 +102,44 @@ impl IdleTimeout {
 /// Encryption state of the active backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EncryptionStatus {
-    /// Whether the active database is encrypted at rest.
+    /// Whether the active database has a password and is encrypted at rest.
     pub configured: bool,
     /// Whether the encrypted database is waiting for its password.
     pub locked: bool,
-    /// Current idle-lock preference.
+    /// Current inactivity timeout for the database key and the server session.
     pub idle_timeout: IdleTimeout,
-    /// Whether the first-run encryption prompt was already answered.
-    pub prompt_seen: bool,
+    /// Whether this backend is a network server, which caps the timeout at
+    /// one hour and refuses larger values.
+    pub server_capped: bool,
+}
+
+/// Result of setup, unlock, change-password, and reset.
+///
+/// The token is present only for a pure server. Local desktop, mobile, and the
+/// browser worker return `None` because their server functions execute
+/// in-process and do not have a network session to authorize.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnlockResult {
+    pub status: EncryptionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_token: Option<String>,
+}
+
+#[allow(dead_code)]
+impl UnlockResult {
+    pub fn local(status: EncryptionStatus) -> Self {
+        Self {
+            status,
+            session_token: None,
+        }
+    }
+
+    pub fn with_token(status: EncryptionStatus, token: String) -> Self {
+        Self {
+            status,
+            session_token: Some(token),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -102,12 +152,29 @@ mod tests {
             assert_eq!(IdleTimeout::from_value(timeout.as_str()), Some(timeout));
         }
         assert_eq!(IdleTimeout::from_value("2h"), None);
+        assert_eq!(IdleTimeout::from_value("never"), None);
     }
 
     #[test]
     fn default_timeout_is_one_hour() {
         assert_eq!(IdleTimeout::default(), IdleTimeout::OneHour);
-        assert_eq!(IdleTimeout::default().as_secs(), Some(3600));
-        assert_eq!(IdleTimeout::Never.as_secs(), None);
+        assert_eq!(IdleTimeout::default().as_secs(), 3600);
+    }
+
+    #[test]
+    fn network_servers_are_capped_at_one_hour() {
+        for timeout in IdleTimeout::ALL {
+            let applied = timeout.for_network_server();
+            assert!(applied.is_server_allowed());
+            assert!(applied.as_secs() <= IdleTimeout::OneHour.as_secs());
+        }
+        assert_eq!(
+            IdleTimeout::TwentyFourHours.for_network_server(),
+            IdleTimeout::OneHour
+        );
+        assert_eq!(
+            IdleTimeout::FiveMinutes.for_network_server(),
+            IdleTimeout::FiveMinutes
+        );
     }
 }

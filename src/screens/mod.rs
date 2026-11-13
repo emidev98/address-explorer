@@ -11,5 +11,5 @@ pub use funds_flow::FundsFlow;
 pub use historical_prices::HistoricalPrices;
 pub use settings::{
     SettingsExchangeTypes, SettingsGeneral, SettingsLayout, SettingsOnChainLinking,
-    SettingsWalletTypes,
+    SettingsSecurity, SettingsWalletTypes,
 };

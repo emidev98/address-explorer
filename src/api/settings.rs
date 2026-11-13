@@ -5,6 +5,7 @@ use super::open_database;
 use crate::application::settings;
 use crate::domain::exchange::OnChainLinkScoringSettings;
 use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
+use crate::domain::security_settings::SecuritySettings;
 use crate::domain::theme::ThemePreference;
 use dioxus::prelude::*;
 /// Read the persisted theme preference.
@@ -99,5 +100,25 @@ pub async fn save_navigation_position_api(
 pub async fn save_side_nav_collapsed_api(collapsed: bool) -> Result<(), ServerFnError> {
     remote_post!("/api/settings/side-nav-collapsed", [], [], [collapsed]);
     settings::save_side_nav_collapsed(&open_database()?, collapsed)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+/// Read the configurable security policy.
+#[server]
+#[get("/api/settings/security")]
+pub async fn get_security_settings_api() -> Result<SecuritySettings, ServerFnError> {
+    remote_get!("/api/settings/security", [], []);
+    settings::load_security_settings(&open_database()?)
+        .map_err(|error| ServerFnError::new(error.to_string()))
+}
+
+/// Validate and persist the security policy.
+#[server]
+#[post("/api/settings/security")]
+pub async fn save_security_settings_api(
+    settings_value: SecuritySettings,
+) -> Result<SecuritySettings, ServerFnError> {
+    remote_post!("/api/settings/security", [], [], [settings_value]);
+    settings::save_security_settings(&open_database()?, &settings_value)
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

@@ -141,6 +141,8 @@ impl BrowserDatabase {
             if has_setting == 0 {
                 return Err("the selected file is not an Address Explorer backup".to_string());
             }
+            backup::validate_source_schema(&connection)
+                .map_err(|error| format!("the imported SQLite schema is not trusted: {error}"))?;
         }
         if run_migrations {
             if version < 15 {

@@ -11,6 +11,7 @@ pub async fn health_api() -> Result<Health, ServerFnError> {
         Ok(Health {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             api_version: API_VERSION,
+            tls_fingerprint: None,
         })
     }
 }

@@ -25,6 +25,7 @@ mod multi_select;
 pub(crate) mod option_groups;
 mod page_header;
 mod provider_badge;
+mod security_settings;
 mod sync_prices_dialog;
 mod table_controls;
 pub mod theme;
@@ -62,6 +63,7 @@ pub use modal::Modal;
 pub use multi_select::{MultiSelect, MultiSelectOption};
 pub use page_header::PageHeader;
 pub use provider_badge::{BadgeSize, ProviderBadge};
+pub use security_settings::SecuritySettingsSection;
 pub use sync_prices_dialog::SyncPricesDialog;
 pub use table_controls::{
     use_table_selection, use_table_state, SortableHeader, TablePagination, TableSelection,

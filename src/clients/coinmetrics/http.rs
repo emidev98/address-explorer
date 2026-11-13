@@ -1,6 +1,7 @@
 use crate::clients::coinmetrics::config::CoinMetricsConfig;
 use crate::clients::coinmetrics::error::CoinMetricsError;
 use crate::clients::coinmetrics::types::ErrorResponse;
+use crate::clients::response::{read_limited, ResponseLimitError};
 use reqwest::{Client, RequestBuilder};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -12,6 +13,7 @@ pub struct HttpClient {
     client: Client,
     base_url: String,
     api_key: Option<String>,
+    max_response_bytes: usize,
 }
 impl HttpClient {
     pub fn new(config: &CoinMetricsConfig) -> Self {
@@ -28,6 +30,7 @@ impl HttpClient {
             client,
             base_url: config.base_url(),
             api_key: config.api_key.clone(),
+            max_response_bytes: config.max_response_bytes.max(1),
         }
     }
     fn url(&self, path: &str) -> String {
@@ -80,13 +83,23 @@ impl HttpClient {
     ) -> Result<T, CoinMetricsError> {
         let response = request.send().await?;
         let status = response.status();
+        let bytes = read_limited(response, self.max_response_bytes)
+            .await
+            .map_err(limit_error)?;
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+            let body = String::from_utf8_lossy(&bytes);
             return Err(api_error(status.as_u16(), &body));
         }
-        Ok(response.json::<T>().await?)
+        Ok(serde_json::from_slice(&bytes)?)
     }
 }
+fn limit_error(error: ResponseLimitError) -> CoinMetricsError {
+    match error {
+        ResponseLimitError::TooLarge => CoinMetricsError::ResponseTooLarge,
+        ResponseLimitError::Request(error) => CoinMetricsError::Http(error),
+    }
+}
+
 fn api_error(status: u16, body: &str) -> CoinMetricsError {
     match serde_json::from_str::<ErrorResponse>(body) {
         Ok(response) => CoinMetricsError::Api {

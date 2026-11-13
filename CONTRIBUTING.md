@@ -39,7 +39,7 @@ specific topics instead of duplicating them here:
 - **Language:** stable Rust unless the repository explicitly documents a toolchain exception.
 - **UI:** Dioxus. The version pinned by `Cargo.toml`/`Cargo.lock` determines the usable API. Section 5 describes the Dioxus conventions; contributors **MUST** update that section deliberately when the dependency baseline changes rather than mixing APIs.
 - **Charts:** Apache ECharts, vendored in `assets/vendor/echarts/`, is the default and only charting library. Section 5.10 describes the required chart component boundaries.
-- **Persistence:** SQLite through `rusqlite`. Native builds open a platform database file. The web Local backend opens a virtual SQLite database through `sqlite-wasm-vfs` `relaxed-idb` inside the SharedWorker. Browser/WASM code **MUST NOT** use native filesystem paths, `dirs`, or `std::fs`, and **MUST NOT** assume the database is a file on disk; the browser database is exported as a normal SQLite file only through the backup path.
+- **Persistence:** SQLite through `rusqlite`. Native builds open a platform database file. The web Local backend opens a virtual SQLite database through `sqlite-wasm-vfs` `relaxed-idb` inside the SharedWorker. Browser/WASM code **MUST NOT** use native filesystem paths, `dirs`, or `std::fs`, and **MUST NOT** assume the database is a file on disk; the browser database leaves the VFS only as an encrypted backup.
 - **Targets:** Linux, macOS, Android, iOS, and the web PWA. Platform-specific APIs **SHOULD** be isolated behind narrow modules or target-specific compilation. The web target is a single deployable PWA directory, not one HTML file and not a native binary.
 - **Web backends:** one web build supports two runtime modes. **Local** uses the browser SQLite database; **Remote** uses any Address Explorer server over HTTP(S) with the server's explicit CORS allowlist. The mode is selected in **Settings → General**; Local is the first-run default.
 - **Browser support:** latest 2026+ Chrome (desktop/Android), Edge, Firefox, and Safari (macOS/iOS) only. SharedWorker and service-worker support are required. Older browsers are unsupported; Local mode shows a clear incompatibility message and Remote remains available. No legacy polyfills are in scope.
@@ -486,13 +486,13 @@ destinations **MUST** be added to `Destination::PRIMARY` or
 `Destination::SETTINGS` in `src/navigation.rs` so every presentation stays in
 sync, including an icon for each top-level destination.
 
-- The expanded panel shows icon + label links and places compress, lock (when
-  encryption is configured), and Settings actions in a footer row from left
-  to right. Settings opens the flyout that exposes the four subsections.
+- The expanded panel shows icon + label links and places compress, lock, and
+  Settings actions in a footer row from left to right. Settings opens the
+  flyout that exposes the four subsections.
 - The compact panel is a 5 rem icon rail. The same footer actions are stacked
-  from top to bottom as Settings, lock (when encryption is configured), and
-  compress, and Settings opens the same flyout. The flyout closes on Escape,
-  outside click, route change, or selection.
+  from top to bottom as Settings, lock, and compress, and Settings opens the
+  same flyout. The flyout closes on Escape, outside click, route change, or
+  selection.
 - The mobile drawer always stays expanded and never shows the footer actions;
   it keeps the destination links followed by the Settings subsections.
 - The top app bar keeps its hover/tap Settings dropdown. Contributors
@@ -812,6 +812,16 @@ re-check every 60 seconds while a remote backend is active; the web client does
 not run a periodic health timer. A mismatch **MUST** block the remote backend
 and show a toast with both versions; it **MUST NOT** be silently accepted.
 
+**Database password and sessions.** Every build **MUST** require a database
+password before serving any data; a fresh database opens a blocking setup
+screen and there is no unencrypted mode. A pure server **MUST** serve HTTPS for
+non-loopback binds and refuse cleartext HTTP. Unlock **MUST** verify the
+password even when the vault is already open and issue one active bearer
+session token. Every data or encryption-control endpoint **MUST** require that
+token; health, status, setup, unlock, and the CA download are public. A new
+unlock replaces the previous token. The vault inactivity timer is the only
+session lifetime: locking or the timeout clears the key and the token.
+
 **Server CORS.** The server **MUST** read `ADDRESS_EXPLORER_CORS_ORIGINS` as a
 comma-separated allowlist of absolute origins (scheme + host + optional port, no
 path or trailing slash). There is **no** permissive `*` default. When the
@@ -945,7 +955,7 @@ The exchange ledger is independent from the on-chain transaction store.
 - A `rusqlite::Connection` **SHOULD** have a clear owner and lifecycle. A connection **MUST NOT** be stored in a Dioxus UI signal.
 - The active backend preference is **not** database data. Native builds store it in the local `backend.json` described in Section 5.15; the web PWA stores it in `localStorage`. Both can be read before a backend is selected. The SQLite database is used only when the active mode is `Local`.
 - The browser database is not a filesystem path. It uses the fixed virtual filename `address-explorer.db`, an IndexedDB database behind `relaxed-idb`, and no `std::fs`, `dirs`, `Path`, or `DATABASE_PATH`.
-- The virtual filename **MUST** remain stable so upgrades find the same browser data. Export produces an ordinary SQLite file; import accepts one. Neither operation makes the live browser database a filesystem file.
+- The virtual filename **MUST** remain stable so upgrades find the same browser data. Export produces an encrypted SQLCipher copy; import accepts one. Neither operation makes the live browser database a filesystem file.
 
 Contributors **SHOULD** choose deliberately whether to use `rusqlite`'s `bundled` feature. Bundling SQLite can make the SQLite version and native dependency more consistent and reduce reliance on a system SQLite development package, but it can increase compile time and **MUST** be verified for every target. When using it, contributors **MUST** keep the dependency range compatible with the repository's supported version and **MUST** commit the lockfile. If linking system SQLite instead, CI and packaging documentation **MUST** describe the required system library and minimum version.
 
@@ -1118,13 +1128,12 @@ The current `CURRENT_SCHEMA_VERSION` is `22`.
 - **Storage and backup.** Request `navigator.storage.persist()` automatically
   on every Local-mode start; a denial or unsupported browser must not block
   Local mode. Settings shows `navigator.storage.estimate()` usage only. Export
-  downloads the virtual database as `.sqlite`. Import decodes the base64 file,
-  rejects empty input, imports it into the VFS, and validates
-  `PRAGMA integrity_check`, a non-zero `user_version`, the `setting` table, the
-  migration chain, the current schema, and foreign keys. A rejected import
-  restores the previous database. There is no backup file-size limit; the
-  export dialog limits only the normalized file name. The file is unencrypted;
-  warn users and do not store secrets in it.
+  downloads an encrypted SQLCipher copy of the virtual database as `.sqlite`.
+  Import decodes the base64 file, rejects empty input, imports it into the VFS,
+  and validates `PRAGMA integrity_check`, a non-zero `user_version`, the
+  `setting` table, the canonical schema, and foreign keys. A rejected import
+  restores the previous database. The import size is bounded by the
+  configurable Security policy. Every export uses a separate backup passphrase.
 - **External sync.** Local mode may call Coin Metrics Community, Mempool, and
   Frankfurter directly; all three allow browser CORS. Handle offline, timeout,
   rate-limit, and CORS failures without corrupting local data.
@@ -1140,39 +1149,44 @@ The current `CURRENT_SCHEMA_VERSION` is `22`.
 #### 6.7 Database backup, import, and reset
 
 Settings → General → **Data** manages the **active backend**. The same
-`export_data_api`, `import_data_api`, and `clear_data_api` names select worker
-RPC in web Local mode, an in-process server function in native Local mode, and
-the remote HTTP transport in Remote mode. Screens and components **MUST NOT**
-branch on the transport.
+`export_encrypted_data_api`, `import_encrypted_data_api`, and `clear_data_api`
+names select worker RPC in web Local mode, an in-process server function in
+native Local mode, and the remote HTTP transport in Remote mode. Screens and
+components **MUST NOT** branch on the transport.
 
-- **Export.** Produce a consistent SQLite snapshot with the SQLite online
-  backup API (native/server) or the worker VFS export (web Local). The worker
-  **MUST** await the commit barrier before exporting browser data.
-- **Import.** Native/server import checks the SQLite header before replacing
-  the live database. Browser import decodes the base64 file, rejects empty
-  input, imports it into the VFS, and validates `PRAGMA integrity_check`, a
-  non-zero `user_version`, the `setting` table, the migration chain, the
-  current schema, and foreign keys. Older backups run the normal migration
-  list; newer backups are rejected with a clear message. The live database is
-  backed up before replacement; any restore or commit failure restores it.
-  There is no backup file-size limit.
+- **Export.** Produce a consistent SQLCipher snapshot encrypted with a separate
+  backup passphrase, using the SQLite online backup API (native/server) or the
+  worker VFS export (web Local). The worker **MUST** await the commit barrier
+  before exporting browser data.
+- **Import.** Native/server import authenticates and decrypts the encrypted
+  backup before replacing the live database. Browser import decodes the base64
+  file, rejects empty input, imports it into the VFS, and validates
+  `PRAGMA integrity_check`, a non-zero `user_version`, the `setting` table, the
+  migration chain, the current schema, and foreign keys. Older backups run the
+  normal migration list; newer backups are rejected with a clear message. The
+  live database is backed up before replacement; any restore or commit failure
+  restores it. The import size is bounded by the configurable Security policy
+  (128 MiB decoded by default), and the HTTP body limit is derived from it.
 - **Reset.** Create a fresh database through the normal migration and seed
   path, back up the live database, restore the fresh copy, and restore the
   safety copy on failure. The result matches the browser's existing clear
   behavior: user data is removed and bundled reference rows return.
 - **Browser worker.** Keep the previous database in memory during import and
   clear. A failed replacement **MUST** restore it and reopen Local mode.
-- **Remote endpoints.** `POST /api/data/export`, `POST /api/data/import`, and
-  `POST /api/data/clear` act on the server database. These endpoints inherit
-  the CORS origin allowlist and API version guard; there is no authentication,
-  so a server **MUST NOT** be exposed to untrusted origins.
+- **Remote endpoints.** `POST /api/data/export-encrypted`,
+  `POST /api/data/import-encrypted`, and `POST /api/data/clear` act on the
+  server database. They require a valid unlock session token. A pure server
+  **MUST** use TLS for non-loopback binds, and every build **MUST** refuse data
+  access until a database password is set.
 - **Remote clients.** The client that performed the import or clear reloads.
   Other clients connected to the same remote server are not notified and must
   refresh before they see the replaced data.
 - **Files.** Exports use the normalized filename chosen in the in-app modal.
   Web downloads use the browser's download location; desktop writes to the
   user's Downloads folder; mobile writes to the app documents folder and shows
-  the absolute path. Exported files are ordinary, unencrypted SQLite files.
+  the absolute path. All exports are SQLCipher-encrypted with a separate backup
+  passphrase. Native export files use 0600 or the stricter 0400 mode selected
+  in Security policy.
 - **Versions.** Adding these endpoints bumps `API_VERSION`; renaming the worker
   RPC endpoints bumps `WORKER_PROTOCOL_VERSION`. No schema migration is
   introduced by the data section itself.
@@ -1372,8 +1386,9 @@ the SQL here. The browser-local database uses the same tables, migrations,
 invariants, and `CURRENT_SCHEMA_VERSION`; web-only tables or seed variants are
 forbidden. `historical_prices` is seeded in the browser from the generated stable
 `public/btc_usd.bin` (source `assets/pricing/btc_usd.bin`); `addresses` is seeded from the checked-in
-`0019_addresses_data.sql`. Export produces a normal SQLite snapshot. Native/server
-import checks the SQLite header; browser import validates through
+`0019_addresses_data.sql`. Export produces an encrypted SQLCipher snapshot with
+a separate backup passphrase. Native/server import authenticates and decrypts
+the backup; browser import validates through
 `PRAGMA integrity_check`, a non-zero `user_version`, the `setting` table, the
 migration chain, the current schema, and foreign keys. Both upgrade older
 schemas through the same migration list and reject newer schemas. The operation

@@ -2,6 +2,7 @@
 
 use crate::domain::exchange::OnChainLinkScoringSettings;
 use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
+use crate::domain::security_settings::SecuritySettings;
 use crate::domain::theme::ThemePreference;
 use dioxus_fullstack_core::ServerFnError;
 
@@ -82,5 +83,19 @@ pub async fn save_side_nav_collapsed_api(collapsed: bool) -> Result<(), ServerFn
         "settings.save_side_nav_collapsed",
         "/api/settings/side-nav-collapsed",
         { "collapsed": collapsed }
+    )
+}
+
+pub async fn get_security_settings_api() -> Result<SecuritySettings, ServerFnError> {
+    crate::web_get_query!("settings.get_security", "/api/settings/security", {})
+}
+
+pub async fn save_security_settings_api(
+    settings_value: SecuritySettings,
+) -> Result<SecuritySettings, ServerFnError> {
+    crate::web_post_body!(
+        "settings.save_security",
+        "/api/settings/security",
+        { "settings_value": settings_value }
     )
 }

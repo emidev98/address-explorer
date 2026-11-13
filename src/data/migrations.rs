@@ -154,6 +154,29 @@ pub(crate) fn schema_sql(table: &str) -> Option<&'static str> {
             _ => None,
         })
 }
+/// Build the canonical schema for an older or current backup version.
+///
+/// Only SQL migrations participate: they create the tables, indexes, and
+/// triggers a legitimate backup at that version contains. Seed migrations read
+/// bundled files and do not change the schema, so they are skipped.
+pub(crate) fn expected_schema(version: i32) -> Result<Connection, DatabaseError> {
+    if version <= 0 || version > CURRENT_SCHEMA_VERSION {
+        return Err(DatabaseError::new(format!(
+            "unsupported backup schema version {version}"
+        )));
+    }
+    let connection = Connection::open_in_memory().map_err(DatabaseError::from)?;
+    for (index, (_name, migration)) in MIGRATIONS.iter().enumerate() {
+        if index as i32 >= version {
+            break;
+        }
+        if let Migration::Sql(sql) = migration {
+            connection.execute_batch(sql).map_err(DatabaseError::from)?;
+        }
+    }
+    Ok(connection)
+}
+
 /// Apply pending migrations in order.
 ///
 /// `include_seeds` is set for persistent databases (native on-disk and

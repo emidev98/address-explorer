@@ -199,19 +199,14 @@ fn CompactNavPanel(
 /// windows the same destinations can move into a persistent side panel; on
 /// phones they collapse into a menu button and slide-in drawer. The side
 /// panel can be compressed into an icon rail. Its footer exposes Settings,
-/// compress/expand, and, when encryption is on, lock actions. The compact rail
-/// stacks Settings, lock, and compress; the expanded panel shows compress,
-/// lock, and Settings in a row.
+/// compress/expand, and lock actions. The compact rail stacks Settings, lock,
+/// and compress; the expanded panel shows compress, lock, and Settings in a
+/// row.
 #[component]
 pub fn AppShell() -> Element {
     let current = use_route::<Route>();
     let interface_settings = use_interface_settings();
     let encryption = use_encryption();
-    let encryption_configured = encryption
-        .status
-        .read()
-        .as_ref()
-        .is_some_and(|status| status.configured);
     let navigation_position = interface_settings.get().navigation_position;
     let side_nav_collapsed = interface_settings.get().side_nav_collapsed;
     let toast = use_toast();
@@ -292,31 +287,29 @@ pub fn AppShell() -> Element {
             }
         }
     };
-    let lock_action = encryption_configured.then(|| {
-        rsx! {
-            button {
-                id: "md3-side-nav-lock",
-                r#type: "button",
-                class: "md3-side-nav-footer-action",
-                aria_label: "Lock database",
-                "data-tooltip": "Lock database",
-                disabled: *lock_saving.read(),
-                onclick: move |_| {
-                    compact_settings_menu_open.set(false);
-                    lock_database(encryption, lock_saving, toast);
-                },
-                {nav_icon(IconName::Lock)}
-            }
+    let lock_action = rsx! {
+        button {
+            id: "md3-side-nav-lock",
+            r#type: "button",
+            class: "md3-side-nav-footer-action",
+            aria_label: "Lock database",
+            "data-tooltip": "Lock database",
+            disabled: *lock_saving.read(),
+            onclick: move |_| {
+                compact_settings_menu_open.set(false);
+                lock_database(encryption, lock_saving, toast);
+            },
+            {nav_icon(IconName::Lock)}
         }
-    });
+    };
     let footer_actions: Vec<Element> = if side_nav_collapsed {
         std::iter::once(settings_action)
-            .chain(lock_action)
+            .chain(std::iter::once(lock_action))
             .chain(std::iter::once(compress_action))
             .collect()
     } else {
         std::iter::once(compress_action)
-            .chain(lock_action)
+            .chain(std::iter::once(lock_action))
             .chain(std::iter::once(settings_action))
             .collect()
     };

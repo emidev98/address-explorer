@@ -6,9 +6,9 @@
 use super::encryption::{VaultKey, SALT_LEN};
 #[cfg(any(not(target_arch = "wasm32"), test))]
 use super::migrations::run_migrations;
-use rusqlite::Connection;
 #[cfg(not(target_arch = "wasm32"))]
-use std::fs;
+use crate::security::files::{create_private_file, ensure_private_dir, set_private_file};
+use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
@@ -67,7 +67,7 @@ impl Database {
             if !path.trim().is_empty() {
                 let path = PathBuf::from(path);
                 if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)?;
+                    ensure_private_dir(parent).map_err(DatabaseError::new)?;
                 }
                 return Ok(path);
             }
@@ -76,11 +76,15 @@ impl Database {
             let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("target")
                 .join("db");
-            fs::create_dir_all(&directory)?;
+            ensure_private_dir(&directory).map_err(DatabaseError::new)?;
+            crate::security::files::restrict_dir(&directory).map_err(DatabaseError::new)?;
             return Ok(directory.join(DB_FILE_NAME));
         }
         if let Some(legacy) = dirs::home_dir().map(|home| home.join(APP_NAME).join(DB_FILE_NAME)) {
             if legacy.is_file() {
+                if let Some(parent) = legacy.parent() {
+                    let _ = crate::security::files::restrict_dir(parent);
+                }
                 return Ok(legacy);
             }
         }
@@ -90,14 +94,18 @@ impl Database {
             .ok_or_else(|| {
                 DatabaseError::new("could not determine the application-data directory")
             })?;
-        fs::create_dir_all(&directory)?;
+        ensure_private_dir(&directory).map_err(DatabaseError::new)?;
+        crate::security::files::restrict_dir(&directory).map_err(DatabaseError::new)?;
         Ok(directory.join(DB_FILE_NAME))
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {
         let path = path.as_ref().to_path_buf();
+        prepare_database_file(&path)?;
         let mut connection = Connection::open(&path)?;
+        set_private_file(&path).map_err(DatabaseError::new)?;
         connection.pragma_update(None, "foreign_keys", true)?;
+        connection.pragma_update(None, "secure_delete", true)?;
         connection.busy_timeout(Duration::from_secs(5))?;
         run_migrations(&mut connection, true)?;
         Ok(Self {
@@ -118,7 +126,9 @@ impl Database {
         salt: &[u8; SALT_LEN],
     ) -> Result<Self, DatabaseError> {
         let path = path.as_ref().to_path_buf();
+        prepare_database_file(&path)?;
         let mut connection = open_connection_with_key(&path, key, salt)?;
+        set_private_file(&path).map_err(DatabaseError::new)?;
         connection.busy_timeout(Duration::from_secs(5))?;
         run_migrations(&mut connection, true)?;
         Ok(Self {
@@ -170,11 +180,31 @@ pub(crate) fn open_connection_with_key(
     key: &VaultKey,
     salt: &[u8; SALT_LEN],
 ) -> Result<Connection, DatabaseError> {
+    prepare_database_file(path)?;
     let connection = Connection::open(path)?;
+    set_private_file(path).map_err(DatabaseError::new)?;
     apply_sqlcipher_key(&connection, key, salt)?;
     connection.pragma_update(None, "foreign_keys", true)?;
+    connection.pragma_update(None, "secure_delete", true)?;
     connection.pragma_update(None, "temp_store", "MEMORY")?;
     Ok(connection)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn prepare_database_file(path: &Path) -> Result<(), DatabaseError> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            ensure_private_dir(parent).map_err(DatabaseError::new)?;
+        }
+    }
+    match create_private_file(path) {
+        Ok(_) => Ok(()),
+        Err(_) if path.exists() => Ok(()),
+        Err(error) => Err(DatabaseError::new(error)),
+    }
 }
 
 /// Configure an already open SQLCipher connection. The compatibility pragma

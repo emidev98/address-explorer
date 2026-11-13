@@ -80,7 +80,7 @@ pub fn BackendSettingsSection() -> Element {
     let insecure_http = remote_selected && backend::uses_insecure_remote_http(url().trim());
 
     rsx! {
-        section { class: "md3-settings-section",
+        section { class: "md3-settings-section md3-settings-span",
             div {
                 h3 { class: "text-title-medium leading-title-medium text-on-surface",
                     "Backend"
@@ -95,7 +95,7 @@ pub fn BackendSettingsSection() -> Element {
                 aria_label: "Backend mode",
                 button {
                     r#type: "button",
-                    class: if selected_mode() == BackendMode::Local && backend::is_local() { "md3-chip md3-chip-selected" } else { "md3-chip" },
+                    class: if selected_mode() == BackendMode::Local { "md3-chip md3-chip-selected" } else { "md3-chip" },
                     aria_pressed: (selected_mode() == BackendMode::Local).to_string(),
                     disabled: *testing.read() || *saving.read(),
                     onclick: move |_| {
@@ -141,7 +141,7 @@ pub fn BackendSettingsSection() -> Element {
                     }
                 }
                 p { class: "text-body-small text-on-surface-variant",
-                    "The address of the server hosting the Address Explorer API. Do not include a trailing slash or a query."
+                    "The address of the server hosting the Address Explorer API. Do not include a trailing slash or a query. HTTPS is required; install the server's local CA on this device before testing the connection."
                 }
                 if let Some(error) = url_error.clone() {
                     p {
@@ -153,9 +153,10 @@ pub fn BackendSettingsSection() -> Element {
                 }
                 if insecure_http {
                     p {
-                        class: "text-body-small text-on-surface-variant",
-                        role: "status",
-                        "Plain HTTP is not encrypted. Use HTTPS unless this is a loopback or private-network server."
+                        class: "text-body-small",
+                        style: "color: var(--md-sys-color-error);",
+                        role: "alert",
+                        "Plain HTTP is rejected for non-loopback servers. Use HTTPS so the session token and database traffic are encrypted."
                     }
                 }
             }
@@ -288,6 +289,13 @@ pub fn BackendSettingsSection() -> Element {
                     role: "status",
                     aria_live: "polite",
                     "{status}"
+                }
+            }
+            if let Some((_, health)) = tested() {
+                if let Some(fingerprint) = health.tls_fingerprint {
+                    p { class: "text-body-small text-on-surface-variant",
+                        "TLS certificate SHA-256: {fingerprint}"
+                    }
                 }
             }
         }

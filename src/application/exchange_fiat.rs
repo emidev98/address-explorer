@@ -37,7 +37,11 @@ impl ExchangeFiatService {
         Self {
             database,
             frankfurter: Frankfurter::new(FrankfurterConfig {
-                timeout: Some(Duration::from_secs(20)),
+                timeout: Some(Duration::from_secs(
+                    crate::security::policy::current().external_timeout_secs,
+                )),
+                max_response_bytes: crate::security::policy::current().external_response_max_bytes
+                    as usize,
                 ..FrankfurterConfig::default()
             }),
         }

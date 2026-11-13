@@ -5,4 +5,6 @@ pub enum FrankfurterError {
     Http(#[from] reqwest::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("the frankfurter response exceeded the size limit")]
+    ResponseTooLarge,
 }

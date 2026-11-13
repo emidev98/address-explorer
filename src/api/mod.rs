@@ -64,9 +64,16 @@ pub mod prices;
 pub mod remote;
 #[cfg_attr(
     all(feature = "web-client", target_arch = "wasm32"),
+    path = "web/session.rs"
+)]
+pub mod session;
+#[cfg_attr(
+    all(feature = "web-client", target_arch = "wasm32"),
     path = "web/settings.rs"
 )]
 pub mod settings;
+#[cfg(all(feature = "server", not(any(feature = "desktop", feature = "mobile"))))]
+pub mod tls;
 #[cfg_attr(
     all(feature = "web-client", target_arch = "wasm32"),
     path = "web/transactions.rs"
@@ -107,14 +114,6 @@ mod remote_forward_tests {
                     Json(body["address"].clone())
                 }),
             )
-            .route("/api/data/export", post(|| async { Json("sqlite-backup") }))
-            .route(
-                "/api/data/import",
-                post(|Json(body): Json<Value>| async move {
-                    assert_eq!(body, json!({ "file": "c3FsaXRl" }));
-                    Json(Value::Null)
-                }),
-            )
             .route("/api/data/clear", post(|| async { Json(Value::Null) }));
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -147,13 +146,6 @@ mod remote_forward_tests {
             .expect("remote validation");
         assert_eq!(validated, "abc");
 
-        let exported = crate::api::data::export_data_api()
-            .await
-            .expect("remote export");
-        assert_eq!(exported, "sqlite-backup");
-        crate::api::data::import_data_api("c3FsaXRl".to_string())
-            .await
-            .expect("remote import");
         crate::api::data::clear_data_api()
             .await
             .expect("remote clear");

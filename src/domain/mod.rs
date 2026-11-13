@@ -16,6 +16,8 @@ pub mod flow;
 pub mod health;
 pub mod interface_settings;
 pub mod price;
+pub mod secret;
+pub mod security_settings;
 pub mod table;
 pub mod theme;
 pub mod transaction;

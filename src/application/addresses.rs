@@ -49,7 +49,14 @@ impl AddressService {
     pub fn connect(database: Database) -> Self {
         Self {
             database,
-            mempool: Mempool::new(MempoolConfig::default()),
+            mempool: Mempool::new(MempoolConfig {
+                timeout: Some(std::time::Duration::from_secs(
+                    crate::security::policy::current().external_timeout_secs,
+                )),
+                max_response_bytes: crate::security::policy::current().external_response_max_bytes
+                    as usize,
+                ..MempoolConfig::default()
+            }),
         }
     }
     /// Addresses overview: the table page, all rows for the charts, and the

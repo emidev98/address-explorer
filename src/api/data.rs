@@ -1,47 +1,50 @@
 //! Data management endpoints for the active local or remote database.
-#[cfg(feature = "server")]
-use super::open_database;
-#[cfg(feature = "server")]
-use crate::application::database_backup;
+use crate::domain::secret::SecretString;
 use base64::Engine;
 use dioxus::prelude::*;
 
-/// Export the active database as a base64-encoded SQLite file.
+/// Export an encrypted SQLCipher backup with a separate passphrase.
 #[server]
-#[post("/api/data/export")]
-pub async fn export_data_api() -> Result<String, ServerFnError> {
-    remote_post_with_timeout!(
-        "/api/data/export",
-        [],
-        [],
-        [],
-        crate::api::remote::DATA_TRANSFER_TIMEOUT
-    );
-    let _operation = crate::data::vault::begin_operation()
-        .map_err(|error| ServerFnError::new(error.to_string()))?;
-    let database = open_database()?;
-    let bytes = database_backup::export_database(&database)
+#[post("/api/data/export-encrypted")]
+pub async fn export_encrypted_data_api(passphrase: SecretString) -> Result<String, ServerFnError> {
+    #[cfg(feature = "remote-backend")]
+    if crate::backend::is_remote() {
+        return crate::api::remote::call_with_timeout(
+            dioxus::fullstack::Method::POST,
+            "/api/data/export-encrypted",
+            Some(serde_json::json!({})),
+            Some(serde_json::json!({ "passphrase": passphrase.as_str() })),
+            crate::api::remote::DATA_TRANSFER_TIMEOUT,
+        )
+        .await;
+    }
+    let bytes = crate::data::vault::export_encrypted(passphrase.as_str())
         .map_err(|error| ServerFnError::new(error.to_string()))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-/// Validate and import a base64-encoded SQLite backup into the active database.
+/// Import an encrypted SQLCipher backup with its backup passphrase.
 #[server]
-#[post("/api/data/import")]
-pub async fn import_data_api(file: String) -> Result<(), ServerFnError> {
-    remote_post_with_timeout!(
-        "/api/data/import",
-        [],
-        [],
-        [file],
-        crate::api::remote::DATA_TRANSFER_TIMEOUT
-    );
+#[post("/api/data/import-encrypted")]
+pub async fn import_encrypted_data_api(
+    file: String,
+    passphrase: SecretString,
+) -> Result<(), ServerFnError> {
+    #[cfg(feature = "remote-backend")]
+    if crate::backend::is_remote() {
+        return crate::api::remote::call_with_timeout(
+            dioxus::fullstack::Method::POST,
+            "/api/data/import-encrypted",
+            Some(serde_json::json!({})),
+            Some(serde_json::json!({ "file": &file, "passphrase": passphrase.as_str() })),
+            crate::api::remote::DATA_TRANSFER_TIMEOUT,
+        )
+        .await;
+    }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(file.trim())
         .map_err(|_| ServerFnError::new("the backup upload is not valid base64 data"))?;
-    let _operation = crate::data::vault::begin_operation()
-        .map_err(|error| ServerFnError::new(error.to_string()))?;
-    crate::data::vault::import_plaintext(&bytes)
+    crate::data::vault::import_encrypted(&bytes, passphrase.as_str())
         .map(|_| ())
         .map_err(|error| ServerFnError::new(error.to_string()))
 }

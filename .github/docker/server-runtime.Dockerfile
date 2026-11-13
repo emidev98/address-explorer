@@ -23,6 +23,7 @@ RUN chown -R app:app /data /usr/local/share/address-explorer
 ENV IP=0.0.0.0 \
     PORT=8080 \
     DATABASE_PATH=/data/app.db \
+    ADDRESS_EXPLORER_TLS_DIR=/data/tls \
     ADDRESS_EXPLORER_PRICING_FILE=/usr/local/share/address-explorer/btc_usd.bin
 
 USER app
@@ -30,6 +31,6 @@ VOLUME ["/data"]
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8080/api/health || exit 1
+    CMD curl -fk https://127.0.0.1:8080/api/health || exit 1
 
 ENTRYPOINT ["/usr/local/bin/address-explorer"]

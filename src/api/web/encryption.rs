@@ -1,43 +1,54 @@
 //! Browser wrappers for the encryption endpoints.
 
-use crate::domain::encryption::{EncryptionStatus, IdleTimeout};
+use crate::domain::encryption::{EncryptionStatus, IdleTimeout, UnlockResult};
+use crate::domain::secret::SecretString;
 use dioxus_fullstack_core::ServerFnError;
-use zeroize::Zeroizing;
 
 fn password_transport_error() -> Option<String> {
     crate::backend::remote_password_transport_error()
+}
+
+fn store_session(result: UnlockResult) -> UnlockResult {
+    if let Some(token) = result.session_token.as_deref() {
+        crate::backend::set_session_token(token);
+    }
+    result
 }
 
 pub async fn get_encryption_status_api() -> Result<EncryptionStatus, ServerFnError> {
     crate::web_get_query!("encryption.status", "/api/encryption/status", {})
 }
 
-pub async fn setup_encryption_api(password: String) -> Result<EncryptionStatus, ServerFnError> {
-    let password = Zeroizing::new(password);
+pub async fn setup_encryption_api(password: SecretString) -> Result<UnlockResult, ServerFnError> {
     if let Some(error) = password_transport_error() {
         return Err(ServerFnError::new(error));
     }
-    crate::web_post_body!(
+    let result = crate::web_post_body!(
         "encryption.setup",
         "/api/encryption/setup",
         { "password": password.as_str() }
-    )
+    )?;
+    Ok(store_session(result))
 }
 
-pub async fn unlock_encryption_api(password: String) -> Result<EncryptionStatus, ServerFnError> {
-    let password = Zeroizing::new(password);
+pub async fn unlock_encryption_api(password: SecretString) -> Result<UnlockResult, ServerFnError> {
     if let Some(error) = password_transport_error() {
         return Err(ServerFnError::new(error));
     }
-    crate::web_post_body!(
+    let result = crate::web_post_body!(
         "encryption.unlock",
         "/api/encryption/unlock",
         { "password": password.as_str() }
-    )
+    )?;
+    Ok(store_session(result))
 }
 
 pub async fn lock_encryption_api() -> Result<EncryptionStatus, ServerFnError> {
-    crate::web_post_body!("encryption.lock", "/api/encryption/lock", {})
+    let result = crate::web_post_body!("encryption.lock", "/api/encryption/lock", {});
+    if result.is_ok() {
+        crate::backend::clear_session_token();
+    }
+    result
 }
 
 pub async fn touch_encryption_api() -> Result<(), ServerFnError> {
@@ -45,19 +56,18 @@ pub async fn touch_encryption_api() -> Result<(), ServerFnError> {
 }
 
 pub async fn change_encryption_password_api(
-    current_password: String,
-    new_password: String,
-) -> Result<EncryptionStatus, ServerFnError> {
-    let current_password = Zeroizing::new(current_password);
-    let new_password = Zeroizing::new(new_password);
+    current_password: SecretString,
+    new_password: SecretString,
+) -> Result<UnlockResult, ServerFnError> {
     if let Some(error) = password_transport_error() {
         return Err(ServerFnError::new(error));
     }
-    crate::web_post_body!(
+    let result = crate::web_post_body!(
         "encryption.change_password",
         "/api/encryption/change-password",
         { "current_password": current_password.as_str(), "new_password": new_password.as_str() }
-    )
+    )?;
+    Ok(store_session(result))
 }
 
 pub async fn save_encryption_idle_timeout_api(
@@ -70,20 +80,13 @@ pub async fn save_encryption_idle_timeout_api(
     )
 }
 
-pub async fn dismiss_encryption_prompt_api() -> Result<EncryptionStatus, ServerFnError> {
-    crate::web_post_body!(
-        "encryption.dismiss_prompt",
-        "/api/encryption/dismiss-prompt",
-        {}
-    )
-}
-
 pub async fn reset_encrypted_database_api(
     confirmation: String,
-) -> Result<EncryptionStatus, ServerFnError> {
-    crate::web_post_body!(
+) -> Result<UnlockResult, ServerFnError> {
+    let result = crate::web_post_body!(
         "encryption.reset",
         "/api/encryption/reset",
         { "confirmation": confirmation }
-    )
+    )?;
+    Ok(store_session(result))
 }

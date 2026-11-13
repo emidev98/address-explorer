@@ -9,7 +9,7 @@ use serde_json::Value;
 
 /// Version of the worker message contract. Bump whenever a request/response
 /// payload or an endpoint name changes incompatibly.
-pub const WORKER_PROTOCOL_VERSION: u32 = 2;
+pub const WORKER_PROTOCOL_VERSION: u32 = 4;
 
 /// Name of the SQLite file inside the browser VFS.
 pub const WEB_DATABASE_FILE: &str = "address-explorer.db";

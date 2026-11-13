@@ -9,6 +9,7 @@ pub enum Destination {
     Exchanges,
     HistoricalPrices,
     SettingsGeneral,
+    SettingsSecurity,
     SettingsOnChainLinking,
     SettingsWalletTypes,
     SettingsExchangeTypes,
@@ -20,8 +21,9 @@ impl Destination {
         Self::Exchanges,
         Self::HistoricalPrices,
     ];
-    pub const SETTINGS: [Self; 4] = [
+    pub const SETTINGS: [Self; 5] = [
         Self::SettingsGeneral,
+        Self::SettingsSecurity,
         Self::SettingsOnChainLinking,
         Self::SettingsWalletTypes,
         Self::SettingsExchangeTypes,
@@ -33,6 +35,7 @@ impl Destination {
             Self::Exchanges => "Exchanges",
             Self::HistoricalPrices => "Historical Prices",
             Self::SettingsGeneral => "General",
+            Self::SettingsSecurity => "Security",
             Self::SettingsOnChainLinking => "On-chain Linking",
             Self::SettingsWalletTypes => "Wallet Types",
             Self::SettingsExchangeTypes => "Exchange Types",
@@ -45,6 +48,7 @@ impl Destination {
             Self::Exchanges => IconName::Exchanges,
             Self::HistoricalPrices => IconName::Prices,
             Self::SettingsGeneral
+            | Self::SettingsSecurity
             | Self::SettingsOnChainLinking
             | Self::SettingsWalletTypes
             | Self::SettingsExchangeTypes => IconName::Settings,
@@ -57,6 +61,7 @@ impl Destination {
             Self::Exchanges => Route::Exchanges {},
             Self::HistoricalPrices => Route::HistoricalPrices {},
             Self::SettingsGeneral => Route::SettingsGeneral {},
+            Self::SettingsSecurity => Route::SettingsSecurity {},
             Self::SettingsOnChainLinking => Route::SettingsOnChainLinking {},
             Self::SettingsWalletTypes => Route::SettingsWalletTypes {},
             Self::SettingsExchangeTypes => Route::SettingsExchangeTypes {},
@@ -66,6 +71,7 @@ impl Destination {
         matches!(
             self,
             Self::SettingsGeneral
+                | Self::SettingsSecurity
                 | Self::SettingsOnChainLinking
                 | Self::SettingsWalletTypes
                 | Self::SettingsExchangeTypes
@@ -79,6 +85,7 @@ impl Destination {
             Route::Exchanges {} | Route::ExchangeAccountDetail { .. } => Some(Self::Exchanges),
             Route::HistoricalPrices {} => Some(Self::HistoricalPrices),
             Route::SettingsGeneral {} => Some(Self::SettingsGeneral),
+            Route::SettingsSecurity {} => Some(Self::SettingsSecurity),
             Route::SettingsOnChainLinking {} => Some(Self::SettingsOnChainLinking),
             Route::SettingsWalletTypes {} => Some(Self::SettingsWalletTypes),
             Route::SettingsExchangeTypes {} => Some(Self::SettingsExchangeTypes),
@@ -96,6 +103,6 @@ mod tests {
             .chain(Destination::SETTINGS)
             .map(Destination::label)
             .collect::<HashSet<_>>();
-        assert_eq!(labels.len(), 8);
+        assert_eq!(labels.len(), 9);
     }
 }

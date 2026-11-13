@@ -35,10 +35,13 @@ pub fn save_idle_timeout(timeout: IdleTimeout) -> EncryptionResult {
     vault::save_idle_timeout(timeout)
 }
 
-pub fn dismiss_prompt() -> EncryptionResult {
-    vault::dismiss_prompt()
-}
-
+#[allow(dead_code)]
 pub fn reset() -> EncryptionResult {
     vault::reset()
+}
+
+/// Erase user data while keeping the current encryption key. Used by the
+/// unlocked remote reset path.
+pub fn reset_to_defaults() -> EncryptionResult {
+    vault::reset_to_defaults()
 }

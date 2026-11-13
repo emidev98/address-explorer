@@ -173,7 +173,7 @@ pub fn ExchangeInspector(
                     class: "md3-icon-button",
                     aria_label: "Close transaction editor",
                     onclick: move | _ |
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        on_close.call(()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            on_close.call(()),
                     Icon { name: IconName::Close, size: 20 }
                 }
             }
@@ -234,7 +234,7 @@ pub fn ExchangeInspector(
                         inputmode: "decimal",
                         disabled: *loading.read(),
                         oninput: move | event |
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        amount.set(event.value()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                amount.set(event.value()),
                     }
                 }
                 div { class: "md3-exchange-two-cols",
@@ -247,7 +247,7 @@ pub fn ExchangeInspector(
                                 inputmode: "decimal",
                                 disabled: *loading.read(),
                                 oninput: move | event | fiat_amount
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .set(event.value()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .set(event.value()),
                             }
                         }
                     }
@@ -259,10 +259,27 @@ pub fn ExchangeInspector(
                                 value: "{fiat_currency}",
                                 disabled: *loading.read(),
                                 onchange: move | event | fiat_currency.set(event
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .value()),
-                                option { value: "", "—" }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .value()),
+                                option {
+                                    value: "",
+                                    selected: fiat_currency().is_empty(),
+                                    "—"
+                                }
                                 for code in FIAT_CURRENCIES {
-                                    option { value: "{code}", "{code}" }
+                                    option {
+                                        value: "{code}",
+                                        selected: fiat_currency().as_str() == *code,
+                                        "{code}"
+                                    }
+                                }
+                                if !fiat_currency().is_empty()
+                                    && !FIAT_CURRENCIES.iter().any(|code| *code == fiat_currency().as_str())
+                                {
+                                    option {
+                                        value: "{fiat_currency}",
+                                        selected: true,
+                                        "{fiat_currency}"
+                                    }
                                 }
                             }
                         }
@@ -288,7 +305,7 @@ pub fn ExchangeInspector(
                                 inputmode: "decimal",
                                 disabled: *loading.read(),
                                 oninput: move | event | fee.set(event
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .value()),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .value()),
                             }
                         }
                     }
@@ -300,12 +317,38 @@ pub fn ExchangeInspector(
                                 value: "{fee_currency}",
                                 disabled: *loading.read(),
                                 onchange: move | event |
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        fee_currency.set(event.value()),
-                                option { value: "", "—" }
-                                option { value: "BTC", "BTC" }
-                                option { value: "XBT", "XBT" }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        fee_currency.set(event.value()),
+                                option {
+                                    value: "",
+                                    selected: fee_currency().is_empty(),
+                                    "—"
+                                }
+                                option {
+                                    value: "BTC",
+                                    selected: fee_currency().as_str() == "BTC",
+                                    "BTC"
+                                }
+                                option {
+                                    value: "XBT",
+                                    selected: fee_currency().as_str() == "XBT",
+                                    "XBT"
+                                }
                                 for code in FIAT_CURRENCIES {
-                                    option { value: "{code}", "{code}" }
+                                    option {
+                                        value: "{code}",
+                                        selected: fee_currency().as_str() == *code,
+                                        "{code}"
+                                    }
+                                }
+                                if !fee_currency().is_empty() && fee_currency().as_str() != "BTC"
+                                    && fee_currency().as_str() != "XBT"
+                                    && !FIAT_CURRENCIES.iter().any(|code| *code == fee_currency().as_str())
+                                {
+                                    option {
+                                        value: "{fee_currency}",
+                                        selected: true,
+                                        "{fee_currency}"
+                                    }
                                 }
                             }
                         }
@@ -326,7 +369,7 @@ pub fn ExchangeInspector(
                         class: "md3-input md3-exchange-textarea",
                         value: "{description}",
                         disabled: * loading
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .read(),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                .read(),
                         oninput: move |event| description.set(event.value()),
                     }
                 }
@@ -365,7 +408,7 @@ pub fn ExchangeInspector(
                 duplicate: info,
                 on_cancel: move |_| duplicate.set(None),
                 on_choice: move | choice | submit
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .call(Some(choice)),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        .call(Some(choice)),
             }
         }
     }

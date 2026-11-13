@@ -11,6 +11,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::{LazyLock, Mutex, RwLock};
+#[cfg(not(target_arch = "wasm32"))]
+use zeroize::Zeroizing;
 
 #[cfg(target_arch = "wasm32")]
 use crate::domain::health::Health;
@@ -94,6 +96,70 @@ static CONFIG: LazyLock<RwLock<BackendConfig>> =
     LazyLock::new(|| RwLock::new(BackendConfig::default()));
 static STARTUP_ALERT: LazyLock<Mutex<Option<BackendAlert>>> = LazyLock::new(|| Mutex::new(None));
 static REMOTE_BLOCK: LazyLock<Mutex<Option<BackendAlert>>> = LazyLock::new(|| Mutex::new(None));
+#[cfg(not(target_arch = "wasm32"))]
+static SESSION_TOKEN: LazyLock<Mutex<Option<Zeroizing<String>>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+#[cfg(target_arch = "wasm32")]
+const WEB_SESSION_KEY: &str = "address-explorer.session";
+
+/// Read the active unlock-issued session token.
+pub fn session_token() -> Option<String> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SESSION_TOKEN
+            .lock()
+            .ok()
+            .and_then(|token| token.as_ref().map(|token| token.as_str().to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|window| window.session_storage().ok().flatten())
+            .and_then(|storage| storage.get_item(WEB_SESSION_KEY).ok().flatten())
+            .filter(|token| !token.is_empty())
+    }
+}
+
+/// Store a new session token, replacing any previous token.
+pub fn set_session_token(token: &str) {
+    if token.is_empty() {
+        clear_session_token();
+        return;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(mut slot) = SESSION_TOKEN.lock() {
+            *slot = Some(Zeroizing::new(token.to_string()));
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(storage) =
+            web_sys::window().and_then(|window| window.session_storage().ok().flatten())
+        {
+            let _ = storage.set_item(WEB_SESSION_KEY, token);
+        }
+    }
+}
+
+/// Drop the session token after a lock, reset, or 401 response.
+pub fn clear_session_token() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(mut slot) = SESSION_TOKEN.lock() {
+            *slot = None;
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(storage) =
+            web_sys::window().and_then(|window| window.session_storage().ok().flatten())
+        {
+            let _ = storage.remove_item(WEB_SESSION_KEY);
+        }
+    }
+}
 
 /// Whether the binary contains the bundled local backend. Native builds are
 /// all-in-one, so this is true there; web and pure-server builds are not
@@ -296,7 +362,7 @@ pub fn validate_base_url(input: &str) -> Result<String, String> {
 
     let mut url = reqwest::Url::parse(trimmed).map_err(|error| format!("Invalid URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https") {
-        return Err("The backend URL must use http or https.".to_string());
+        return Err("The backend URL must use https, or http on loopback.".to_string());
     }
     if !url.username().is_empty() || url.password().is_some() {
         return Err("The backend URL must not contain credentials.".to_string());
@@ -306,6 +372,9 @@ pub fn validate_base_url(input: &str) -> Result<String, String> {
     }
     if url.query().is_some() || url.fragment().is_some() {
         return Err("The backend URL must not contain a query or fragment.".to_string());
+    }
+    if url.scheme() == "http" && !is_loopback_host(url.host_str().unwrap_or_default()) {
+        return Err("Plain HTTP is only allowed on loopback. Use HTTPS.".to_string());
     }
 
     let path = url.path().trim_end_matches('/').to_string();
@@ -320,33 +389,39 @@ pub fn validate_base_url(input: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
-/// Reject sending a password to a remote backend over plain HTTP.
+/// Reject a remote backend that is not protected by TLS.
 ///
 /// Loopback HTTP is allowed for local development; every other remote origin
-/// must use HTTPS so the password cannot be observed on the network.
-pub fn remote_password_transport_error() -> Option<String> {
-    if !is_remote() {
-        return None;
-    }
-    let url = remote_base_url()?;
-    let Ok(parsed) = reqwest::Url::parse(&url) else {
+/// must use HTTPS so session tokens, passwords, and database contents cannot
+/// be observed on the network.
+pub fn remote_transport_error(base_url: &str) -> Option<String> {
+    let Ok(parsed) = reqwest::Url::parse(base_url) else {
         return Some("The remote backend URL is invalid.".to_string());
     };
     if parsed.scheme() == "https" {
         return None;
     }
     let host = parsed.host_str().unwrap_or_default();
-    if parsed.scheme() == "http" && matches!(host, "localhost" | "127.0.0.1" | "::1") {
+    if parsed.scheme() == "http" && is_loopback_host(host) {
         return None;
     }
     Some(
-        "Refusing to send a database password over plain HTTP. Use an HTTPS remote server."
+        "Refusing to send data over plain HTTP. Use an HTTPS remote server, or loopback HTTP for local development."
             .to_string(),
     )
 }
 
-/// True when a URL is plain HTTP to a non-loopback/non-private host. The
-/// Settings UI uses this to show a warning without blocking the choice.
+/// Reject sending a password to a remote backend over plain HTTP.
+pub fn remote_password_transport_error() -> Option<String> {
+    if !is_remote() {
+        return None;
+    }
+    let url = remote_base_url()?;
+    remote_transport_error(&url)
+}
+
+/// True when a URL is plain HTTP to a non-loopback host. Used by Settings to
+/// explain why an insecure URL is rejected.
 pub fn uses_insecure_remote_http(base_url: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(base_url) else {
         return false;
@@ -357,20 +432,16 @@ pub fn uses_insecure_remote_http(base_url: &str) -> bool {
     let Some(host) = url.host_str() else {
         return true;
     };
-    if matches!(host, "localhost" | "127.0.0.1" | "::1") {
-        return false;
+    !is_loopback_host(host)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
     }
-    if host.starts_with("10.") || host.starts_with("192.168.") {
-        return false;
-    }
-    if let Some(rest) = host.strip_prefix("172.") {
-        if let Some(octet) = rest.split('.').next().and_then(|s| s.parse::<u8>().ok()) {
-            if (16..=31).contains(&octet) {
-                return false;
-            }
-        }
-    }
-    true
+    host.parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 /// Web builds persist the backend preference in this origin's localStorage.
@@ -437,7 +508,7 @@ pub fn save_config(config: &BackendConfig) -> Result<(), String> {
         return Err("Could not determine the application-data directory.".to_string());
     };
     if let Some(parent) = path.parent() {
-        if let Err(error) = std::fs::create_dir_all(parent) {
+        if let Err(error) = crate::security::files::ensure_private_dir(parent) {
             eprintln!(
                 "could not create backend config directory {}: {error}",
                 parent.display()
@@ -456,7 +527,7 @@ pub fn save_config(config: &BackendConfig) -> Result<(), String> {
         eprintln!("could not serialize backend config: {error}");
         "Could not save the backend preference.".to_string()
     })?;
-    std::fs::write(&path, bytes).map_err(|error| {
+    crate::security::files::write_private(&path, &bytes).map_err(|error| {
         eprintln!("could not write {}: {error}", path.display());
         "Could not save the backend preference.".to_string()
     })
@@ -555,13 +626,17 @@ mod tests {
         assert!(validate_base_url("https://user:pass@example.com").is_err());
         assert!(validate_base_url("https://example.com?x=1").is_err());
         assert!(validate_base_url("https://example.com/#fragment").is_err());
+        assert!(validate_base_url("http://example.com").is_err());
+        assert!(validate_base_url("http://10.evil.com").is_err());
+        assert!(validate_base_url("http://10.0.0.5").is_err());
     }
 
     #[test]
-    fn insecure_http_is_only_flagged_for_public_hosts() {
+    fn insecure_http_is_flagged_for_every_non_loopback_host() {
         assert!(!uses_insecure_remote_http("http://127.0.0.1:8080"));
         assert!(!uses_insecure_remote_http("http://localhost:8080"));
-        assert!(!uses_insecure_remote_http("http://10.0.0.5:8080"));
+        assert!(uses_insecure_remote_http("http://10.0.0.5:8080"));
+        assert!(uses_insecure_remote_http("http://10.evil.com"));
         assert!(!uses_insecure_remote_http("https://example.com"));
         assert!(uses_insecure_remote_http("http://example.com"));
     }

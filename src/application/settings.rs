@@ -7,6 +7,7 @@ use crate::data::{Database, DatabaseError};
 use crate::domain::exchange::OnChainLinkScoringSettings;
 use crate::domain::interface_settings::{InterfaceSettings, NavigationPosition};
 use crate::domain::price::{normalize_default_symbol, normalize_symbol, PriceError};
+use crate::domain::security_settings::{SecuritySettings, SecuritySettingsError};
 use crate::domain::theme::ThemePreference;
 /// Failures of the settings service: database access and invalid preference
 /// values rejected at the domain boundary.
@@ -16,6 +17,8 @@ pub enum SettingsError {
     Database(#[from] DatabaseError),
     #[error(transparent)]
     Price(#[from] PriceError),
+    #[error(transparent)]
+    Security(#[from] SecuritySettingsError),
 }
 /// Read the persisted theme preference, with defaults for missing values.
 pub fn load_theme(database: &Database) -> Result<ThemePreference, DatabaseError> {
@@ -78,6 +81,20 @@ pub fn save_navigation_position(
 }
 pub fn save_side_nav_collapsed(database: &Database, collapsed: bool) -> Result<(), DatabaseError> {
     settings_repository::save_side_nav_collapsed(database, collapsed)
+}
+
+/// Read the active security policy, seeding the recommended defaults when the
+/// database has no row yet.
+pub fn load_security_settings(database: &Database) -> Result<SecuritySettings, SettingsError> {
+    crate::security::policy::load_from_database(database).map_err(SettingsError::from)
+}
+
+/// Validate and persist the security policy, updating the live policy cache.
+pub fn save_security_settings(
+    database: &Database,
+    settings: &SecuritySettings,
+) -> Result<SecuritySettings, SettingsError> {
+    crate::security::policy::save_to_database(database, settings).map_err(SettingsError::from)
 }
 #[cfg(test)]
 mod tests {

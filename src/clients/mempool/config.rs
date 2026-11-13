@@ -7,6 +7,7 @@ pub struct MempoolConfig {
     pub protocol: Option<String>,
     pub headers: Option<HeaderMap>,
     pub timeout: Option<Duration>,
+    pub max_response_bytes: usize,
 }
 impl Default for MempoolConfig {
     fn default() -> Self {
@@ -15,7 +16,8 @@ impl Default for MempoolConfig {
             network: Some("main".to_string()),
             protocol: None,
             headers: None,
-            timeout: None,
+            timeout: Some(std::time::Duration::from_secs(30)),
+            max_response_bytes: crate::clients::response::DEFAULT_MAX_RESPONSE_BYTES,
         }
     }
 }

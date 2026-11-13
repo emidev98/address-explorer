@@ -6,6 +6,8 @@
 //! errors use the `{ message, code, data }` envelope.
 use crate::domain::health::Health;
 #[cfg(not(target_arch = "wasm32"))]
+use crate::domain::health::{API_VERSION, API_VERSION_HEADER};
+#[cfg(not(target_arch = "wasm32"))]
 use dioxus::fullstack::{ClientRequest, Method};
 use dioxus_fullstack_core::ServerFnError;
 #[cfg(target_arch = "wasm32")]
@@ -86,13 +88,16 @@ async fn call_at<T>(
 where
     T: DeserializeOwned,
 {
+    if let Some(error) = crate::backend::remote_transport_error(base_url) {
+        return Err(ServerFnError::new(error));
+    }
     let empty = serde_json::json!({});
     let query_value = query.as_ref().unwrap_or(&empty);
 
     // Let ClientRequest perform the serde_qs query serialization and carry the
     // global request headers (including the API version header). Then replace
     // the origin with the configured backend URL.
-    let mut request = ClientRequest::new(method, path.to_string(), query_value);
+    let mut request = ClientRequest::new(method.clone(), path.to_string(), query_value);
     let base_url = base_url.trim_end_matches('/');
     let target = match request.url.query() {
         Some(query) => format!("{base_url}{}?{query}", request.url.path()),
@@ -102,7 +107,14 @@ where
         .parse()
         .map_err(|error| ServerFnError::new(format!("Invalid backend URL: {error}")))?;
 
-    let mut builder = request.new_reqwest_request().timeout(timeout);
+    let client = native_client()?;
+    let mut builder = client
+        .request(method, request.url.clone())
+        .header(API_VERSION_HEADER, API_VERSION.to_string())
+        .timeout(timeout);
+    if let Some(token) = crate::backend::session_token() {
+        builder = builder.header("authorization", format!("Bearer {token}"));
+    }
     if let Some(body) = body {
         let is_empty_object = body
             .as_object()
@@ -120,6 +132,9 @@ where
     let bytes = response.bytes().await.map_err(|error| {
         ServerFnError::Request(dioxus::fullstack::reqwest_error_to_request_error(error))
     })?;
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        crate::backend::clear_session_token();
+    }
 
     if status.is_success() {
         return serde_json::from_slice::<T>(&bytes).map_err(|error| {
@@ -151,6 +166,30 @@ where
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn native_client() -> Result<reqwest::Client, ServerFnError> {
+    use std::sync::OnceLock;
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            let mut builder = reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent("address-explorer");
+            if let Ok(path) = std::env::var("ADDRESS_EXPLORER_TLS_CA") {
+                let pem = std::fs::read(&path)
+                    .map_err(|error| format!("could not read {path}: {error}"))?;
+                let certificate = reqwest::Certificate::from_pem(&pem)
+                    .map_err(|error| format!("could not parse {path}: {error}"))?;
+                builder = builder.add_root_certificate(certificate);
+            }
+            builder
+                .build()
+                .map_err(|error| format!("could not build the remote HTTP client: {error}"))
+        })
+        .clone()
+        .map_err(ServerFnError::new)
+}
+
 /// Browser remote transport. Unlike the native helper, this builds an
 /// absolute URL because the Dioxus web client always uses same-origin paths.
 #[cfg(target_arch = "wasm32")]
@@ -167,6 +206,9 @@ where
 {
     use crate::domain::health::{API_VERSION, API_VERSION_HEADER};
 
+    if let Some(error) = crate::backend::remote_transport_error(base_url) {
+        return Err(ServerFnError::new(error));
+    }
     let mut url = format!("{}{}", base_url.trim_end_matches('/'), path);
     if let Some(query) = query.as_ref().and_then(Value::as_object) {
         let pairs = query
@@ -190,9 +232,13 @@ where
         }
     }
 
-    let request = reqwest::Client::new()
+    let client = reqwest::Client::new();
+    let mut request = client
         .request(method, &url)
         .header(API_VERSION_HEADER, API_VERSION.to_string());
+    if let Some(token) = crate::backend::session_token() {
+        request = request.header("authorization", format!("Bearer {token}"));
+    }
     let request = match body {
         Some(body)
             if !body.is_null()
@@ -215,6 +261,9 @@ where
     let bytes = response.bytes().await.map_err(|error| {
         ServerFnError::new(format!("Could not read the remote response: {error}"))
     })?;
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        crate::backend::clear_session_token();
+    }
 
     if status.is_success() {
         return serde_json::from_slice::<T>(&bytes).map_err(|error| {
@@ -267,6 +316,7 @@ mod tests {
                     Json(Health {
                         app_version: "test".to_string(),
                         api_version: API_VERSION,
+                        tls_fingerprint: None,
                     })
                 }),
             )

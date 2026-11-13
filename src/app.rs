@@ -15,7 +15,7 @@ use crate::domain::theme::ThemePreference;
 use crate::screens::{
     Addresses, ExchangeAccountDetail, Exchanges, FundsFlow, HistoricalPrices,
     SettingsExchangeTypes, SettingsGeneral, SettingsLayout, SettingsOnChainLinking,
-    SettingsWalletTypes,
+    SettingsSecurity, SettingsWalletTypes,
 };
 use dioxus::prelude::*;
 #[derive(Debug, Clone, Routable, PartialEq)]
@@ -35,6 +35,8 @@ pub enum Route {
     #[layout(SettingsLayout)]
     #[route("/settings")]
     SettingsGeneral {},
+    #[route("/settings/security")]
+    SettingsSecurity {},
     #[route("/settings/on-chain-linking")]
     SettingsOnChainLinking {},
     #[route("/settings/wallet-types")]
@@ -404,6 +406,7 @@ mod tests {
     #[test]
     fn settings_routes_round_trip() {
         assert_eq!(Route::SettingsGeneral {}.to_string(), "/settings");
+        assert_eq!(Route::SettingsSecurity {}.to_string(), "/settings/security");
         assert_eq!(
             Route::SettingsOnChainLinking {}.to_string(),
             "/settings/on-chain-linking",
@@ -415,6 +418,10 @@ mod tests {
         assert_eq!(
             Route::SettingsExchangeTypes {}.to_string(),
             "/settings/exchange-types",
+        );
+        assert_eq!(
+            "/settings/security".parse::<Route>().unwrap(), // allow-unwrap: test setup.
+            Route::SettingsSecurity {},
         );
         assert_eq!(
             "/settings/on-chain-linking".parse::<Route>().unwrap(),

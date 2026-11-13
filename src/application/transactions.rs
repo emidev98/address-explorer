@@ -20,7 +20,6 @@ use crate::domain::transaction::{
     TransactionSyncBatchSummary, TransactionSyncFailure, TransactionSyncSummary,
 };
 use std::collections::HashSet;
-use std::time::Duration;
 /// Failures of the transaction sync service.
 #[derive(Debug, thiserror::Error)]
 pub enum TransactionSyncError {
@@ -34,7 +33,6 @@ pub enum TransactionSyncError {
     Mempool(#[from] MempoolError),
 }
 const MAX_ADDRESS_SYNC_PAGES: usize = 100;
-const MEMPOOL_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Facade over the transactions repository and the mempool client.
 pub struct TransactionService {
     database: Database,
@@ -46,7 +44,11 @@ impl TransactionService {
         Self {
             database,
             mempool: Mempool::new(MempoolConfig {
-                timeout: Some(MEMPOOL_REQUEST_TIMEOUT),
+                timeout: Some(std::time::Duration::from_secs(
+                    crate::security::policy::current().external_timeout_secs,
+                )),
+                max_response_bytes: crate::security::policy::current().external_response_max_bytes
+                    as usize,
                 ..MempoolConfig::default()
             }),
         }

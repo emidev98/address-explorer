@@ -68,12 +68,20 @@ cd address-explorer-server_<version>_linux_x86_64
 IP=0.0.0.0 \
 PORT=8080 \
 DATABASE_PATH=/var/lib/address-explorer/app.db \
+ADDRESS_EXPLORER_TLS_HOSTS=addresses.example.com,192.168.1.10 \
 ADDRESS_EXPLORER_CORS_ORIGINS=https://your-web-origin \
 ./address-explorer
 ```
 
-The database directory must be writable. The first start applies migrations
-and imports the bundled price history. The binary looks for
+The server is HTTPS-only for non-loopback binds. On first start it creates a
+local CA and server certificate under `ADDRESS_EXPLORER_TLS_DIR` (default
+`<database directory>/tls`). Install `ca.crt` on every client and browser, or
+provide `ADDRESS_EXPLORER_TLS_CERT` and `ADDRESS_EXPLORER_TLS_KEY` from a
+trusted CA. The CA certificate can be copied from the TLS directory or retrieved as a
+JSON-encoded PEM string from `GET /api/tls/ca`.
+
+The database directory must be writable. Creating the first database password
+applies migrations and imports the bundled price history. The binary looks for
 `assets/pricing/btc_usd.bin` beside itself; set `ADDRESS_EXPLORER_PRICING_FILE`
 to use a different path. Keep the empty `public/` directory next to the binary:
 the Dioxus server reads it at startup even when the PWA is served separately.
@@ -84,9 +92,15 @@ the Dioxus server reads it at startup even when the PWA is served separately.
 docker run --rm \
   -p 8080:8080 \
   -v address-explorer-data:/data \
+  -e ADDRESS_EXPLORER_TLS_HOSTS=addresses.example.com \
   -e ADDRESS_EXPLORER_CORS_ORIGINS=https://your-web-origin \
   ghcr.io/emidev98/address-explorer:latest
 ```
+
+The image healthcheck uses `curl -fk https://127.0.0.1:8080/api/health`
+because the generated certificate is not in the container trust store. The CA
+is stored in `/data/tls/ca.crt`; copy it out with
+`docker cp <container>:/data/tls/ca.crt .` before installing it on clients.
 
 The release image is a multi-arch runtime image built from the prebuilt
 binary. It listens on `0.0.0.0:8080`, runs as UID 10001, stores SQLite at
@@ -103,21 +117,32 @@ not use it.
 | Variable | Purpose |
 | --- | --- |
 | `IP` | Bind address; use `0.0.0.0` in a container |
-| `PORT` | HTTP port, default `8080` |
+| `PORT` | HTTPS port, default `8080` |
 | `DATABASE_PATH` | Writable SQLite file path |
+| `ADDRESS_EXPLORER_TLS_DIR` | Directory for the local CA, leaf, and key; default `<database directory>/tls` |
+| `ADDRESS_EXPLORER_TLS_HOSTS` | Comma-separated DNS names/IPs for the certificate; required with a wildcard bind |
+| `ADDRESS_EXPLORER_TLS_CERT` / `_KEY` | Optional operator-provided certificate and key |
+| `ADDRESS_EXPLORER_TLS_CA` | Optional CA chain for operator-provided certificates; native clients can read the same variable as a PEM file to trust a local CA |
+| `ADDRESS_EXPLORER_HSTS` | Set to `1` only when the certificate is trusted by clients |
 | `ADDRESS_EXPLORER_CORS_ORIGINS` | Comma-separated browser origins; no wildcard |
 | `ADDRESS_EXPLORER_PRICING_FILE` | Optional path to `btc_usd.bin` |
 
 ## API contract, CORS, and health
 
-`GET /api/health` returns the application version and the server API version.
-It is exempt from the API version guard.
+`GET /api/health` returns the application version, API version, TLS
+fingerprint, and whether the server requires database encryption. It is public
+and exempt from the API version guard.
 
 Every other remote `/api/*` request **MUST** carry
 `x-address-explorer-api-version` equal to the server's `API_VERSION` (currently
-`2`). A missing or mismatched header receives HTTP 426 with a structured error
+`3`). A missing or mismatched header receives HTTP 426 with a structured error
 body. Settings “Test connection” checks `/api/health` before a remote URL can be
 saved; a mismatch blocks the backend and shows both versions.
+
+`POST /api/encryption/unlock` verifies the vault password and returns a random
+session token. Every data or encryption-control request must send
+`Authorization: Bearer <token>`. A new unlock replaces the previous token.
+Health, encryption status, setup, unlock, and the CA download are public.
 
 `ADDRESS_EXPLORER_CORS_ORIGINS` is a comma-separated allowlist of absolute
 origins. There is no permissive `*` default; when unset or empty, the server
@@ -128,22 +153,36 @@ before the version guard.
 
 ## Security
 
-The server has **no authentication**. `ADDRESS_EXPLORER_CORS_ORIGINS` is a
-browser CORS allowlist, not access control: direct HTTP clients can still read
-and modify the data. Do not expose the server to untrusted networks or origins.
-Keep the URL private or add authentication before making it public.
+The pure server is HTTPS-only for non-loopback binds. TLS protects every
+request, including the vault password and session token. The server generates a
+local CA so it can run without a public domain; install that CA on each client,
+or configure a trusted certificate. Plain HTTP is accepted only on loopback.
 
-The server database and browser database can be encrypted at rest from
-**Settings → General → Data**. Encryption is off until a password is set.
-The password is never stored, and there is no recovery path: losing it means
-erasing the encrypted database. A remote client sends the password to the
-server only to unlock it, so use HTTPS except on loopback. After unlocking,
-the server keeps the derived key in memory until the configured idle timeout;
-the existing lack of authentication still applies to every request made while
-the database is unlocked.
+Every Address Explorer build requires a database password before serving any
+data. On the pure server, the first client creates it on the setup screen; do
+this before exposing the server to an untrusted network. Unlock verifies the
+password even when the vault is already open and returns one active session
+token. Every data request must send that token. A new unlock replaces the
+token; locking or the inactivity timeout clears the vault key and the token.
 
-Exported SQLite files are always unencrypted. Store them accordingly, and do
-not expose a remote server to untrusted networks or origins.
+The server database and the browser database are always encrypted at rest. The
+password is never stored, and there is no recovery path. Remote reset while
+locked is refused; run `address-explorer reset-vault` on the host and type
+`ERASE`. While unlocked, reset keeps encryption and rotates the session.
+
+Remote backups are encrypted with a separate backup passphrase and are
+authenticated by SQLCipher. Import validates the canonical schema and rebuilds
+application data into a fresh database; triggers, views, extra tables, and
+altered schema objects are rejected.
+
+`ADDRESS_EXPLORER_CORS_ORIGINS` remains a browser CORS allowlist, not access
+control. Authorization is enforced by the session token.
+
+The PWA and server send a Content Security Policy, `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, and API
+`Cache-Control: no-store`. The CSP still needs `'unsafe-eval'` because Dioxus
+`document::eval` and ECharts use `new Function`; this is a documented residual
+XSS risk, not a reason to omit the other headers.
 
 ## Backups and upgrades
 
@@ -156,11 +195,10 @@ sqlite3 /data/app.db ".backup '/data/backups/app-$(date +%Y%m%d%H%M%S).db'"
 
 When encryption is enabled, `app.db` is a SQLCipher database and the plain
 `sqlite3` command cannot read it. Use **Settings → General → Data → Export**
-for a portable plaintext backup, or copy the encrypted file together with the
-knowledge of its password. Settings can also import or reset the active
-database. Exports are ordinary unencrypted SQLite files. Import validates the
-file, upgrades older schemas through the normal migration list, and rejects
-backups created by a newer schema.
+for an encrypted backup with a separate passphrase, or copy the encrypted file
+together with the knowledge of its password. Settings can also import or reset
+the active database. Imports are sanitized before they replace live data;
+backups created by a newer schema are rejected.
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the full validation and rollback
 rules, and [`server/README.md`](server/README.md) for the tarball quickstart.
@@ -173,3 +211,22 @@ not durable for SQLite. A small VPS, a home server, or a persistent free-tier
 host is the realistic option. Supabase cannot run the Rust server binary or
 provide the persistent SQLite volume; porting the data layer to Postgres would
 be a separate application change.
+
+## Security policy
+
+**Settings → Security** stores these limits in the active
+database:
+
+- password minimum length (12–64 characters);
+- normal API body limit and maximum imported backup size;
+- session token length, concurrent Argon2 operations, failed-unlock threshold,
+  unlock backoff, and general API rate limits;
+- external request timeout and response cap;
+- exported-file permission mode (0600 or stricter 0400).
+
+The **Lock after inactivity** control lives in the same screen. It bounds the
+database key and the remote session; a network server applies at most one hour.
+The compiled defaults are active before the vault is unlocked. Unlocking loads
+the database values and replaces them. Backups cannot change the running policy:
+imports preserve the current values. Changing a limit never alters an existing
+password; the new minimum applies to the next setup or password change.

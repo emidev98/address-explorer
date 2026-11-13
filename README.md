@@ -14,12 +14,12 @@ historical prices, and exchange ledgers built with Dioxus
   convert the history into the default fiat currency.
 - Run Local-first in the browser with SQLite in a SharedWorker, or point the
   same PWA at a remote Address Explorer server.
-- Optionally encrypt the active local or remote database at rest with a
-  password. The password is never stored; losing it requires erasing the
-  encrypted data.
+- Encrypt the active local or remote database at rest with a password that is
+  required on every launch. The password is never stored; losing it requires
+  erasing the encrypted data.
 - Export, import, and reset the active local or remote database from
-  **Settings → General → Data**. Exported SQLite files are always plaintext
-  so they can be moved between installations.
+  **Settings → General → Data**. Exported SQLite files are encrypted with a
+  separate backup passphrase so they can be moved between installations.
 - Use the installed PWA offline after the first load, on current browsers with
   SharedWorker and service-worker support.
 
@@ -79,13 +79,14 @@ deployment details.
 | Mode | Where it runs | Data |
 | --- | --- | --- |
 | Local | Desktop, mobile, or web PWA | Local SQLite (native) or browser SQLite through a SharedWorker (web) |
-| Remote | Desktop, mobile, or web PWA | A separate Address Explorer server over HTTP(S) |
+| Remote | Desktop, mobile, or web PWA | A separate Address Explorer server over HTTPS |
 
 The web PWA supports both modes in one bundle; Local is the first-run default.
 The backend preference is stored outside the backend database (`backend.json`
 on native, `localStorage` on web). Switching backends reloads the application
 and does not migrate data. Remote clients require the server's explicit CORS
-allowlist and a matching API version.
+allowlist, HTTPS, and a matching API version. See
+[`docs/PRIVACY.md`](docs/PRIVACY.md) for the third-party request disclosure.
 
 For diagrams of the build pipeline, deployment topology, and client-server
 transports, see [`docs/architecture.md`](docs/architecture.md).
@@ -95,7 +96,7 @@ transports, see [`docs/architecture.md`](docs/architecture.md).
 - [Architecture](docs/architecture.md) — build, deployment, and transport
   diagrams.
 - [Encryption](docs/ENCRYPTION.md) — database encryption, password handling,
-  idle locking, and recovery limits.
+  inactivity locking, and recovery limits.
 - [Building](docs/BUILDING.md) — toolchains, commands, bundle matrix, and
   troubleshooting.
 - [Deployment](docs/deployment.md) — PWA hosting and the optional remote

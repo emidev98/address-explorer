@@ -14,16 +14,16 @@ pub fn install_client_header() {
         use dioxus::fullstack::HeaderMap;
 
         let mut headers = HeaderMap::new();
-        headers.insert(
-            dioxus::fullstack::http::HeaderName::from_static(API_VERSION_HEADER),
-            dioxus::fullstack::HeaderValue::from_str(&API_VERSION.to_string())
-                .expect("API version is a valid header value"),
-        );
+        if let Ok(value) = dioxus::fullstack::http::HeaderValue::from_str(&API_VERSION.to_string())
+        {
+            headers.insert(
+                dioxus::fullstack::http::HeaderName::from_static(API_VERSION_HEADER),
+                value,
+            );
+        }
         dioxus::fullstack::set_request_headers(headers);
     }
 }
-
-/// Axum middleware for the web/pure server.
 #[cfg(feature = "server")]
 #[allow(dead_code)]
 pub async fn guard(
@@ -37,6 +37,7 @@ pub async fn guard(
     let is_api = path.starts_with("/api/") || path.contains("/api/");
     if !is_api
         || path.ends_with("/api/health")
+        || path.ends_with("/api/tls/ca")
         || request.method() == dioxus::server::axum::http::Method::OPTIONS
     {
         return next.run(request).await;

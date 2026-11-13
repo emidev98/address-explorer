@@ -5,14 +5,13 @@ use crate::api::settings::{
 };
 use crate::components::{
     use_fiat_currency, use_interface_settings, use_toast, BackendSettingsSection, Checkbox,
-    DataSettingsSection, EncryptionSettings, FiatCurrency, InterfaceSettingsContext, PageHeader,
-    Toast, ToastKind,
+    DataSettingsSection, FiatCurrency, InterfaceSettingsContext, PageHeader, Toast, ToastKind,
 };
 use crate::domain::interface_settings::NavigationPosition;
 use crate::domain::price::{CurrencyHistorySummary, FIAT_CURRENCIES, USD_SYMBOL};
 use crate::domain::theme::{ThemeMode, ThemePalette, ThemePreference};
 use dioxus::prelude::*;
-/// General settings: theme, currency, interface hints, backend, encryption, and data.
+/// General settings: theme, currency, interface hints, backend, and data.
 #[component]
 pub fn SettingsGeneral() -> Element {
     let toast = use_toast();
@@ -129,7 +128,14 @@ pub fn SettingsGeneral() -> Element {
                             );
                         },
                         for code in FIAT_CURRENCIES {
-                            option { value: "{code}", "{code}" }
+                            option {
+                                value: "{code}",
+                                selected: *code == currency_code.as_str(),
+                                "{code}"
+                            }
+                        }
+                        if !FIAT_CURRENCIES.contains(&currency_code.as_str()) {
+                            option { value: "{currency_code}", selected: true, "{currency_code}" }
                         }
                     }
                 }
@@ -160,9 +166,6 @@ pub fn SettingsGeneral() -> Element {
                 }
             }
             BackendSettingsSection {}
-            section { class: "md3-settings-section",
-                EncryptionSettings {}
-            }
             DataSettingsSection {}
         }
     }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 /// path changes incompatibly. The server rejects API requests from clients
 /// with a different version, and clients reject remote servers whose version
 /// does not match.
-pub const API_VERSION: u32 = 2;
+pub const API_VERSION: u32 = 4;
 
 /// HTTP header carrying [`API_VERSION`] on API requests.
 pub const API_VERSION_HEADER: &str = "x-address-explorer-api-version";
@@ -23,4 +23,7 @@ pub struct Health {
     pub app_version: String,
     /// API contract version understood by the server.
     pub api_version: u32,
+    /// SHA-256 fingerprint of the app-generated TLS leaf, when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tls_fingerprint: Option<String>,
 }
