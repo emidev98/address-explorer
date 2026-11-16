@@ -202,7 +202,7 @@ fn ensure_llvm(ctx: &mut Context) {
         ctx,
         &CommandSpec::new(&brew).args(["install", "llvm", "lld"]),
     ) {
-        // `brew prefix` can fail right after an install, so the keg location
+        // `brew --prefix` can fail right after an install, so the keg location
         // is checked directly as well.
         Ok(()) => match discover_llvm(&brew) {
             Some(toolchain) => {
@@ -266,7 +266,7 @@ fn formula_prefixes(brew: &Path, formula: &str) -> Vec<PathBuf> {
 }
 
 fn formula_prefix(brew: &Path, formula: &str) -> Option<PathBuf> {
-    match run_output(&CommandSpec::new(brew).args(["prefix", formula])) {
+    match run_output(&CommandSpec::new(brew).args(["--prefix", formula])) {
         Ok(output) if output.status.success() => {
             let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
             (!prefix.is_empty()).then(|| PathBuf::from(prefix))
@@ -275,12 +275,12 @@ fn formula_prefix(brew: &Path, formula: &str) -> Option<PathBuf> {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stderr = stderr.trim();
             if !stderr.is_empty() {
-                eprintln!("`brew prefix {formula}` failed: {stderr}");
+                eprintln!("`brew --prefix {formula}` failed: {stderr}");
             }
             None
         }
         Err(error) => {
-            eprintln!("could not run `brew prefix {formula}`: {error}");
+            eprintln!("could not run `brew --prefix {formula}`: {error}");
             None
         }
     }
@@ -305,7 +305,7 @@ fn run_output_ok(spec: &CommandSpec) -> bool {
 }
 
 pub fn homebrew_prefix(brew: &Path, formula: &str) -> Option<PathBuf> {
-    let prefix = capture_stdout(&CommandSpec::new(brew).args(["prefix", formula]))?;
+    let prefix = capture_stdout(&CommandSpec::new(brew).args(["--prefix", formula]))?;
     if prefix.is_empty() {
         None
     } else {
