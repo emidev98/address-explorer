@@ -9,6 +9,11 @@ category = "Finance"
 short_description = "Bitcoin address, ledger, and price explorer"
 copyright = "MIT"
 
+[android]
+# Gradle rejects '-' in a Java package name, so Android needs its own
+# dash-free identifier while the desktop bundles keep the existing one.
+identifier = "com.emidev98.addressexplorer"
+
 [web.app]
 
 # HTML title tag content

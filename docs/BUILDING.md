@@ -92,6 +92,13 @@ Notes:
 - Remote web clients need the server's `ADDRESS_EXPLORER_CORS_ORIGINS`
   allowlist. A server that serves the PWA itself needs no CORS entry.
 - Windows arm64 has not been validated; use an x86_64 Windows host.
+- The published `dx` binary for Linux needs glibc 2.39, so the release workflow
+  builds on Ubuntu 24.04 and the Linux desktop and server artifacts require
+  glibc 2.39 or newer. On an older host, build the CLI from source with
+  `cargo install dioxus-cli --version 0.7.10 --locked --force`.
+- Android derives its package name from `[android] identifier` in
+  `Dioxus.toml`. It must be a valid Java package name, so it cannot reuse the
+  dashed desktop bundle identifier.
 
 ## Web PWA and SharedWorker
 

@@ -15,12 +15,19 @@ END_MARKER="<!-- address-explorer-changelog:end -->"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
+TAG_SHA="$(git rev-parse --verify "refs/tags/${TAG}^{commit}" 2>/dev/null)" || {
+  echo "Release tag $TAG was not found in this checkout." >&2
+  exit 1
+}
+
+# A branch that shares the tag name makes the short ref ambiguous, so resolve
+# every revision through refs/tags and compare commit hashes.
 PREVIOUS_TAG=""
-if PREVIOUS_TAG="$(git describe --tags --abbrev=0 --exclude="$TAG" "$TAG^" 2>/dev/null)"; then
-  RANGE="$PREVIOUS_TAG..$TAG"
+if PREVIOUS_TAG="$(git describe --tags --abbrev=0 --exclude="$TAG" "${TAG_SHA}^" 2>/dev/null)"; then
+  RANGE="refs/tags/${PREVIOUS_TAG}..${TAG_SHA}"
 else
   PREVIOUS_TAG=""
-  RANGE="$TAG"
+  RANGE="$TAG_SHA"
 fi
 
 declare -a features=()
@@ -90,8 +97,9 @@ CHANGELOG="$WORK_DIR/changelog.md"
   echo "$END_MARKER"
 } > "$CHANGELOG"
 
+# `gh release view` has no `-r` flag; `--jq` already prints raw strings.
 BODY="$WORK_DIR/body.md"
-gh release view "$TAG" --json body --jq -r '.body // ""' > "$BODY"
+gh release view "$TAG" --json body --jq '.body // ""' > "$BODY"
 
 CLEAN_BODY="$WORK_DIR/body-clean.md"
 awk -v start="$START_MARKER" -v end="$END_MARKER" '
