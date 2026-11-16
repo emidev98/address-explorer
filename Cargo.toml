@@ -1,6 +1,6 @@
 [package]
 name = "address-explorer"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["emidev98 <eharastasan@gmail.com>"]
 edition = "2021"
 default-run = "address-explorer"
