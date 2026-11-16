@@ -39,5 +39,5 @@ the vault key and the token. While locked, remote reset is refused; run
 `address-explorer reset-vault` on the host.
 
 Remote backups are encrypted with a separate passphrase. See
-`docs/deployment.md` in the repository for the full environment, CORS, backup,
-and recovery notes.
+[`docs/DEPLOYMENT.md`](../DEPLOYMENT.md) in the repository for the full
+environment, CORS, backup, and recovery notes.

@@ -4,8 +4,8 @@ Releases are built by [`.github/workflows/release.yml`](../.github/workflows/rel
 when a **stable** GitHub release is published. Pre-releases are ignored.
 
 For the build and deployment topology, see
-[`architecture.md`](ARCHITECTURE.md). For server/PWA operations, see
-[`deployment.md`](DEPLOYMENT.md).
+[`ARCHITECTURE.md`](ARCHITECTURE.md). For server/PWA operations, see
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
 
 ## Release checklist
 
@@ -101,10 +101,10 @@ Signing credentials **MUST NOT** be committed to the repository.
 ## Notes and limitations
 
 - Desktop and Android artifacts are unsigned or debug-signed. See
-  [`installation.md`](INSTALLATION.md).
+  [`INSTALLATION.md`](INSTALLATION.md).
 - The Android APK is a debug build, not a Play Store artifact.
 - The server image is published to GHCR; no live backend is deployed. See
-  [`deployment.md`](DEPLOYMENT.md).
+  [`DEPLOYMENT.md`](DEPLOYMENT.md).
 - If GitHub **immutable releases** are enabled, assets must be attached while
   the release is a draft. The current workflow uploads after publication and
   will fail once immutability is enabled.
