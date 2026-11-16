@@ -118,6 +118,8 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
       - name: Ensure zip is available
         run: command -v zip >/dev/null || (sudo apt-get update && sudo apt-get install -y zip)
@@ -158,15 +160,25 @@ jobs:
       ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
       - name: Build Linux bundles
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          BUNDLES="$(dx bundle --desktop --release --locked --no-default-features \
+          DX_LOG="$RUNNER_TEMP/dx-bundle.log"
+          DX_JSON="$RUNNER_TEMP/dx-bundle.json"
+          if ! dx bundle --desktop --release --locked --no-default-features \
             --package-types appimage --package-types deb --json-output \
-            | tail -n 1 | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
+            --log-to-file "$DX_LOG" > "$DX_JSON" 2>&1; then
+            cat "$DX_LOG" >&2 || true
+            cat "$DX_JSON" >&2
+            exit 1
+          fi
+          BUNDLES="$(tail -n 1 "$DX_JSON" \
+            | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
 
           while IFS= read -r path; do
             [ -n "$path" ] || continue
@@ -197,6 +209,8 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
         with:
           github-env: "false"
@@ -211,9 +225,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          BUNDLES="$(dx bundle --desktop --release --locked --no-default-features \
+          DX_LOG="$RUNNER_TEMP/dx-bundle.log"
+          DX_JSON="$RUNNER_TEMP/dx-bundle.json"
+          if ! dx bundle --desktop --release --locked --no-default-features \
             --package-types macos --package-types dmg --json-output \
-            | tail -n 1 | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
+            --log-to-file "$DX_LOG" > "$DX_JSON" 2>&1; then
+            cat "$DX_LOG" >&2 || true
+            cat "$DX_JSON" >&2
+            exit 1
+          fi
+          BUNDLES="$(tail -n 1 "$DX_JSON" \
+            | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
 
           while IFS= read -r path; do
             [ -n "$path" ] || continue
@@ -245,6 +267,8 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
         with:
           github-env: "false"
@@ -257,9 +281,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
+          $dxLog = Join-Path $env:RUNNER_TEMP 'dx-bundle.log'
           $lines = & dx bundle --desktop --release --locked --no-default-features `
-            --package-types nsis --json-output
+            --package-types nsis --json-output --log-to-file $dxLog
           if ($LASTEXITCODE -ne 0) {
+            if (Test-Path $dxLog) { Get-Content $dxLog | Write-Host }
+            $lines | Write-Host
             exit $LASTEXITCODE
           }
 
@@ -304,6 +331,8 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -326,7 +355,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          dx bundle --android --locked --no-default-features --package-types apk --json-output
+          DX_LOG="$RUNNER_TEMP/dx-bundle.log"
+          if ! dx bundle --android --locked --no-default-features --package-types apk \
+            --json-output --log-to-file "$DX_LOG"; then
+            cat "$DX_LOG" >&2 || true
+            exit 1
+          fi
           APK="$(find target/dx/address-explorer -type f -name '*.apk' | head -n 1)"
           test -n "$APK"
           cp "$APK" "dist/address-explorer_${VERSION}_android_debug.apk"
@@ -357,6 +391,8 @@ jobs:
       ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
       - name: Build server
         run: cargo build --release --locked --no-default-features --features server
@@ -396,6 +432,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           name: context-server-x86_64
@@ -467,7 +505,7 @@ jobs:
 
   deploy-vercel:
     name: Deploy web to Vercel
-    needs: [meta, publish]
+    needs: [meta, web]
     if: needs.meta.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -481,6 +519,8 @@ jobs:
       VERCEL_TELEMETRY_DISABLED: "1"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: actions/download-artifact@v4
         with:
           name: release-web
