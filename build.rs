@@ -322,7 +322,7 @@ fn select_archiver() -> Option<OsString> {
     {
         for prefix in ["/opt/homebrew/opt/llvm/bin", "/usr/local/opt/llvm/bin"] {
             let candidate = PathBuf::from(prefix).join("llvm-ar");
-            if command_works(&candidate, &["--version"]) {
+            if command_works(candidate.as_os_str(), &["--version"]) {
                 return Some(candidate.into_os_string());
             }
         }
@@ -335,7 +335,7 @@ fn select_archiver() -> Option<OsString> {
                 .join("LLVM")
                 .join("bin")
                 .join("llvm-ar.exe");
-            if command_works(&candidate, &["--version"]) {
+            if command_works(candidate.as_os_str(), &["--version"]) {
                 return Some(candidate.into_os_string());
             }
         }
