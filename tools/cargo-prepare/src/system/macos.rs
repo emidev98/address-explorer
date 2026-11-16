@@ -159,45 +159,26 @@ fn ensure_llvm(ctx: &mut Context) {
     };
     ctx.brew = Some(brew.clone());
 
-    let prefix = capture_stdout(&CommandSpec::new(&brew).args(["prefix", "llvm"]))
-        .filter(|prefix| !prefix.is_empty())
-        .map(PathBuf::from);
-
-    let clang = prefix.as_ref().map(|prefix| prefix.join("bin/clang"));
-    let llvm_ar = prefix.as_ref().map(|prefix| prefix.join("bin/llvm-ar"));
-    let lld_prefix = capture_stdout(&CommandSpec::new(&brew).args(["prefix", "lld"]))
-        .filter(|prefix| !prefix.is_empty())
-        .map(PathBuf::from);
-    let wasm_ld = lld_prefix
-        .as_ref()
-        .map(|prefix| prefix.join("bin/wasm-ld"))
-        .filter(|path| path.is_file())
-        .or_else(|| prefix.as_ref().map(|prefix| prefix.join("bin/wasm-ld")))
-        .filter(|path| path.is_file());
-
-    let ready = clang.as_ref().is_some_and(|path| path.is_file())
-        && llvm_ar.as_ref().is_some_and(|path| path.is_file())
-        && wasm_ld.is_some();
+    let toolchain = discover_llvm(&brew);
 
     if ctx.opts.check {
-        if ready {
-            ctx.ready(
+        match toolchain {
+            Some(toolchain) => ctx.ready(
                 Target::Web,
                 "Homebrew LLVM (wasm clang/lld)",
-                prefix.unwrap_or_default().display().to_string(),
-            );
-        } else {
-            ctx.missing(
+                toolchain.prefix.display().to_string(),
+            ),
+            None => ctx.missing(
                 Target::Web,
                 "Homebrew LLVM (wasm clang/lld)",
                 "run: brew install llvm lld",
-            );
+            ),
         }
         return;
     }
 
-    if ready {
-        ctx.llvm_prefix = prefix;
+    if let Some(toolchain) = toolchain {
+        ctx.llvm_prefix = Some(toolchain.prefix);
         ctx.already_present(
             Target::Web,
             "Homebrew LLVM (wasm clang/lld)",
@@ -221,30 +202,87 @@ fn ensure_llvm(ctx: &mut Context) {
         ctx,
         &CommandSpec::new(&brew).args(["install", "llvm", "lld"]),
     ) {
-        Ok(()) => {
-            let prefix = capture_stdout(&CommandSpec::new(&brew).args(["prefix", "llvm"]))
-                .filter(|prefix| !prefix.is_empty())
-                .map(PathBuf::from);
-            if let Some(prefix) = prefix {
-                ctx.llvm_prefix = Some(prefix.clone());
+        // `brew prefix` can fail right after an install, so the keg location
+        // is checked directly as well.
+        Ok(()) => match discover_llvm(&brew) {
+            Some(toolchain) => {
+                ctx.llvm_prefix = Some(toolchain.prefix.clone());
                 ctx.installed(
                     Target::Web,
                     "Homebrew LLVM (wasm clang/lld)",
-                    prefix.display().to_string(),
-                );
-            } else {
-                ctx.failed(
-                    Target::Web,
-                    "Homebrew LLVM (wasm clang/lld)",
-                    "brew install completed but `brew --prefix llvm` failed",
+                    toolchain.prefix.display().to_string(),
                 );
             }
-        }
+            None => ctx.failed(
+                Target::Web,
+                "Homebrew LLVM (wasm clang/lld)",
+                "brew install completed but no Homebrew clang, llvm-ar, and wasm-ld were found under \
+                 /opt/homebrew/opt or /usr/local/opt",
+            ),
+        },
         Err(error) => ctx.failed(
             Target::Web,
             "Homebrew LLVM (wasm clang/lld)",
             format!("{error}\n       retry: brew install llvm lld"),
         ),
+    }
+}
+
+struct LlvmToolchain {
+    prefix: PathBuf,
+}
+
+fn discover_llvm(brew: &Path) -> Option<LlvmToolchain> {
+    let llvm_prefixes = formula_prefixes(brew, "llvm");
+    let lld_prefixes = formula_prefixes(brew, "lld");
+
+    let prefix = llvm_prefixes.iter().find(|prefix| {
+        prefix.join("bin/clang").is_file() && prefix.join("bin/llvm-ar").is_file()
+    })?;
+
+    let wasm_ld = llvm_prefixes
+        .iter()
+        .chain(lld_prefixes.iter())
+        .map(|candidate| candidate.join("bin/wasm-ld"))
+        .any(|path| path.is_file())
+        || which("wasm-ld").is_some();
+    if !wasm_ld {
+        return None;
+    }
+
+    Some(LlvmToolchain {
+        prefix: prefix.clone(),
+    })
+}
+
+fn formula_prefixes(brew: &Path, formula: &str) -> Vec<PathBuf> {
+    let mut prefixes = Vec::new();
+    if let Some(prefix) = formula_prefix(brew, formula) {
+        prefixes.push(prefix);
+    }
+    prefixes.push(PathBuf::from(format!("/opt/homebrew/opt/{formula}")));
+    prefixes.push(PathBuf::from(format!("/usr/local/opt/{formula}")));
+    prefixes
+}
+
+fn formula_prefix(brew: &Path, formula: &str) -> Option<PathBuf> {
+    match run_output(&CommandSpec::new(brew).args(["prefix", formula])) {
+        Ok(output) if output.status.success() => {
+            let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            (!prefix.is_empty()).then(|| PathBuf::from(prefix))
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = stderr.trim();
+            if !stderr.is_empty() {
+                eprintln!("`brew prefix {formula}` failed: {stderr}");
+            }
+            None
+        }
+        Err(error) => {
+            eprintln!("could not run `brew prefix {formula}`: {error}");
+            None
+        }
     }
 }
 

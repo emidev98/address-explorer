@@ -41,7 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          # A branch with the same name as the tag makes the short ref
+          # ambiguous; resolve the tag explicitly.
+          ref: refs/tags/${{ github.event.release.tag_name || inputs.tag }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -98,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.meta.outputs.tag }}
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
           fetch-depth: 0
           fetch-tags: true
       - name: Append generated changelog
@@ -142,10 +144,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The prebuilt dx binary requires glibc 2.39, so these jobs run on the
+        # same image as CI. Artifacts therefore need glibc 2.39 or newer.
         include:
-          - runner: ubuntu-22.04
+          - runner: ubuntu-24.04
             arch: x86_64
-          - runner: ubuntu-22.04-arm
+          - runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -339,10 +343,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Shared with the Linux desktop jobs: dx needs glibc 2.39, so the
+        # tarballs target glibc 2.39 or newer.
         include:
-          - runner: ubuntu-22.04
+          - runner: ubuntu-24.04
             arch: x86_64
-          - runner: ubuntu-22.04-arm
+          - runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
