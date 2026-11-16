@@ -71,7 +71,7 @@ The deployable web directory includes the app shell, SharedWorker WASM,
 `local-worker.js`, the PWA manifest and service worker, icons, and the stable
 `btc_usd.bin` seed. Serve it over HTTPS (or `localhost`) and rewrite unknown
 paths to `index.html` for the client-side router. See
-[`docs/deployment.md`](docs/deployment.md) for static-host and server
+[`docs/deployment.md`](docs/DEPLOYMENT.md) for static-host and server
 deployment details.
 
 ## Runtime modes
@@ -89,21 +89,21 @@ allowlist, HTTPS, and a matching API version. See
 [`docs/PRIVACY.md`](docs/PRIVACY.md) for the third-party request disclosure.
 
 For diagrams of the build pipeline, deployment topology, and client-server
-transports, see [`docs/architecture.md`](docs/architecture.md).
+transports, see [`docs/architecture.md`](docs/ARCHITECTURE.md).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — build, deployment, and transport
+- [Architecture](docs/ARCHITECTURE.md) — build, deployment, and transport
   diagrams.
 - [Encryption](docs/ENCRYPTION.md) — database encryption, password handling,
   inactivity locking, and recovery limits.
 - [Building](docs/BUILDING.md) — toolchains, commands, bundle matrix, and
   troubleshooting.
-- [Deployment](docs/deployment.md) — PWA hosting and the optional remote
+- [Deployment](docs/DEPLOYMENT.md) — PWA hosting and the optional remote
   server.
-- [Releases](docs/release.md) — release workflow, artifacts, Vercel, and
+- [Releases](docs/RELEASE.md) — release workflow, artifacts, Vercel, and
   changelog.
-- [Installation](docs/installation.md) — installing published builds.
+- [Installation](docs/INSTALLATION.md) — installing published builds.
 - [Contributing](CONTRIBUTING.md) — code rules, testing, SQLite, and review.
 - [Agent contributions](docs/agents/GOVERNANCE.md) — frozen paths, the review
   gate, and how a contribution earns trust. Start at [`AGENTS.md`](AGENTS.md).
