@@ -111,3 +111,28 @@ jobs:
             exit 1
           fi
           printf 'Compiled stylesheet: %s (%s bytes)\n' "$css" "$(wc -c < "$css")"
+
+  desktop-cross:
+    # The release workflow bundles desktop apps on macOS and Windows, so a
+    # regression there must fail a pull request instead of a tag.
+    name: Desktop build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: macOS arm64
+          - runner: windows-2022
+            platform: Windows x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare
+        with:
+          github-env: "false"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: "true"
+      - name: Build desktop binary
+        run: cargo build --release --locked --no-default-features --features desktop
