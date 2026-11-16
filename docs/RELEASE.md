@@ -71,6 +71,9 @@ contain:
 The workflow builds a Vercel Build Output directory from the PWA and runs
 `vercel deploy --prebuilt --prod`, so Vercel never needs the Rust toolchain.
 `vercel.json` disables the Vercel Git integration to avoid duplicate deploys.
+Keep the project's Build Command empty so a dashboard or CLI source deploy
+cannot run `cargo build` on Vercel. For a manual deploy from a prepared
+checkout, use `scripts/deploy-vercel.sh --prod`.
 
 ## Retrying a release
 

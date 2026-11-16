@@ -46,6 +46,19 @@ The release workflow uses `scripts/build-vercel-output.sh` to build a Vercel
 Build Output tree with those rules and runs `vercel deploy --prebuilt --prod`.
 `vercel.json` disables the Vercel Git integration to avoid duplicate deploys.
 
+Vercel must never build this repository from source. The project's **Build
+Command** stays empty and its framework preset is **Other**: a source build
+runs a native `cargo build`, which fails because the builder has no Tailwind or
+`dx` toolchain, and a native binary is not a deployable PWA. To deploy from a
+prepared checkout, run:
+
+```sh
+scripts/deploy-vercel.sh --prod
+```
+
+The script builds the PWA, writes `.vercel/output`, and deploys with
+`--prebuilt`, so Vercel only serves the uploaded files.
+
 ## Run the remote server
 
 ### Tarball
