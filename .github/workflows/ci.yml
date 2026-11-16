@@ -91,6 +91,23 @@ jobs:
       - run: dx build --web --release --locked
       - name: Verify the stylesheet is generated, not committed
         run: |
-          test ! -e assets/tailwind.css
-          stylesheet=$(find target -path '*/build/address-explorer-*/out/tailwind.css' -size +0c -print -quit)
-          test -n "$stylesheet"
+          set -euo pipefail
+
+          if [ -e assets/tailwind.css ] || [ -n "$(git ls-files -- assets/tailwind.css)" ]; then
+            echo "assets/tailwind.css must not exist or be tracked; the stylesheet is generated into Cargo's OUT_DIR." >&2
+            exit 1
+          fi
+
+          css="$(grep -rl --include='*.css' -- '--md-sys-color-primary' \
+            target/dx/address-explorer/release/web/public || true)"
+          if [ -z "$css" ]; then
+            echo "No compiled stylesheet in the web build output." >&2
+            find target -name 'tailwind.css*' -printf '%s %p\n' >&2 || true
+            ls -l target >&2 || true
+            exit 1
+          fi
+          if ! grep -q -- 'md3-app-shell' "$css"; then
+            echo "The compiled stylesheet is missing application classes: $css" >&2
+            exit 1
+          fi
+          printf 'Compiled stylesheet: %s (%s bytes)\n' "$css" "$(wc -c < "$css")"

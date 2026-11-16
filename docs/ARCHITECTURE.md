@@ -4,7 +4,7 @@ This page explains how Address Explorer is assembled, built, deployed, and how
 its clients communicate with their backends. It is an explanatory overview:
 the normative rules live in [`CONTRIBUTING.md`](../CONTRIBUTING.md), the
 toolchain and command matrix lives in [`BUILDING.md`](BUILDING.md), and
-server/PWA operations live in [`deployment.md`](deployment.md).
+server/PWA operations live in [`deployment.md`](DEPLOYMENT.md).
 
 ## 1. System at a glance
 
@@ -158,7 +158,7 @@ The release workflow validates the tag against `Cargo.toml`, the `main`
 branch, and a successful CI run before it builds the web PWA, desktop
 artifacts, Android APK, server tarballs, and the multi-arch GHCR image. It then
 publishes checksums and deploys the prebuilt PWA to Vercel. See
-[`release.md`](release.md).
+[`release.md`](RELEASE.md).
 
 ## 3. Deployment architecture
 
@@ -209,7 +209,7 @@ runs as UID 10001, stores `/data/app.db`, and exposes `/api/health` as its
 healthcheck. The root `Dockerfile` is a separate source-build alternative; the
 release workflow uses `.github/docker/server-runtime.Dockerfile`.
 
-See [`deployment.md`](deployment.md) for run commands, environment variables,
+See [`deployment.md`](DEPLOYMENT.md) for run commands, environment variables,
 CORS, volume ownership, security, and backups.
 
 ## 4. Client-server communication
@@ -391,10 +391,10 @@ and commit-barrier rules.
   SQLite conventions, tests, and review checklist.
 - [`BUILDING.md`](BUILDING.md) — toolchain, commands, bundle matrix, and
   troubleshooting.
-- [`deployment.md`](deployment.md) — PWA hosting, server tarball/container,
+- [`deployment.md`](DEPLOYMENT.md) — PWA hosting, server tarball/container,
   environment, CORS, security, and backups.
 - [`ENCRYPTION.md`](ENCRYPTION.md) — database encryption, key handling,
   inactivity locking, and recovery limits.
-- [`release.md`](release.md) — release validation, artifacts, Vercel, and
+- [`release.md`](RELEASE.md) — release validation, artifacts, Vercel, and
   changelog.
-- [`installation.md`](installation.md) — end-user installation notes.
+- [`installation.md`](INSTALLATION.md) — end-user installation notes.

@@ -2,7 +2,7 @@
 
 Download artifacts from the repository's GitHub Releases page. The release
 workflow publishes checksums in `SHA256SUMS.txt`. For the runtime modes and
-build/deployment diagram, see [`architecture.md`](architecture.md).
+build/deployment diagram, see [`architecture.md`](ARCHITECTURE.md).
 
 Verify a download with:
 
@@ -61,7 +61,7 @@ open the APK. Do not use the debug APK for production data.
 
 The deployed PWA is Local-first: the database lives in the browser through a
 SharedWorker. Remote mode is optional and requires a matching Address Explorer
-server. See [`deployment.md`](deployment.md).
+server. See [`deployment.md`](DEPLOYMENT.md).
 
 The PWA requires a current browser with SharedWorker and service-worker support,
 served over HTTPS or `localhost`.
