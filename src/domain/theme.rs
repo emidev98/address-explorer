@@ -5,7 +5,7 @@
 //! the Material 3 palette stylesheet uses to resolve its color roles.
 use serde::{Deserialize, Serialize};
 /// Visual themes provided by `assets/material3-tailwind-palettes.css` and the
-/// per-theme type/shape overrides in `tailwind.css`.
+/// per-theme type/shape overrides in `styles/tailwind.css`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemePalette {

@@ -114,6 +114,13 @@ pub async fn resolve_price(
 /// a request for the current day may legitimately find nothing. Only that
 /// "not published yet" case falls back one day; every other failure (invalid
 /// input, infrastructure errors) is returned unchanged.
+///
+/// When the price sources cannot be reached — no connectivity, or a source
+/// that keeps failing — the newest close stored for `symbol` answers the
+/// request instead, so the fiat display keeps working with the freshest value
+/// the database holds. Its `close_time` tells the caller how old that price
+/// is. Only a symbol without any stored close still returns the original
+/// error.
 pub async fn latest_price_at(
     database: &Database,
     symbol: &str,
@@ -121,8 +128,8 @@ pub async fn latest_price_at(
     fetch_usd: &FetchUsdFn<'_>,
     fetch_fx: &FetchFxFn<'_>,
 ) -> Result<Price, PriceServiceError> {
-    match resolve_price(database, symbol, now, fetch_usd, fetch_fx).await {
-        Ok(price) => Ok(price),
+    let resolved = match resolve_price(database, symbol, now, fetch_usd, fetch_fx).await {
+        Ok(price) => return Ok(price),
         Err(PriceServiceError::Price(PriceError::NotFound { .. })) => {
             resolve_price(
                 database,
@@ -134,5 +141,12 @@ pub async fn latest_price_at(
             .await
         }
         Err(error) => Err(error),
+    };
+    match resolved {
+        Ok(price) => Ok(price),
+        Err(error) => match price_repository::find_latest_price(database, symbol)? {
+            Some(price) => Ok(price),
+            None => Err(error),
+        },
     }
 }

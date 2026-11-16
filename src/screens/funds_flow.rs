@@ -160,7 +160,9 @@ pub fn FundsFlow() -> Element {
         .map(|overview| overview.rendered_view)
         .unwrap_or(requested_view);
     let symbol = fiat.code();
-    let latest_value = latest_price().flatten();
+    let latest_price = latest_price().flatten();
+    let latest_value = latest_price.as_ref().map(|price| price.close);
+    let latest_price_time = latest_price.as_ref().map(|price| price.close_time);
     let fiat_context = latest_value.map(|btc_price| FlowFiatContext {
         symbol: symbol.clone(),
         btc_price,
@@ -238,6 +240,7 @@ pub fn FundsFlow() -> Element {
                 BalanceKpi {
                     balance_sats,
                     latest_price: latest_value,
+                    latest_price_time,
                     currency: symbol.clone(),
                     loading: graph_loading,
                 }
@@ -345,8 +348,8 @@ pub fn FundsFlow() -> Element {
                         h3 { class: "text-title-large text-on-surface", "Funds flow" }
                         p { class: "text-body-small text-on-surface-variant",
                             "{rendered_view.label()} view · origin → destination · BTC"
-                            if let Some(price) = latest_value {
-                                " · current fiat at {format_fiat(price, &symbol)}/BTC"
+                            if let (Some(price), Some(close_time)) = (latest_value, latest_price_time) {
+                                " · fiat at {format_fiat(price, &symbol)}/BTC · as of {civil_time::format_short_datetime(close_time)} UTC"
                             }
                         }
                         if let Some(excluded_sats) = circular_excluded_sats {

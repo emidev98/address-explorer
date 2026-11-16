@@ -2,7 +2,9 @@
 //!
 //! Every backend requires a password before any database data is served. The
 //! gate therefore renders a blocking setup screen on first run, an unlock
-//! screen while locked, and the application only while unlocked.
+//! screen while locked, and the application only while unlocked. The opening
+//! screen covers only the first status check, and a failed check shows a retry
+//! screen instead of polling silently.
 
 use crate::api::encryption::{
     change_encryption_password_api, get_encryption_status_api, lock_encryption_api,
@@ -12,7 +14,7 @@ use crate::api::encryption::{
 use crate::api::session::session_status_api;
 use crate::app::App;
 use crate::components::theme::apply as apply_theme;
-use crate::components::{use_toast, Checkbox, Modal};
+use crate::components::{use_toast, BackendSettingsSection, Checkbox, Modal};
 use crate::domain::encryption::{EncryptionStatus, IdleTimeout};
 use crate::domain::theme::ThemePreference;
 use dioxus::prelude::*;
@@ -35,6 +37,8 @@ pub fn VaultGate(#[props(default)] generation: u32) -> Element {
     let mut status = use_signal(|| Option::<EncryptionStatus>::None);
     let mut needs_unlock = use_signal(|| false);
     let mut error = use_signal(|| Option::<String>::None);
+    let mut checked = use_signal(|| false);
+    let mut retrying = use_signal(|| false);
     use_context_provider(|| EncryptionContext {
         status,
         needs_unlock,
@@ -42,31 +46,9 @@ pub fn VaultGate(#[props(default)] generation: u32) -> Element {
 
     use_future(move || async move {
         loop {
-            match get_encryption_status_api().await {
-                Ok(value) => {
-                    if value.configured && !value.locked {
-                        match session_status_api().await {
-                            Ok(()) => {
-                                needs_unlock.set(false);
-                                error.set(None);
-                            }
-                            Err(failure) => {
-                                needs_unlock.set(true);
-                                error.set(Some(failure.to_string()));
-                            }
-                        }
-                    } else {
-                        needs_unlock.set(false);
-                        error.set(None);
-                    }
-                    status.set(Some(value));
-                }
-                Err(failure) => {
-                    error.set(Some(failure.to_string()));
-                    eprintln!("failed to load encryption status: {failure}");
-                }
-            }
-            sleep_ms(2_000).await;
+            refresh_gate(status, needs_unlock, error).await;
+            checked.set(true);
+            sleep_ms(30_000).await;
         }
     });
 
@@ -99,9 +81,29 @@ pub fn VaultGate(#[props(default)] generation: u32) -> Element {
         }
     });
 
+    // A backend change asks for a reload. Mobile and debug desktop remount the
+    // root instead of restarting, so reset the gate here and check the newly
+    // selected backend; dropping the current screen also closes its dialogs.
+    let mut applied_generation = use_signal(|| generation);
+    use_effect(use_reactive((&generation,), move |(generation,)| {
+        if applied_generation() == generation {
+            return;
+        }
+        applied_generation.set(generation);
+        status.set(None);
+        checked.set(false);
+        error.set(None);
+        needs_unlock.set(false);
+        retrying.set(false);
+        spawn(async move {
+            refresh_gate(status, needs_unlock, error).await;
+            checked.set(true);
+        });
+    }));
+
     let current = status.read().clone();
     match current {
-        None => rsx! {
+        None if !*checked.read() => rsx! {
             div {
                 class: "md3-screen",
                 style: "display: flex; min-height: 100vh; align-items: center; justify-content: center;",
@@ -110,11 +112,46 @@ pub fn VaultGate(#[props(default)] generation: u32) -> Element {
                     p { class: "text-body-medium text-on-surface-variant",
                         "Checking the active database…"
                     }
+                }
+            }
+        },
+        None => rsx! {
+            div {
+                class: "md3-screen",
+                style: "display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 1.5rem;",
+                div { style: "max-width: 42rem;",
+                    h1 { class: "text-headline-small", "Address Explorer could not start" }
+                    p { class: "text-body-medium text-on-surface-variant",
+                        "The encryption status of the active database could not be read."
+                    }
                     if let Some(message) = error() {
                         p {
+                            class: "text-body-medium",
                             style: "color: var(--md-sys-color-error);",
                             role: "alert",
                             "{message}"
+                        }
+                    }
+                    div { class: "md3-chip-group",
+                        button {
+                            r#type: "button",
+                            class: "md3-button-filled",
+                            disabled: *retrying.read(),
+                            onclick: move |_| {
+                                if *retrying.read() {
+                                    return;
+                                }
+                                retrying.set(true);
+                                spawn(async move {
+                                    refresh_gate(status, needs_unlock, error).await;
+                                    retrying.set(false);
+                                });
+                            },
+                            if *retrying.read() {
+                                "Retrying…"
+                            } else {
+                                "Retry"
+                            }
                         }
                     }
                 }
@@ -124,7 +161,13 @@ pub fn VaultGate(#[props(default)] generation: u32) -> Element {
             SetupScreen { on_done: move |saved| status.set(Some(saved)) }
         },
         Some(value) if value.locked || needs_unlock() => rsx! {
-            UnlockScreen {}
+            UnlockScreen {
+                on_refresh: move |_| {
+                    spawn(async move {
+                        refresh_gate(status, needs_unlock, error).await;
+                    });
+                },
+            }
         },
         Some(_) => rsx! {
             App { key: "{generation}" }
@@ -132,15 +175,53 @@ pub fn VaultGate(#[props(default)] generation: u32) -> Element {
     }
 }
 
+/// Read the active backend's encryption state and the session that guards it.
+async fn refresh_gate(
+    mut status: Signal<Option<EncryptionStatus>>,
+    mut needs_unlock: Signal<bool>,
+    mut error: Signal<Option<String>>,
+) {
+    match get_encryption_status_api().await {
+        Ok(value) => {
+            if value.configured && !value.locked {
+                match session_status_api().await {
+                    Ok(()) => {
+                        needs_unlock.set(false);
+                        error.set(None);
+                    }
+                    Err(failure) => {
+                        needs_unlock.set(true);
+                        error.set(Some(failure.to_string()));
+                    }
+                }
+            } else {
+                needs_unlock.set(false);
+                error.set(None);
+            }
+            status.set(Some(value));
+        }
+        Err(failure) => {
+            error.set(Some(failure.to_string()));
+            eprintln!("failed to load encryption status: {failure}");
+        }
+    }
+}
+
 #[component]
-fn UnlockScreen() -> Element {
+fn UnlockScreen(on_refresh: EventHandler<()>) -> Element {
     let context = use_encryption();
     let mut status = context.status;
     let mut needs_unlock = context.needs_unlock;
+    // A network server refuses to reset a locked vault; only its host CLI can.
+    let network_server = status
+        .read()
+        .as_ref()
+        .is_some_and(|status| status.server_capped);
     let mut password = use_signal(String::new);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| Option::<String>::None);
     let mut reset_open = use_signal(|| false);
+    let mut backend_open = use_signal(|| false);
     use_effect(|| apply_theme(ThemePreference::default()));
 
     let submit = EventHandler::new(move |_: ()| {
@@ -219,12 +300,23 @@ fn UnlockScreen() -> Element {
                             "Unlock"
                         }
                     }
-                    button {
-                        r#type: "button",
-                        class: "md3-button-text",
-                        disabled: *busy.read(),
-                        onclick: move |_| reset_open.set(true),
-                        "Forgot password?"
+                    if !network_server {
+                        button {
+                            r#type: "button",
+                            class: "md3-button-text",
+                            disabled: *busy.read(),
+                            onclick: move |_| reset_open.set(true),
+                            "Forgot password?"
+                        }
+                    }
+                    if crate::backend::settings_section_available() {
+                        button {
+                            r#type: "button",
+                            class: "md3-button-outlined",
+                            disabled: *busy.read(),
+                            onclick: move |_| backend_open.set(true),
+                            "Change backend"
+                        }
                     }
                 }
             }
@@ -236,6 +328,39 @@ fn UnlockScreen() -> Element {
                     status.set(Some(saved));
                 },
                 on_cancel: move |_| reset_open.set(false),
+            }
+        }
+        if backend_open() {
+            ChangeBackendDialog {
+                on_close: move |_| {
+                    backend_open.set(false);
+                    on_refresh.call(());
+                },
+            }
+        }
+    }
+}
+
+/// Reuse the Settings backend chooser on the unlocked gate so a locked vault
+/// can still pick another server or the local database.
+#[component]
+fn ChangeBackendDialog(on_close: EventHandler<()>) -> Element {
+    rsx! {
+        Modal {
+            title: "Switch backend",
+            title_id: "vault-backend-title",
+            on_close: move |_| on_close.call(()),
+            p { class: "text-body-medium text-on-surface-variant",
+                "Pick another Address Explorer server or the bundled local database. The unlock screen then returns for the selected backend."
+            }
+            BackendSettingsSection { in_dialog: true }
+            div { class: "md3-dialog-actions",
+                button {
+                    r#type: "button",
+                    class: "md3-button-text",
+                    onclick: move |_| on_close.call(()),
+                    "Close"
+                }
             }
         }
     }

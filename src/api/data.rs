@@ -23,7 +23,9 @@ pub async fn export_encrypted_data_api(passphrase: SecretString) -> Result<Strin
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-/// Import an encrypted SQLCipher backup with its backup passphrase.
+/// Import an Address Explorer backup. Encrypted SQLCipher backups use their
+/// backup passphrase; plaintext SQLite backups are imported into the encrypted
+/// database without one.
 #[server]
 #[post("/api/data/import-encrypted")]
 pub async fn import_encrypted_data_api(

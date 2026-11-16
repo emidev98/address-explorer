@@ -515,8 +515,11 @@ pub fn export_encrypted(passphrase: &str) -> Result<Vec<u8>, EncryptionError> {
     bytes
 }
 
-/// Decrypt an encrypted SQLCipher backup and pass the plaintext bytes through
-/// the normal sanitized import path. No migration runs on the backup itself.
+/// Import an Address Explorer backup into the encrypted database.
+///
+/// Encrypted SQLCipher backups are decrypted with `passphrase`; plaintext SQLite
+/// backups need no passphrase. Both are validated and migrated in memory before
+/// they can replace the active data. The selected file itself is never modified.
 pub fn import_encrypted(
     bytes: &[u8],
     passphrase: &str,
@@ -527,9 +530,7 @@ pub fn import_encrypted(
         ));
     }
     if crate::data::encryption::is_plaintext_sqlite(bytes) {
-        return Err(EncryptionError::Message(
-            "the selected file is not an encrypted Address Explorer backup".to_string(),
-        ));
+        return import_plaintext(bytes);
     }
     let salt = salt_from_header(bytes)?;
     let key = derive_key(passphrase, &salt)?;
@@ -721,7 +722,6 @@ pub fn reset_to_defaults() -> Result<EncryptionStatus, EncryptionError> {
 ///
 /// This is the only lost-password path. It never keeps a recovery copy or
 /// attempts to decrypt anything.
-#[allow(dead_code)]
 pub fn reset() -> Result<EncryptionStatus, EncryptionError> {
     let _transition = TRANSITION.lock().map_err(|_| {
         EncryptionError::Message("the vault transition lock was poisoned".to_string())
@@ -1007,7 +1007,7 @@ mod tests {
         lock().unwrap(); // allow-unwrap: test setup.
         assert!(unlock("first password").is_err());
         unlock("second password").unwrap(); // allow-unwrap: test setup.
-        import_plaintext(&backup).unwrap(); // allow-unwrap: test setup.
+        import_encrypted(&backup, "").unwrap(); // allow-unwrap: test setup.
         assert!(open_database().is_ok());
         reset_to_defaults().unwrap(); // allow-unwrap: test setup.
         assert!(status().unwrap().configured); // allow-unwrap: test setup.
@@ -1015,6 +1015,15 @@ mod tests {
         let reset_status = status().unwrap(); // allow-unwrap: test setup.
         assert!(!reset_status.configured);
         assert!(!reset_status.locked);
+        assert!(!path.exists());
+        assert!(open_database().is_err());
+        setup("third password").unwrap(); // allow-unwrap: test setup.
+        lock().unwrap(); // allow-unwrap: test setup.
+        assert!(status().unwrap().locked); // allow-unwrap: test setup.
+        reset().unwrap(); // allow-unwrap: test setup.
+        let reset_locked_status = status().unwrap(); // allow-unwrap: test setup.
+        assert!(!reset_locked_status.configured);
+        assert!(!reset_locked_status.locked);
         assert!(!path.exists());
         assert!(open_database().is_err());
         if let Some(previous) = previous_path {

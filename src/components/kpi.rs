@@ -9,6 +9,7 @@
 //! reveals the overlay, so moving the pointer over the rest of the card does
 //! not change what is shown.
 use crate::components::format::{format_btc, format_fiat};
+use crate::domain::civil_time::format_short_datetime;
 use crate::domain::price::sats_to_fiat;
 use dioxus::prelude::*;
 /// One KPI card of a page header row.
@@ -80,20 +81,24 @@ pub fn Kpi(
 /// The BTC balance is the primary value and the default-currency equivalent
 /// lives in the details overlay, the same way the exchange amount cards show
 /// their fiat values. This keeps the fiat balance from needing a card of its
-/// own.
+/// own. The overlay also names the price close time, so an old stored price
+/// used while the price sources are unreachable is visible at a glance.
 #[component]
 pub fn BalanceKpi(
     #[props(default)] balance_sats: Option<i64>,
     #[props(default)] latest_price: Option<f64>,
+    #[props(default)] latest_price_time: Option<i64>,
     #[props(default)] currency: String,
     #[props(default)] loading: bool,
 ) -> Element {
-    let (value, secondary_value) = balance_values(balance_sats, latest_price, &currency);
+    let (value, secondary_value, supporting_value) =
+        balance_values(balance_sats, latest_price, latest_price_time, &currency);
     rsx! {
         Kpi {
             title: "Balance".to_string(),
             value,
             secondary_value,
+            supporting_value,
             loading,
         }
     }
@@ -104,8 +109,9 @@ pub fn BalanceKpi(
 fn balance_values(
     balance_sats: Option<i64>,
     latest_price: Option<f64>,
+    latest_price_time: Option<i64>,
     currency: &str,
-) -> (Option<String>, Option<String>) {
+) -> (Option<String>, Option<String>, Option<String>) {
     match balance_sats {
         Some(sats) => (
             Some(format_btc(sats)),
@@ -114,33 +120,55 @@ fn balance_values(
                     .map(|price| format_fiat(sats_to_fiat(sats, price), currency))
                     .unwrap_or_else(|| "-".to_string()),
             ),
+            latest_price
+                .zip(latest_price_time)
+                .map(|(price, close_time)| {
+                    format!(
+                        "{}/BTC · as of {} UTC",
+                        format_fiat(price, currency),
+                        format_short_datetime(close_time),
+                    )
+                }),
         ),
-        None => (None, None),
+        None => (None, None, None),
     }
 }
 #[cfg(test)]
 mod tests {
     use super::balance_values;
+    use crate::domain::civil_time::epoch_seconds;
+    const CLOSE_TIME: i64 = epoch_seconds(2026, 6, 15, 23, 29, 59);
     #[test]
     fn balance_values_show_btc_and_the_default_currency_value() {
         assert_eq!(
-            balance_values(Some(100_000_000), Some(60_000.0), "USD"),
-            (Some("1 ₿".to_string()), Some("$60,000.00".to_string())),
+            balance_values(Some(100_000_000), Some(60_000.0), Some(CLOSE_TIME), "USD"),
+            (
+                Some("1 ₿".to_string()),
+                Some("$60,000.00".to_string()),
+                Some("$60,000.00/BTC · as of 2026-06-15 23:29 UTC".to_string()),
+            ),
         );
         assert_eq!(
-            balance_values(Some(100_000_000), Some(60_000.0), "EUR"),
-            (Some("1 ₿".to_string()), Some("60,000.00 EUR".to_string())),
+            balance_values(Some(100_000_000), Some(60_000.0), Some(CLOSE_TIME), "EUR"),
+            (
+                Some("1 ₿".to_string()),
+                Some("60,000.00 EUR".to_string()),
+                Some("60,000.00 EUR/BTC · as of 2026-06-15 23:29 UTC".to_string()),
+            ),
         );
     }
     #[test]
     fn balance_values_report_an_unavailable_fiat_value_as_a_dash() {
         assert_eq!(
-            balance_values(Some(100_000_000), None, "USD"),
-            (Some("1 ₿".to_string()), Some("-".to_string())),
+            balance_values(Some(100_000_000), None, None, "USD"),
+            (Some("1 ₿".to_string()), Some("-".to_string()), None),
         );
     }
     #[test]
     fn balance_values_hide_details_without_a_balance() {
-        assert_eq!(balance_values(None, Some(60_000.0), "USD"), (None, None));
+        assert_eq!(
+            balance_values(None, Some(60_000.0), Some(CLOSE_TIME), "USD"),
+            (None, None, None),
+        );
     }
 }

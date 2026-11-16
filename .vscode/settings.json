@@ -1,0 +1,9 @@
+{
+  // Match `dx serve`: the web app is a wasm32 build with the `web` feature.
+  "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+  "rust-analyzer.cargo.features": ["web"],
+
+  // Do NOT pass --all-targets: dev-dependencies pull `tokio/net`, and mio
+  // does not compile for wasm32. Tests are validated on the native target.
+  "rust-analyzer.cargo.allTargets": false
+}

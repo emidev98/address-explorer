@@ -35,7 +35,6 @@ pub fn save_idle_timeout(timeout: IdleTimeout) -> EncryptionResult {
     vault::save_idle_timeout(timeout)
 }
 
-#[allow(dead_code)]
 pub fn reset() -> EncryptionResult {
     vault::reset()
 }

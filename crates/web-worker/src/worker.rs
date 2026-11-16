@@ -610,14 +610,18 @@ async fn replace_local_database(
         if bytes.is_empty() {
             return Err("the selected SQLite file is empty".to_string());
         }
-        let passphrase: String = serde_json::from_value(
-            payload
-                .get("passphrase")
-                .cloned()
-                .ok_or_else(|| "missing `passphrase` argument".to_string())?,
-        )
-        .map_err(|error| format!("invalid `passphrase` argument: {error}"))?;
-        Some(decrypt_imported_backup(state, &bytes, &passphrase).await?)
+        if is_plaintext_sqlite(&bytes) {
+            Some(bytes)
+        } else {
+            let passphrase: String = serde_json::from_value(
+                payload
+                    .get("passphrase")
+                    .cloned()
+                    .ok_or_else(|| "missing `passphrase` argument".to_string())?,
+            )
+            .map_err(|error| format!("invalid `passphrase` argument: {error}"))?;
+            Some(decrypt_imported_backup(state, &bytes, &passphrase).await?)
+        }
     } else {
         None
     };

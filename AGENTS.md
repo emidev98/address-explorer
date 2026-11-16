@@ -55,7 +55,7 @@ One pull request = one issue = one area.
 
 | Limit | Value |
 | --- | --- |
-| Changed lines (excluding `Cargo.lock`, `assets/tailwind.css`, snapshots) | **≤ 400** |
+| Changed lines (excluding `Cargo.lock`, generated `target/**/out/tailwind.css`, snapshots) | **≤ 400** |
 | Files changed | **≤ 8** |
 | Workspace crates touched | **≤ 1** |
 | New dependencies | **0** |
@@ -78,6 +78,8 @@ too large.
 | `crates/web-worker/**`, `src/web/**` | §6.1, §6.2, §6.6 | No `std::fs`, `dirs`, `Path`, or `DATABASE_PATH`. One worker owns the connection. |
 | `src/components/**`, `src/screens/**` | §5.2–§5.5, §5.14 | Use the shared primitives. No SQL, no blocking I/O, no direct ECharts. |
 | `src/components/charts/**` | §5.10 | One component per chart. Theme tokens only, never hardcoded colors. |
+| `styles/tailwind.css` | §5.3 | The only editable theme file. Never commit generated CSS. |
+| `build.rs` | §5.3, §6.1 | **Frozen.** Generates the stylesheet into `OUT_DIR` for every target and profile. |
 | `src/components/format.rs`, fiat displays | §3.1 | BTC is the unit of account. `format_fiat` + `use_fiat_currency()`. |
 | Table screens | §5.11 | `TableQuery`/`TablePage`, allowlisted sort enum, shared pagination. |
 | Date filters | §5.13 | Shared `DatePicker` only. |

@@ -228,11 +228,12 @@ pub async fn save_encryption_idle_timeout_api(
     encryption::save_idle_timeout(timeout).map_err(|error| ServerFnError::new(error.to_string()))
 }
 
-/// Erase user data while keeping encryption when the vault is unlocked.
+/// Erase the active database and return to the mandatory setup screen.
 ///
-/// A locked vault cannot be reset remotely; the server operator must run the
-/// host CLI command. This removes the lost-password ransom window while still
-/// honoring the typed ERASE confirmation.
+/// A pure network server refuses a locked reset remotely; its operator must run
+/// the host CLI command. Local desktop and mobile vaults erase the database
+/// immediately, even while locked. This removes the lost-password ransom window
+/// while still honoring the typed ERASE confirmation.
 #[server]
 #[post("/api/encryption/reset")]
 pub async fn reset_encrypted_database_api(
@@ -251,15 +252,22 @@ pub async fn reset_encrypted_database_api(
     );
     #[cfg(feature = "server")]
     {
-        let status = encryption::status().map_err(|error| ServerFnError::new(error.to_string()))?;
-        if status.locked || !status.configured {
-            return Err(ServerFnError::new(
-                "reset_locked: run `address-explorer reset-vault` on the server host",
-            ));
+        if crate::backend::pure_server() {
+            let status =
+                encryption::status().map_err(|error| ServerFnError::new(error.to_string()))?;
+            if status.locked || !status.configured {
+                return Err(ServerFnError::new(
+                    "reset_locked: run `address-explorer reset-vault` on the server host",
+                ));
+            }
+            let status = encryption::reset_to_defaults()
+                .map_err(|error| ServerFnError::new(error.to_string()))?;
+            finish(status)
+        } else {
+            let status =
+                encryption::reset().map_err(|error| ServerFnError::new(error.to_string()))?;
+            finish(status)
         }
-        let status = encryption::reset_to_defaults()
-            .map_err(|error| ServerFnError::new(error.to_string()))?;
-        finish(status)
     }
     #[cfg(not(feature = "server"))]
     {

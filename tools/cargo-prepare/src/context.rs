@@ -303,6 +303,34 @@ pub fn run(ctx: &Context, spec: &CommandSpec) -> Result<(), String> {
     }
 }
 
+/// Fetch `url` into `destination`, using the platform tool that is available.
+pub fn download(ctx: &Context, url: &str, destination: &Path) -> Result<(), String> {
+    if ctx.platform.is_windows() {
+        let script = "Invoke-WebRequest -Uri $env:AE_PREPARE_URL -OutFile $env:AE_PREPARE_DEST";
+        return run(
+            ctx,
+            &CommandSpec::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .env("AE_PREPARE_URL", url)
+                .env("AE_PREPARE_DEST", destination.as_os_str()),
+        );
+    }
+
+    let curl = CommandSpec::new("curl")
+        .args(["--fail", "--location", "--retry", "3", "--output"])
+        .arg(destination)
+        .arg(url);
+    if run(ctx, &curl).is_ok() {
+        return Ok(());
+    }
+
+    println!("curl failed; retrying the download with wget...");
+    run(
+        ctx,
+        &CommandSpec::new("wget").arg("-O").arg(destination).arg(url),
+    )
+}
+
 pub fn run_output(spec: &CommandSpec) -> Result<Output, String> {
     let mut command = Command::new(&spec.program);
     command.args(&spec.args);

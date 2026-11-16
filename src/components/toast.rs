@@ -28,9 +28,10 @@ struct ToastMessage {
     kind: ToastKind,
     text: String,
 }
-/// App-wide toast channel, provided once in `App` via [`use_toast_provider`] and
-/// consumed with [`use_toast`]. The copyable handle is cheap to capture in
-/// event handlers and spawned tasks; the signals inside stay shared.
+/// App-wide toast channel, provided once by the root content via
+/// [`use_toast_provider`] and consumed with [`use_toast`]. The copyable handle
+/// is cheap to capture in event handlers and spawned tasks; the signals inside
+/// stay shared.
 #[derive(Debug, Clone, Copy)]
 pub struct Toast {
     current: Signal<Option<ToastMessage>>,
@@ -73,8 +74,9 @@ pub fn use_toast_provider() {
 pub fn use_toast() -> Toast {
     use_context::<Toast>()
 }
-/// Renders the current toast, if any. Mounted once by the root component,
-/// after the router so it layers above page content and modal dialogs.
+/// Renders the current toast, if any. Mounted once by the root content above
+/// the vault gate; the fixed-position host layers it above page content and
+/// modal dialogs.
 #[component]
 pub fn ToastHost() -> Element {
     let mut toast = use_toast();

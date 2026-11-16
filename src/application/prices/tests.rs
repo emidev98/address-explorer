@@ -260,6 +260,61 @@ fn latest_price_propagates_non_not_found_errors() {
     assert_eq!(stubs.usd_calls.load(Ordering::SeqCst), 0);
 }
 #[test]
+fn latest_price_falls_back_to_the_newest_stored_close_when_the_source_fails() {
+    let database = Database::open_in_memory().unwrap();
+    let stored = Price {
+        symbol: USD_SYMBOL.to_string(),
+        close_time: fifteen_minute_close_time(INSIDE_COVERAGE),
+        close: 12_345.0,
+    };
+    price_repository::store_price(&database, &stored).unwrap();
+    let usd_calls = std::sync::Arc::new(AtomicU32::new(0));
+    let usd = {
+        let calls = std::sync::Arc::clone(&usd_calls);
+        move |_date: String| -> FetchFuture {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                Err(PriceServiceError::CoinMetrics(CoinMetricsError::Url(
+                    "offline".to_string(),
+                )))
+            })
+        }
+    };
+    let stubs = stub_fetchers(66_000.0, 0.9);
+    let price = block_on(latest_price_at(
+        &database,
+        "USD",
+        BEYOND_COVERAGE,
+        &usd,
+        stubs.fx.as_ref(),
+    ))
+    .unwrap();
+    assert_eq!(price, stored);
+    assert_eq!(usd_calls.load(Ordering::SeqCst), 1);
+}
+#[test]
+fn latest_price_keeps_the_source_failure_without_a_stored_close() {
+    let database = Database::open_in_memory().unwrap();
+    let usd = |_date: String| -> FetchFuture {
+        Box::pin(async move {
+            Err(PriceServiceError::CoinMetrics(CoinMetricsError::Url(
+                "offline".to_string(),
+            )))
+        })
+    };
+    let stubs = stub_fetchers(66_000.0, 0.9);
+    assert!(matches!(
+        block_on(latest_price_at(
+            &database,
+            "USD",
+            BEYOND_COVERAGE,
+            &usd,
+            stubs.fx.as_ref(),
+        )),
+        Err(PriceServiceError::CoinMetrics(_))
+    ));
+}
+#[test]
 fn invalid_input_is_rejected_before_storage() {
     let database = Database::open_in_memory().unwrap();
     let stubs = stub_fetchers(66_000.0, 0.9);

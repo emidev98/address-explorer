@@ -36,3 +36,6 @@ rustc-ice-*.txt
 .env*
 node_modules/
 dist/
+
+# The compiled Tailwind stylesheet is generated into Cargo's OUT_DIR.
+/assets/tailwind.css

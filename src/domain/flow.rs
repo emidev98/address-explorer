@@ -457,7 +457,10 @@ pub struct FlowLink {
 /// KPI totals of the rendered graph.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FlowKpis {
+    /// Distinct tracked addresses that appear as nodes in the rendered graph.
     pub address_count: i64,
+    /// Transactions drawn in the chart: the transaction nodes of the exact
+    /// view, or the distinct transactions behind the rendered summary links.
     pub transaction_count: i64,
     pub gross_output_sats: i64,
     pub fee_sats: i64,
@@ -1647,8 +1650,8 @@ fn finalize_graph(
             });
     }
     let kpis = FlowKpis {
-        address_count: dataset.focus_addresses.len() as i64,
-        transaction_count: transaction_count as i64,
+        address_count: displayed_address_count(dataset, &nodes),
+        transaction_count: displayed_transaction_count(view, &nodes, &links),
         gross_output_sats: dataset.gross_output_sats(),
         fee_sats: dataset.fee_sats(),
         current_balance_sats: dataset.focus_balance_sats(),
@@ -1672,6 +1675,40 @@ fn finalize_graph(
         exchange_activity,
         warnings,
     }
+}
+/// Number of tracked addresses the chart draws.
+///
+/// Selected addresses without activity in the filtered range never receive a
+/// node, so the KPI reports the addresses visible in the Sankey instead of the
+/// whole selection.
+fn displayed_address_count(dataset: &FlowDataset, nodes: &BTreeMap<String, FlowNode>) -> i64 {
+    let focus: HashSet<&str> = dataset.focus_addresses.iter().map(String::as_str).collect();
+    nodes
+        .values()
+        .filter_map(|node| node.address.as_deref())
+        .filter(|address| focus.contains(address))
+        .collect::<HashSet<_>>()
+        .len() as i64
+}
+/// Number of transactions the chart draws: every transaction node of the exact
+/// view, or the distinct transactions that contribute a summary link.
+fn displayed_transaction_count(
+    view: FlowView,
+    nodes: &BTreeMap<String, FlowNode>,
+    links: &[FlowLink],
+) -> i64 {
+    if view == FlowView::Transactions {
+        return nodes
+            .values()
+            .filter(|node| node.kind == FlowNodeKind::Transaction)
+            .count() as i64;
+    }
+    links
+        .iter()
+        .flat_map(|link| link.evidence.iter())
+        .filter_map(|evidence| evidence.txid.as_deref())
+        .collect::<HashSet<_>>()
+        .len() as i64
 }
 fn default_node_for_id(id: &str) -> FlowNode {
     let (label, kind) = match id {
@@ -2147,5 +2184,26 @@ mod tests {
             assert!(ids.contains(link.target.as_str()));
         }
         assert!(graph.kpis.transaction_count > 0);
+    }
+    #[test]
+    fn kpis_count_only_the_addresses_and_transactions_the_chart_draws() {
+        let data = dataset(
+            vec![owner("a", None, Some(1)), owner("idle", None, Some(1))],
+            vec![
+                tx(
+                    "one",
+                    10,
+                    vec![("a", 1_000, false)],
+                    vec![("external", 900)],
+                ),
+                tx("self", 20, vec![("a", 500, false)], vec![("a", 400)]),
+            ],
+        );
+        let summary = build_address_summary(&data);
+        assert_eq!(summary.kpis.address_count, 1);
+        assert_eq!(summary.kpis.transaction_count, 1);
+        let exact = build_transaction_graph(&data);
+        assert_eq!(exact.kpis.address_count, 1);
+        assert_eq!(exact.kpis.transaction_count, 2);
     }
 }

@@ -1,8 +1,7 @@
-use crate::context::{capture_stdout, run, which, CommandSpec, Context, Status, Target};
+use crate::context::{capture_stdout, which, CommandSpec, Context, Target};
 use crate::platform::PkgManager;
 use crate::system::{linux, macos, windows};
 
-pub const TAILWIND_VERSION: &str = "4.1.5";
 const MINIMUM_NODE_MAJOR: u32 = 20;
 
 pub fn ensure(ctx: &mut Context) {
@@ -32,7 +31,7 @@ pub fn ensure(ctx: &mut Context) {
                 Target::Web,
                 "Node.js / npm",
                 format!(
-                    "Node.js {MINIMUM_NODE_MAJOR}+ with npm and npx is required for the documented Tailwind workflow"
+                    "Node.js {MINIMUM_NODE_MAJOR}+ with npm and npx is required by the Node tooling"
                 ),
             );
             return;
@@ -45,7 +44,6 @@ pub fn ensure(ctx: &mut Context) {
 
         if ctx.opts.dry_run {
             ctx.installed(Target::Web, "Node.js / npm", "would install Node.js LTS");
-            warm_tailwind(ctx);
             return;
         }
 
@@ -76,8 +74,6 @@ pub fn ensure(ctx: &mut Context) {
             node_version.unwrap_or_default(),
         );
     }
-
-    warm_tailwind(ctx);
 }
 
 fn install_node(ctx: &mut Context) -> Result<(), String> {
@@ -137,66 +133,6 @@ fn add_windows_node_path() {
             crate::context::append_path(&directory);
             break;
         }
-    }
-}
-
-fn warm_tailwind(ctx: &mut Context) {
-    if ctx.opts.dry_run {
-        println!("  + npx --yes @tailwindcss/cli@{TAILWIND_VERSION} --help");
-        ctx.record(
-            Target::Web,
-            "Tailwind CLI cache",
-            Status::Installed,
-            false,
-            format!("would warm the @tailwindcss/cli@{TAILWIND_VERSION} cache"),
-        );
-        return;
-    }
-
-    let Some(npx) = which("npx") else {
-        ctx.record(
-            Target::Web,
-            "Tailwind CLI cache",
-            Status::Failed,
-            false,
-            "npx is missing",
-        );
-        return;
-    };
-
-    if ctx.opts.check {
-        ctx.record(
-            Target::Web,
-            "Tailwind CLI cache",
-            Status::Ready,
-            false,
-            format!("npx is available; package @tailwindcss/cli@{TAILWIND_VERSION} is fetched on demand"),
-        );
-        return;
-    }
-
-    println!("Warming the Tailwind CLI {TAILWIND_VERSION} npx cache...");
-    let spec = CommandSpec::new(npx)
-        .arg("--yes")
-        .arg(format!("@tailwindcss/cli@{TAILWIND_VERSION}"))
-        .arg("--help");
-    match run(ctx, &spec) {
-        Ok(()) => ctx.record(
-            Target::Web,
-            "Tailwind CLI cache",
-            Status::Installed,
-            false,
-            format!("npx @tailwindcss/cli@{TAILWIND_VERSION} is cached"),
-        ),
-        Err(error) => ctx.record(
-            Target::Web,
-            "Tailwind CLI cache",
-            Status::Failed,
-            false,
-            format!(
-                "{error}\n       dx still bundles Tailwind; retry: npx --yes @tailwindcss/cli@{TAILWIND_VERSION} --help"
-            ),
-        ),
     }
 }
 

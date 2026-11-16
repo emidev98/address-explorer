@@ -48,7 +48,7 @@ pub fn request_app_reload(context: BackendSettingsContext) -> Result<(), String>
     all(feature = "web-client", target_arch = "wasm32")
 ))]
 #[component]
-pub fn BackendSettingsSection() -> Element {
+pub fn BackendSettingsSection(#[props(default)] in_dialog: bool) -> Element {
     use crate::api::remote;
     use crate::backend::{self, BackendMode};
     use crate::domain::health::{Health, API_VERSION};
@@ -80,13 +80,19 @@ pub fn BackendSettingsSection() -> Element {
     let insecure_http = remote_selected && backend::uses_insecure_remote_http(url().trim());
 
     rsx! {
-        section { class: "md3-settings-section md3-settings-span",
+        section { class: if in_dialog { "md3-settings-section md3-settings-section-dialog" } else { "md3-settings-section md3-settings-span" },
             div {
-                h3 { class: "text-title-medium leading-title-medium text-on-surface",
-                    "Backend"
+                if !in_dialog {
+                    h3 { class: "text-title-medium leading-title-medium text-on-surface",
+                        "Backend"
+                    }
                 }
                 p { class: "text-body-medium text-on-surface-variant",
-                    "Choose the bundled local database or a remote Address Explorer server. The two stores are separate; switching does not migrate data automatically. Use Data below to export or import a backup. Saving reloads the application."
+                    if in_dialog {
+                        "Choose the bundled local database or a remote Address Explorer server. The two stores are separate; switching does not migrate data automatically. Saving reloads the application and opens the selected backend."
+                    } else {
+                        "Choose the bundled local database or a remote Address Explorer server. The two stores are separate; switching does not migrate data automatically. Use Data below to export or import a backup. Saving reloads the application."
+                    }
                 }
             }
             div {
@@ -307,6 +313,7 @@ pub fn BackendSettingsSection() -> Element {
     all(feature = "web-client", target_arch = "wasm32")
 )))]
 #[component]
-pub fn BackendSettingsSection() -> Element {
+pub fn BackendSettingsSection(#[props(default)] in_dialog: bool) -> Element {
+    let _ = in_dialog;
     rsx! {}
 }

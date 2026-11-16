@@ -70,7 +70,7 @@ impl Default for SecuritySettings {
             unlock_failure_threshold: 5,
             unlock_backoff_secs: 30,
             api_requests_per_minute: 60,
-            api_rate_burst: 20,
+            api_rate_burst: 50,
             external_timeout_secs: 30,
             external_response_max_bytes: 8 * 1024 * 1024,
             export_file_mode: ExportFileMode::OwnerReadWrite,
@@ -283,7 +283,7 @@ pub const MAX_UNLOCK_BACKOFF_SECS: u64 = 300;
 pub const MIN_API_REQUESTS_PER_MINUTE: u32 = 10;
 pub const MAX_API_REQUESTS_PER_MINUTE: u32 = 600;
 pub const MIN_API_BURST: u32 = 5;
-pub const MAX_API_BURST: u32 = 100;
+pub const MAX_API_BURST: u32 = 300;
 pub const MIN_EXTERNAL_TIMEOUT_SECS: u64 = 5;
 pub const MAX_EXTERNAL_TIMEOUT_SECS: u64 = 120;
 pub const MIN_RESPONSE_BYTES: u64 = 1024 * 1024;

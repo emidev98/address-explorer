@@ -1,736 +1,333 @@
-/*! tailwindcss v4.1.5 | MIT License | https://tailwindcss.com */
-@layer properties;
-@layer theme, base, components, utilities;
-@layer theme {
-  :root, :host {
-    --font-sans: "Roboto", "Roboto Flex", "Segoe UI", system-ui, -apple-system,
+/**
+ * Material 3 theme for Tailwind CSS v4.
+ *
+ * This file provides three layers:
+ *
+ * 1. Material 3 system tokens (`--md-sys-*`) for color, elevation, motion,
+ *    and state layers. Color roles alias the palettes from
+ *    `assets/material3-tailwind-palettes.css`, which `data-theme` (palette)
+ *    and `data-mode` (light or dark) select on the root element.
+ * 2. Tailwind theme mappings (`@theme static`) so the tokens are available
+ *    as utilities such as `bg-primary`, `text-on-surface-variant`,
+ *    `rounded-md3-md`, `shadow-md3-1`, and `text-headline-medium`.
+ * 3. Material components (`.md3-*`) used by the application views.
+ *
+ * Material 3 specification: https://m3.material.io/
+ *
+ * The type scale uses Roboto, the Material default. No remote font is
+ * requested; the stack falls back to the platform UI font when Roboto is not
+ * installed. Add a locally hosted Roboto font face if the exact Material
+ * typeface is required on every platform.
+ *
+ * This is the Tailwind input. `build.rs` compiles it into Cargo's `OUT_DIR`
+ * and `src/app.rs` embeds the result; the generated stylesheet is not
+ * committed.
+ */
+
+/* Automatic detection would also scan the documentation, so only the views
+   listed below contribute utility class names. */
+@import "tailwindcss" source(none);
+@import "../assets/material3-tailwind-palettes.css";
+
+/* Scan the Dioxus RSX views for utility class names. */
+@source "../src/**/*.rs";
+
+/* ==========================================================================
+   Tailwind theme mappings
+   ========================================================================== */
+
+/*
+ * `static` keeps every design token in the compiled stylesheet even when no
+ * utility currently references it. That makes the tokens available to the
+ * `.md3-*` component rules below and to future views without another build
+ * configuration change.
+ */
+@theme static {
+  /* M3 uses Roboto for its default typeface. */
+  --font-sans:
+    "Roboto", "Roboto Flex", "Segoe UI", system-ui, -apple-system,
     BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+  /* Themes may override the heading and numeric faces; the defaults keep the
+     existing palettes on the Roboto stack. */
+  --font-heading: var(--font-sans);
+  --font-numeric: var(--font-sans);
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
-    --spacing: 0.25rem;
-    --default-transition-duration: 150ms;
-    --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    --default-font-family: var(--font-sans);
-    --default-mono-font-family: var(--font-mono);
-    --font-heading: var(--font-sans);
-    --font-numeric: var(--font-sans);
-    --color-primary: var(--md-sys-color-primary);
-    --color-on-primary: var(--md-sys-color-on-primary);
-    --color-primary-container: var(--md-sys-color-primary-container);
-    --color-on-primary-container: var(--md-sys-color-on-primary-container);
-    --color-secondary: var(--md-sys-color-secondary);
-    --color-on-secondary: var(--md-sys-color-on-secondary);
-    --color-secondary-container: var(--md-sys-color-secondary-container);
-    --color-on-secondary-container: var(--md-sys-color-on-secondary-container);
-    --color-tertiary: var(--md-sys-color-tertiary);
-    --color-on-tertiary: var(--md-sys-color-on-tertiary);
-    --color-tertiary-container: var(--md-sys-color-tertiary-container);
-    --color-on-tertiary-container: var(--md-sys-color-on-tertiary-container);
-    --color-error: var(--md-sys-color-error);
-    --color-on-error: var(--md-sys-color-on-error);
-    --color-error-container: var(--md-sys-color-error-container);
-    --color-on-error-container: var(--md-sys-color-on-error-container);
-    --color-background: var(--md-sys-color-background);
-    --color-on-background: var(--md-sys-color-on-background);
-    --color-surface: var(--md-sys-color-surface);
-    --color-on-surface: var(--md-sys-color-on-surface);
-    --color-surface-variant: var(--md-sys-color-surface-variant);
-    --color-on-surface-variant: var(--md-sys-color-on-surface-variant);
-    --color-surface-tint: var(--md-sys-color-surface-tint);
-    --color-surface-dim: var(--md-sys-color-surface-dim);
-    --color-surface-bright: var(--md-sys-color-surface-bright);
-    --color-surface-container-lowest: var(--md-sys-color-surface-container-lowest);
-    --color-surface-container-low: var(--md-sys-color-surface-container-low);
-    --color-surface-container: var(--md-sys-color-surface-container);
-    --color-surface-container-high: var(--md-sys-color-surface-container-high);
-    --color-surface-container-highest: var(--md-sys-color-surface-container-highest);
-    --color-outline: var(--md-sys-color-outline);
-    --color-outline-variant: var(--md-sys-color-outline-variant);
-    --color-shadow: var(--md-sys-color-shadow);
-    --color-scrim: var(--md-sys-color-scrim);
-    --color-inverse-surface: var(--md-sys-color-inverse-surface);
-    --color-inverse-on-surface: var(--md-sys-color-inverse-on-surface);
-    --color-inverse-primary: var(--md-sys-color-inverse-primary);
-    --color-primary-fixed: var(--md-sys-color-primary-fixed);
-    --color-primary-fixed-dim: var(--md-sys-color-primary-fixed-dim);
-    --color-on-primary-fixed: var(--md-sys-color-on-primary-fixed);
-    --color-on-primary-fixed-variant: var(--md-sys-color-on-primary-fixed-variant);
-    --color-secondary-fixed: var(--md-sys-color-secondary-fixed);
-    --color-secondary-fixed-dim: var(--md-sys-color-secondary-fixed-dim);
-    --color-on-secondary-fixed: var(--md-sys-color-on-secondary-fixed);
-    --color-on-secondary-fixed-variant: var(--md-sys-color-on-secondary-fixed-variant);
-    --color-tertiary-fixed: var(--md-sys-color-tertiary-fixed);
-    --color-tertiary-fixed-dim: var(--md-sys-color-tertiary-fixed-dim);
-    --color-on-tertiary-fixed: var(--md-sys-color-on-tertiary-fixed);
-    --color-on-tertiary-fixed-variant: var(--md-sys-color-on-tertiary-fixed-variant);
-    --text-display-large: 3.5625rem;
-    --text-display-large--line-height: 4rem;
-    --text-display-large--letter-spacing: -0.015625rem;
-    --text-display-large--font-weight: 400;
-    --text-display-medium: 2.8125rem;
-    --text-display-medium--line-height: 3.25rem;
-    --text-display-medium--letter-spacing: 0;
-    --text-display-medium--font-weight: 400;
-    --text-display-small: 2.25rem;
-    --text-display-small--line-height: 2.75rem;
-    --text-display-small--letter-spacing: 0;
-    --text-display-small--font-weight: 400;
-    --text-headline-large: 2rem;
-    --text-headline-large--line-height: 2.5rem;
-    --text-headline-large--letter-spacing: 0;
-    --text-headline-large--font-weight: 400;
-    --text-headline-medium: 1.75rem;
-    --text-headline-medium--line-height: 2.25rem;
-    --text-headline-medium--letter-spacing: 0;
-    --text-headline-medium--font-weight: 400;
-    --text-headline-small: 1.5rem;
-    --text-headline-small--line-height: 2rem;
-    --text-headline-small--letter-spacing: 0;
-    --text-headline-small--font-weight: 400;
-    --text-title-large: 1.375rem;
-    --text-title-large--line-height: 1.75rem;
-    --text-title-large--letter-spacing: 0;
-    --text-title-large--font-weight: 400;
-    --text-title-medium: 1rem;
-    --text-title-medium--line-height: 1.5rem;
-    --text-title-medium--letter-spacing: 0.009375rem;
-    --text-title-medium--font-weight: 500;
-    --text-title-small: 0.875rem;
-    --text-title-small--line-height: 1.25rem;
-    --text-title-small--letter-spacing: 0.00625rem;
-    --text-title-small--font-weight: 500;
-    --text-body-large: 1rem;
-    --text-body-large--line-height: 1.5rem;
-    --text-body-large--letter-spacing: 0.03125rem;
-    --text-body-large--font-weight: 400;
-    --text-body-medium: 0.875rem;
-    --text-body-medium--line-height: 1.25rem;
-    --text-body-medium--letter-spacing: 0.015625rem;
-    --text-body-medium--font-weight: 400;
-    --text-body-small: 0.75rem;
-    --text-body-small--line-height: 1rem;
-    --text-body-small--letter-spacing: 0.025rem;
-    --text-body-small--font-weight: 400;
-    --text-label-large: 0.875rem;
-    --text-label-large--line-height: 1.25rem;
-    --text-label-large--letter-spacing: 0.00625rem;
-    --text-label-large--font-weight: 500;
-    --text-label-medium: 0.75rem;
-    --text-label-medium--line-height: 1rem;
-    --text-label-medium--letter-spacing: 0.03125rem;
-    --text-label-medium--font-weight: 500;
-    --text-label-small: 0.6875rem;
-    --text-label-small--line-height: 1rem;
-    --text-label-small--letter-spacing: 0.03125rem;
-    --text-label-small--font-weight: 500;
-    --leading-display-large: 4rem;
-    --leading-display-medium: 3.25rem;
-    --leading-display-small: 2.75rem;
-    --leading-headline-large: 2.5rem;
-    --leading-headline-medium: 2.25rem;
-    --leading-headline-small: 2rem;
-    --leading-title-large: 1.75rem;
-    --leading-title-medium: 1.5rem;
-    --leading-title-small: 1.25rem;
-    --leading-body-large: 1.5rem;
-    --leading-body-medium: 1.25rem;
-    --leading-body-small: 1rem;
-    --leading-label-large: 1.25rem;
-    --leading-label-medium: 1rem;
-    --leading-label-small: 1rem;
-    --radius-md3-none: 0px;
-    --radius-md3-xs: 0.25rem;
-    --radius-md3-sm: 0.5rem;
-    --radius-md3-md: 0.75rem;
-    --radius-md3-lg: 1rem;
-    --radius-md3-xl: 1.75rem;
-    --radius-md3-full: 9999px;
-    --shadow-md3-0: var(--md-sys-elevation-0);
-    --shadow-md3-1: var(--md-sys-elevation-1);
-    --shadow-md3-2: var(--md-sys-elevation-2);
-    --shadow-md3-3: var(--md-sys-elevation-3);
-    --shadow-md3-4: var(--md-sys-elevation-4);
-    --shadow-md3-5: var(--md-sys-elevation-5);
-    --ease-md3-standard: var(--md-sys-motion-easing-standard);
-    --ease-md3-standard-decelerate: var(--md-sys-motion-easing-standard-decelerate);
-    --ease-md3-standard-accelerate: var(--md-sys-motion-easing-standard-accelerate);
-    --ease-md3-emphasized: var(--md-sys-motion-easing-emphasized);
-    --ease-md3-emphasized-decelerate: var(--md-sys-motion-easing-emphasized-decelerate);
-    --ease-md3-emphasized-accelerate: var(--md-sys-motion-easing-emphasized-accelerate);
-  }
+
+  /* ------------------------------------------------------------------
+     Color roles
+     ------------------------------------------------------------------ */
+  --color-primary: var(--md-sys-color-primary);
+  --color-on-primary: var(--md-sys-color-on-primary);
+  --color-primary-container: var(--md-sys-color-primary-container);
+  --color-on-primary-container: var(--md-sys-color-on-primary-container);
+
+  --color-secondary: var(--md-sys-color-secondary);
+  --color-on-secondary: var(--md-sys-color-on-secondary);
+  --color-secondary-container: var(--md-sys-color-secondary-container);
+  --color-on-secondary-container: var(--md-sys-color-on-secondary-container);
+
+  --color-tertiary: var(--md-sys-color-tertiary);
+  --color-on-tertiary: var(--md-sys-color-on-tertiary);
+  --color-tertiary-container: var(--md-sys-color-tertiary-container);
+  --color-on-tertiary-container: var(--md-sys-color-on-tertiary-container);
+
+  --color-error: var(--md-sys-color-error);
+  --color-on-error: var(--md-sys-color-on-error);
+  --color-error-container: var(--md-sys-color-error-container);
+  --color-on-error-container: var(--md-sys-color-on-error-container);
+
+  --color-background: var(--md-sys-color-background);
+  --color-on-background: var(--md-sys-color-on-background);
+
+  --color-surface: var(--md-sys-color-surface);
+  --color-on-surface: var(--md-sys-color-on-surface);
+  --color-surface-variant: var(--md-sys-color-surface-variant);
+  --color-on-surface-variant: var(--md-sys-color-on-surface-variant);
+  --color-surface-tint: var(--md-sys-color-surface-tint);
+  --color-surface-dim: var(--md-sys-color-surface-dim);
+  --color-surface-bright: var(--md-sys-color-surface-bright);
+  --color-surface-container-lowest: var(--md-sys-color-surface-container-lowest);
+  --color-surface-container-low: var(--md-sys-color-surface-container-low);
+  --color-surface-container: var(--md-sys-color-surface-container);
+  --color-surface-container-high: var(--md-sys-color-surface-container-high);
+  --color-surface-container-highest: var(--md-sys-color-surface-container-highest);
+
+  --color-outline: var(--md-sys-color-outline);
+  --color-outline-variant: var(--md-sys-color-outline-variant);
+  --color-shadow: var(--md-sys-color-shadow);
+  --color-scrim: var(--md-sys-color-scrim);
+
+  --color-inverse-surface: var(--md-sys-color-inverse-surface);
+  --color-inverse-on-surface: var(--md-sys-color-inverse-on-surface);
+  --color-inverse-primary: var(--md-sys-color-inverse-primary);
+
+  --color-primary-fixed: var(--md-sys-color-primary-fixed);
+  --color-primary-fixed-dim: var(--md-sys-color-primary-fixed-dim);
+  --color-on-primary-fixed: var(--md-sys-color-on-primary-fixed);
+  --color-on-primary-fixed-variant: var(--md-sys-color-on-primary-fixed-variant);
+
+  --color-secondary-fixed: var(--md-sys-color-secondary-fixed);
+  --color-secondary-fixed-dim: var(--md-sys-color-secondary-fixed-dim);
+  --color-on-secondary-fixed: var(--md-sys-color-on-secondary-fixed);
+  --color-on-secondary-fixed-variant: var(--md-sys-color-on-secondary-fixed-variant);
+
+  --color-tertiary-fixed: var(--md-sys-color-tertiary-fixed);
+  --color-tertiary-fixed-dim: var(--md-sys-color-tertiary-fixed-dim);
+  --color-on-tertiary-fixed: var(--md-sys-color-on-tertiary-fixed);
+  --color-on-tertiary-fixed-variant: var(--md-sys-color-on-tertiary-fixed-variant);
+
+  /* ------------------------------------------------------------------
+     Type scale
+     Each text token includes its M3 line height, tracking, and weight.
+     ------------------------------------------------------------------ */
+  --text-display-large: 3.5625rem;
+  --text-display-large--line-height: 4rem;
+  --text-display-large--letter-spacing: -0.015625rem;
+  --text-display-large--font-weight: 400;
+
+  --text-display-medium: 2.8125rem;
+  --text-display-medium--line-height: 3.25rem;
+  --text-display-medium--letter-spacing: 0;
+  --text-display-medium--font-weight: 400;
+
+  --text-display-small: 2.25rem;
+  --text-display-small--line-height: 2.75rem;
+  --text-display-small--letter-spacing: 0;
+  --text-display-small--font-weight: 400;
+
+  --text-headline-large: 2rem;
+  --text-headline-large--line-height: 2.5rem;
+  --text-headline-large--letter-spacing: 0;
+  --text-headline-large--font-weight: 400;
+
+  --text-headline-medium: 1.75rem;
+  --text-headline-medium--line-height: 2.25rem;
+  --text-headline-medium--letter-spacing: 0;
+  --text-headline-medium--font-weight: 400;
+
+  --text-headline-small: 1.5rem;
+  --text-headline-small--line-height: 2rem;
+  --text-headline-small--letter-spacing: 0;
+  --text-headline-small--font-weight: 400;
+
+  --text-title-large: 1.375rem;
+  --text-title-large--line-height: 1.75rem;
+  --text-title-large--letter-spacing: 0;
+  --text-title-large--font-weight: 400;
+
+  --text-title-medium: 1rem;
+  --text-title-medium--line-height: 1.5rem;
+  --text-title-medium--letter-spacing: 0.009375rem;
+  --text-title-medium--font-weight: 500;
+
+  --text-title-small: 0.875rem;
+  --text-title-small--line-height: 1.25rem;
+  --text-title-small--letter-spacing: 0.00625rem;
+  --text-title-small--font-weight: 500;
+
+  --text-body-large: 1rem;
+  --text-body-large--line-height: 1.5rem;
+  --text-body-large--letter-spacing: 0.03125rem;
+  --text-body-large--font-weight: 400;
+
+  --text-body-medium: 0.875rem;
+  --text-body-medium--line-height: 1.25rem;
+  --text-body-medium--letter-spacing: 0.015625rem;
+  --text-body-medium--font-weight: 400;
+
+  --text-body-small: 0.75rem;
+  --text-body-small--line-height: 1rem;
+  --text-body-small--letter-spacing: 0.025rem;
+  --text-body-small--font-weight: 400;
+
+  --text-label-large: 0.875rem;
+  --text-label-large--line-height: 1.25rem;
+  --text-label-large--letter-spacing: 0.00625rem;
+  --text-label-large--font-weight: 500;
+
+  --text-label-medium: 0.75rem;
+  --text-label-medium--line-height: 1rem;
+  --text-label-medium--letter-spacing: 0.03125rem;
+  --text-label-medium--font-weight: 500;
+
+  --text-label-small: 0.6875rem;
+  --text-label-small--line-height: 1rem;
+  --text-label-small--letter-spacing: 0.03125rem;
+  --text-label-small--font-weight: 500;
+
+  /* Line-height utilities that pair with the type scale. The application
+     uses these explicitly (for example `leading-headline-medium`). */
+  --leading-display-large: 4rem;
+  --leading-display-medium: 3.25rem;
+  --leading-display-small: 2.75rem;
+  --leading-headline-large: 2.5rem;
+  --leading-headline-medium: 2.25rem;
+  --leading-headline-small: 2rem;
+  --leading-title-large: 1.75rem;
+  --leading-title-medium: 1.5rem;
+  --leading-title-small: 1.25rem;
+  --leading-body-large: 1.5rem;
+  --leading-body-medium: 1.25rem;
+  --leading-body-small: 1rem;
+  --leading-label-large: 1.25rem;
+  --leading-label-medium: 1rem;
+  --leading-label-small: 1rem;
+
+  /* ------------------------------------------------------------------
+     Shape scale
+     ------------------------------------------------------------------ */
+  --radius-md3-none: 0px;
+  --radius-md3-xs: 0.25rem; /* 4px  - extra small */
+  --radius-md3-sm: 0.5rem; /* 8px  - small */
+  --radius-md3-md: 0.75rem; /* 12px - medium */
+  --radius-md3-lg: 1rem; /* 16px - large */
+  --radius-md3-xl: 1.75rem; /* 28px - extra large */
+  --radius-md3-full: 9999px;
+
+  /* ------------------------------------------------------------------
+     Elevation
+     ------------------------------------------------------------------ */
+  --shadow-md3-0: var(--md-sys-elevation-0);
+  --shadow-md3-1: var(--md-sys-elevation-1);
+  --shadow-md3-2: var(--md-sys-elevation-2);
+  --shadow-md3-3: var(--md-sys-elevation-3);
+  --shadow-md3-4: var(--md-sys-elevation-4);
+  --shadow-md3-5: var(--md-sys-elevation-5);
+
+  /* ------------------------------------------------------------------
+     Motion easings
+     ------------------------------------------------------------------ */
+  --ease-md3-standard: var(--md-sys-motion-easing-standard);
+  --ease-md3-standard-decelerate: var(--md-sys-motion-easing-standard-decelerate);
+  --ease-md3-standard-accelerate: var(--md-sys-motion-easing-standard-accelerate);
+  --ease-md3-emphasized: var(--md-sys-motion-easing-emphasized);
+  --ease-md3-emphasized-decelerate: var(--md-sys-motion-easing-emphasized-decelerate);
+  --ease-md3-emphasized-accelerate: var(--md-sys-motion-easing-emphasized-accelerate);
 }
-@layer base {
-  *, ::after, ::before, ::backdrop, ::file-selector-button {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    border: 0 solid;
-  }
-  html, :host {
-    line-height: 1.5;
-    -webkit-text-size-adjust: 100%;
-    tab-size: 4;
-    font-family: var(--default-font-family, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji');
-    font-feature-settings: var(--default-font-feature-settings, normal);
-    font-variation-settings: var(--default-font-variation-settings, normal);
-    -webkit-tap-highlight-color: transparent;
-  }
-  hr {
-    height: 0;
-    color: inherit;
-    border-top-width: 1px;
-  }
-  abbr:where([title]) {
-    -webkit-text-decoration: underline dotted;
-    text-decoration: underline dotted;
-  }
-  h1, h2, h3, h4, h5, h6 {
-    font-size: inherit;
-    font-weight: inherit;
-  }
-  a {
-    color: inherit;
-    -webkit-text-decoration: inherit;
-    text-decoration: inherit;
-  }
-  b, strong {
-    font-weight: bolder;
-  }
-  code, kbd, samp, pre {
-    font-family: var(--default-mono-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace);
-    font-feature-settings: var(--default-mono-font-feature-settings, normal);
-    font-variation-settings: var(--default-mono-font-variation-settings, normal);
-    font-size: 1em;
-  }
-  small {
-    font-size: 80%;
-  }
-  sub, sup {
-    font-size: 75%;
-    line-height: 0;
-    position: relative;
-    vertical-align: baseline;
-  }
-  sub {
-    bottom: -0.25em;
-  }
-  sup {
-    top: -0.5em;
-  }
-  table {
-    text-indent: 0;
-    border-color: inherit;
-    border-collapse: collapse;
-  }
-  :-moz-focusring {
-    outline: auto;
-  }
-  progress {
-    vertical-align: baseline;
-  }
-  summary {
-    display: list-item;
-  }
-  ol, ul, menu {
-    list-style: none;
-  }
-  img, svg, video, canvas, audio, iframe, embed, object {
-    display: block;
-    vertical-align: middle;
-  }
-  img, video {
-    max-width: 100%;
-    height: auto;
-  }
-  button, input, select, optgroup, textarea, ::file-selector-button {
-    font: inherit;
-    font-feature-settings: inherit;
-    font-variation-settings: inherit;
-    letter-spacing: inherit;
-    color: inherit;
-    border-radius: 0;
-    background-color: transparent;
-    opacity: 1;
-  }
-  :where(select:is([multiple], [size])) optgroup {
-    font-weight: bolder;
-  }
-  :where(select:is([multiple], [size])) optgroup option {
-    padding-inline-start: 20px;
-  }
-  ::file-selector-button {
-    margin-inline-end: 4px;
-  }
-  ::placeholder {
-    opacity: 1;
-  }
-  @supports (not (-webkit-appearance: -apple-pay-button))  or (contain-intrinsic-size: 1px) {
-    ::placeholder {
-      color: currentcolor;
-      @supports (color: color-mix(in lab, red, red)) {
-        color: color-mix(in oklab, currentcolor 50%, transparent);
-      }
-    }
-  }
-  textarea {
-    resize: vertical;
-  }
-  ::-webkit-search-decoration {
-    -webkit-appearance: none;
-  }
-  ::-webkit-date-and-time-value {
-    min-height: 1lh;
-    text-align: inherit;
-  }
-  ::-webkit-datetime-edit {
-    display: inline-flex;
-  }
-  ::-webkit-datetime-edit-fields-wrapper {
-    padding: 0;
-  }
-  ::-webkit-datetime-edit, ::-webkit-datetime-edit-year-field, ::-webkit-datetime-edit-month-field, ::-webkit-datetime-edit-day-field, ::-webkit-datetime-edit-hour-field, ::-webkit-datetime-edit-minute-field, ::-webkit-datetime-edit-second-field, ::-webkit-datetime-edit-millisecond-field, ::-webkit-datetime-edit-meridiem-field {
-    padding-block: 0;
-  }
-  :-moz-ui-invalid {
-    box-shadow: none;
-  }
-  button, input:where([type='button'], [type='reset'], [type='submit']), ::file-selector-button {
-    appearance: button;
-  }
-  ::-webkit-inner-spin-button, ::-webkit-outer-spin-button {
-    height: auto;
-  }
-  [hidden]:where(:not([hidden='until-found'])) {
-    display: none !important;
-  }
-}
-@layer utilities {
-  .collapse {
-    visibility: collapse;
-  }
-  .invisible {
-    visibility: hidden;
-  }
-  .visible {
-    visibility: visible;
-  }
-  .absolute {
-    position: absolute;
-  }
-  .fixed {
-    position: fixed;
-  }
-  .relative {
-    position: relative;
-  }
-  .static {
-    position: static;
-  }
-  .container {
-    width: 100%;
-    @media (width >= 40rem) {
-      max-width: 40rem;
-    }
-    @media (width >= 48rem) {
-      max-width: 48rem;
-    }
-    @media (width >= 64rem) {
-      max-width: 64rem;
-    }
-    @media (width >= 80rem) {
-      max-width: 80rem;
-    }
-    @media (width >= 96rem) {
-      max-width: 96rem;
-    }
-  }
-  .m-1 {
-    margin: calc(var(--spacing) * 1);
-  }
-  .block {
-    display: block;
-  }
-  .contents {
-    display: contents;
-  }
-  .grid {
-    display: grid;
-  }
-  .hidden {
-    display: none;
-  }
-  .inline {
-    display: inline;
-  }
-  .table {
-    display: table;
-  }
-  .shrink {
-    flex-shrink: 1;
-  }
-  .grow {
-    flex-grow: 1;
-  }
-  .transform {
-    transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
-  }
-  .resize {
-    resize: both;
-  }
-  .truncate {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .rounded {
-    border-radius: 0.25rem;
-  }
-  .rounded-md3-md {
-    border-radius: var(--radius-md3-md);
-  }
-  .bg-primary {
-    background-color: var(--color-primary);
-  }
-  .bg-surface-container {
-    background-color: var(--color-surface-container);
-  }
-  .text-body-medium {
-    font-size: var(--text-body-medium);
-    line-height: var(--tw-leading, var(--text-body-medium--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-body-medium--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-body-medium--font-weight));
-  }
-  .text-body-small {
-    font-size: var(--text-body-small);
-    line-height: var(--tw-leading, var(--text-body-small--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-body-small--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-body-small--font-weight));
-  }
-  .text-headline-medium {
-    font-size: var(--text-headline-medium);
-    line-height: var(--tw-leading, var(--text-headline-medium--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-headline-medium--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-headline-medium--font-weight));
-  }
-  .text-headline-small {
-    font-size: var(--text-headline-small);
-    line-height: var(--tw-leading, var(--text-headline-small--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-headline-small--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-headline-small--font-weight));
-  }
-  .text-label-large {
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
-  }
-  .text-title-large {
-    font-size: var(--text-title-large);
-    line-height: var(--tw-leading, var(--text-title-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-title-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-title-large--font-weight));
-  }
-  .text-title-medium {
-    font-size: var(--text-title-medium);
-    line-height: var(--tw-leading, var(--text-title-medium--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-title-medium--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-title-medium--font-weight));
-  }
-  .text-title-small {
-    font-size: var(--text-title-small);
-    line-height: var(--tw-leading, var(--text-title-small--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-title-small--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-title-small--font-weight));
-  }
-  .leading-headline-medium {
-    --tw-leading: var(--leading-headline-medium);
-    line-height: var(--leading-headline-medium);
-  }
-  .leading-headline-small {
-    --tw-leading: var(--leading-headline-small);
-    line-height: var(--leading-headline-small);
-  }
-  .leading-title-medium {
-    --tw-leading: var(--leading-title-medium);
-    line-height: var(--leading-title-medium);
-  }
-  .leading-title-small {
-    --tw-leading: var(--leading-title-small);
-    line-height: var(--leading-title-small);
-  }
-  .text-on-surface {
-    color: var(--color-on-surface);
-  }
-  .text-on-surface-variant {
-    color: var(--color-on-surface-variant);
-  }
-  .lowercase {
-    text-transform: lowercase;
-  }
-  .uppercase {
-    text-transform: uppercase;
-  }
-  .ordinal {
-    --tw-ordinal: ordinal;
-    font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
-  }
-  .shadow {
-    --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .shadow-md3-1 {
-    --tw-shadow: var(--md-sys-elevation-1);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .ring {
-    --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .blur {
-    --tw-blur: blur(8px);
-    filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
-  }
-  .filter {
-    filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
-  }
-  .transition {
-    transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to, opacity, box-shadow, transform, translate, scale, rotate, filter, -webkit-backdrop-filter, backdrop-filter, display, visibility, content-visibility, overlay, pointer-events;
-    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
-    transition-duration: var(--tw-duration, var(--default-transition-duration));
-  }
-  .ease-md3-standard {
-    --tw-ease: var(--ease-md3-standard);
-    transition-timing-function: var(--ease-md3-standard);
-  }
-  .select-all {
-    -webkit-user-select: all;
-    user-select: all;
-  }
-}
-:root {
-  color-scheme: dark;
-}
-:root[data-mode="light"] {
-  color-scheme: light;
-}
-:root[data-mode="dark"] {
-  color-scheme: dark;
-}
-:root {
-  --md-error: light-dark(#B3261E, #F2B8B5);
-  --md-on-error: light-dark(#FFFFFF, #601410);
-  --md-error-container: light-dark(#F9DEDC, #8C1D18);
-  --md-on-error-container: light-dark(#410E0B, #F9DEDC);
-  --md-shadow: #000000;
-  --md-scrim: #000000;
-}
-:root, :root[data-theme="ocean"] {
-  --md-primary: light-dark(#2457A7, #A8C7FF);
-  --md-on-primary: light-dark(#FFFFFF, #082E63);
-  --md-primary-container: light-dark(#D7E3FF, #24457A);
-  --md-on-primary-container: light-dark(#001B3F, #D7E3FF);
-  --md-inverse-primary: light-dark(#ADC7FF, #2C5AA0);
-  --md-secondary: light-dark(#526174, #BBC7DB);
-  --md-on-secondary: light-dark(#FFFFFF, #263141);
-  --md-secondary-container: light-dark(#D7E3F8, #3B485A);
-  --md-on-secondary-container: light-dark(#101C2A, #D7E3F8);
-  --md-tertiary: light-dark(#785900, #E9C16C);
-  --md-on-tertiary: light-dark(#FFFFFF, #3E2E00);
-  --md-tertiary-container: light-dark(#FFE08A, #5A4500);
-  --md-on-tertiary-container: light-dark(#251A00, #FFE08A);
-  --md-background: light-dark(#F9F9FF, #101318);
-  --md-on-background: light-dark(#191B20, #E2E2E9);
-  --md-surface-container-lowest: light-dark(#FFFFFF, #0B0E12);
-  --md-surface-container-low: light-dark(#F3F4FB, #191C22);
-  --md-surface-container: light-dark(#EDEEF5, #1D2026);
-  --md-surface-container-high: light-dark(#E7E8EF, #282A31);
-  --md-surface-container-highest: light-dark(#E1E2E9, #33353C);
-  --md-on-surface-variant: light-dark(#44474F, #C3C6D0);
-  --md-outline: light-dark(#747780, #8D909A);
-  --md-outline-variant: light-dark(#C4C6D0, #43464F);
-  --md-inverse-surface: light-dark(#2E3036, #E2E2E9);
-  --md-inverse-on-surface: light-dark(#F0F0F7, #2E3036);
-  --md-surface: var(--md-background);
-  --md-on-surface: var(--md-on-background);
-  --md-surface-variant: var(--md-surface-container-high);
-  --md-surface-tint: var(--md-primary);
-}
-:root[data-theme="forest"] {
-  --md-primary: light-dark(#2F6654, #9FD5BF);
-  --md-on-primary: light-dark(#FFFFFF, #00382A);
-  --md-primary-container: light-dark(#BFEBD7, #1D4F40);
-  --md-on-primary-container: light-dark(#002116, #BFEBD7);
-  --md-inverse-primary: light-dark(#A4D9C3, #326B58);
-  --md-secondary: light-dark(#4F635A, #B6CCBE);
-  --md-on-secondary: light-dark(#FFFFFF, #22352C);
-  --md-secondary-container: light-dark(#D1E8D8, #374B41);
-  --md-on-secondary-container: light-dark(#0B1F16, #D1E8D8);
-  --md-tertiary: light-dark(#665E31, #D6C98E);
-  --md-on-tertiary: light-dark(#FFFFFF, #37310B);
-  --md-tertiary-container: light-dark(#EFE3A9, #4D461C);
-  --md-on-tertiary-container: light-dark(#211B00, #EFE3A9);
-  --md-background: light-dark(#F7FBF7, #101512);
-  --md-on-background: light-dark(#191D19, #E0E4DE);
-  --md-surface-container-lowest: light-dark(#FFFFFF, #0B100D);
-  --md-surface-container-low: light-dark(#F0F5F0, #171C19);
-  --md-surface-container: light-dark(#EAEFEA, #1C221E);
-  --md-surface-container-high: light-dark(#E4EAE4, #272D29);
-  --md-surface-container-highest: light-dark(#DFE4DF, #323833);
-  --md-on-surface-variant: light-dark(#414943, #C1C9C1);
-  --md-outline: light-dark(#727A73, #8B938B);
-  --md-outline-variant: light-dark(#C1C9C1, #414943);
-  --md-inverse-surface: light-dark(#2E322E, #E0E4DE);
-  --md-inverse-on-surface: light-dark(#F0F4EF, #2E322E);
-  --md-surface: var(--md-background);
-  --md-on-surface: var(--md-on-background);
-  --md-surface-variant: var(--md-surface-container-high);
-  --md-surface-tint: var(--md-primary);
-}
+
+/* ==========================================================================
+   Per-theme type and shape identity
+
+   These rules are deliberately unlayered: they override the variables emitted
+   by `@theme static` above. Existing palettes keep the default Roboto stack;
+   the themed palettes use the bundled Inter/Fraunces/IBM Plex Mono faces.
+   ========================================================================== */
+
 :root[data-theme="aurum"] {
-  --md-primary: light-dark(#815512, #F7BC70);
-  --md-on-primary: light-dark(#FFFFFF, #462A00);
-  --md-primary-container: light-dark(#FFDDB6, #643F00);
-  --md-on-primary-container: light-dark(#2A1800, #FFDDB6);
-  --md-inverse-primary: light-dark(#F7BC70, #815512);
-  --md-secondary: light-dark(#705B41, #DEC2A2);
-  --md-on-secondary: light-dark(#FFFFFF, #3F2D17);
-  --md-secondary-container: light-dark(#FCDEBC, #57432B);
-  --md-on-secondary-container: light-dark(#281905, #FCDEBC);
-  --md-tertiary: light-dark(#53643E, #BACD9F);
-  --md-on-tertiary: light-dark(#FFFFFF, #263514);
-  --md-tertiary-container: light-dark(#D6E9B9, #3C4C28);
-  --md-on-tertiary-container: light-dark(#121F03, #D6E9B9);
-  --md-background: light-dark(#FFF8F4, #18120C);
-  --md-on-background: light-dark(#211A13, #EDE0D4);
-  --md-surface-container-lowest: light-dark(#FFFFFF, #130D07);
-  --md-surface-container-low: light-dark(#FFF1E5, #211A13);
-  --md-surface-container: light-dark(#F9ECDF, #251E17);
-  --md-surface-container-high: light-dark(#F3E6DA, #302921);
-  --md-surface-container-highest: light-dark(#EDE0D4, #3B332B);
-  --md-on-surface-variant: light-dark(#504539, #D4C4B4);
-  --md-outline: light-dark(#827568, #9C8E80);
-  --md-outline-variant: light-dark(#D4C4B4, #504539);
-  --md-inverse-surface: light-dark(#362F27, #EDE0D4);
-  --md-inverse-on-surface: light-dark(#FCEEE2, #362F27);
-  --md-surface: var(--md-background);
-  --md-on-surface: var(--md-on-background);
-  --md-surface-variant: var(--md-surface-container-high);
-  --md-surface-tint: var(--md-primary);
-}
-:root[data-theme="sumi"] {
-  --md-primary: light-dark(#4D699B, #7E9CD8);
-  --md-on-primary: light-dark(#FFFFFF, #1A2433);
-  --md-primary-container: light-dark(#C7D7E0, #2D3F5E);
-  --md-on-primary-container: light-dark(#1B2A38, #C9D8F5);
-  --md-inverse-primary: light-dark(#7E9CD8, #4D699B);
-  --md-secondary: light-dark(#4F6E68, #7AA89F);
-  --md-on-secondary: light-dark(#FFFFFF, #12251F);
-  --md-secondary-container: light-dark(#CFE0D9, #2B4640);
-  --md-on-secondary-container: light-dark(#12251F, #C7E3DC);
-  --md-tertiary: light-dark(#7E5F22, #E6C384);
-  --md-on-tertiary: light-dark(#FFFFFF, #3A2B00);
-  --md-tertiary-container: light-dark(#F0E2C4, #5A4517);
-  --md-on-tertiary-container: light-dark(#291C00, #F5DFAE);
-  --md-background: light-dark(#F6F1D9, #1F1F28);
-  --md-on-background: light-dark(#545464, #DCD7BA);
-  --md-surface-container-lowest: light-dark(#FCF8E8, #16161D);
-  --md-surface-container-low: light-dark(#F1EBCF, #1A1A22);
-  --md-surface-container: light-dark(#ECE5C6, #242433);
-  --md-surface-container-high: light-dark(#E6DEBB, #2A2A37);
-  --md-surface-container-highest: light-dark(#E0D7AF, #363646);
-  --md-on-surface-variant: light-dark(#5C584A, #C8C093);
-  --md-outline: light-dark(#7B7A70, #727169);
-  --md-outline-variant: light-dark(#C9C0A0, #363646);
-  --md-inverse-surface: light-dark(#545464, #DCD7BA);
-  --md-inverse-on-surface: light-dark(#F6F1D9, #1F1F28);
-  --md-surface: var(--md-background);
-  --md-on-surface: var(--md-on-background);
-  --md-surface-variant: var(--md-surface-container-high);
-  --md-surface-tint: var(--md-primary);
-}
-:root[data-theme="orange"] {
-  --md-primary: light-dark(#1F2124, #F2F2EC);
-  --md-on-primary: light-dark(#FAFAF7, #17181A);
-  --md-primary-container: light-dark(#E6E6E1, #2E3036);
-  --md-on-primary-container: light-dark(#1F2124, #EDEDE8);
-  --md-inverse-primary: light-dark(#F2F2EC, #1F2124);
-  --md-secondary: light-dark(#4B4E54, #B7B9BD);
-  --md-on-secondary: light-dark(#FFFFFF, #26282C);
-  --md-secondary-container: light-dark(#E9E9E4, #33353B);
-  --md-on-secondary-container: light-dark(#16171A, #E6E6E0);
-  --md-tertiary: light-dark(#B23A1E, #FF7A4D);
-  --md-on-tertiary: light-dark(#FFFFFF, #2B0D02);
-  --md-tertiary-container: light-dark(#F6DED5, #5A2210);
-  --md-on-tertiary-container: light-dark(#3A0F03, #FFD9CB);
-  --md-background: light-dark(#FBFBF9, #0F1012);
-  --md-on-background: light-dark(#16171A, #EDEDE8);
-  --md-surface-container-lowest: light-dark(#FFFFFF, #0A0B0C);
-  --md-surface-container-low: light-dark(#F6F6F3, #141518);
-  --md-surface-container: light-dark(#F1F1EE, #191A1E);
-  --md-surface-container-high: light-dark(#EBEBE7, #202227);
-  --md-surface-container-highest: light-dark(#E5E5E0, #282A30);
-  --md-on-surface-variant: light-dark(#5A5D63, #A7A9AD);
-  --md-outline: light-dark(#8A8D93, #6E7176);
-  --md-outline-variant: light-dark(#D9D9D4, #30323A);
-  --md-inverse-surface: light-dark(#2A2B2E, #EDEDE8);
-  --md-inverse-on-surface: light-dark(#F2F2EE, #17181A);
-  --md-surface: var(--md-background);
-  --md-on-surface: var(--md-on-background);
-  --md-surface-variant: var(--md-surface-container-high);
-  --md-surface-tint: var(--md-primary);
-}
-@layer base {
-  body {
-    background: var(--md-background);
-    color: var(--md-on-background);
-  }
-}
-:root[data-theme="aurum"] {
-  --font-sans: "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
+  --font-sans:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
     BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
   --font-heading: "Fraunces", Georgia, "Times New Roman", serif;
-  --font-numeric: "Inter", "Roboto", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-numeric:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system, sans-serif;
   --radius-md3-md: 0.875rem;
   --radius-md3-lg: 1.125rem;
 }
+
 :root[data-theme="sumi"] {
-  --font-sans: "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
+  --font-sans:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
     BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
   --font-heading: "Fraunces", Georgia, "Times New Roman", serif;
-  --font-numeric: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-numeric:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius-md3-xs: 0.375rem;
   --radius-md3-sm: 0.625rem;
   --radius-md3-md: 1rem;
   --radius-md3-lg: 1.375rem;
   --radius-md3-xl: 2rem;
 }
+
 :root[data-theme="orange"] {
-  --font-sans: "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
+  --font-sans:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system,
     BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
-  --font-heading: "Inter", "Roboto", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-numeric: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-heading:
+    "Inter", "Roboto", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-numeric:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius-md3-xs: 0.125rem;
   --radius-md3-sm: 0.1875rem;
   --radius-md3-md: 0.25rem;
   --radius-md3-lg: 0.375rem;
   --radius-md3-xl: 0.625rem;
 }
+
+/* ==========================================================================
+   Material 3 system tokens
+   ========================================================================== */
+
 :root {
   color-scheme: dark;
+
+  /* Shared dimensions, motion, and state layers. */
   --md3-top-app-bar-height: 4rem;
   --md3-side-nav-width: 15rem;
   --md3-side-nav-rail-width: 5rem;
+
+  /* Single-line form controls (text inputs and dropdowns) share one height
+     so every screen matches. Change it here, not in a view. */
   --md3-control-height: 2.5rem;
+
   --md-sys-state-hover-state-layer-opacity: 0.08;
   --md-sys-state-focus-state-layer-opacity: 0.1;
   --md-sys-state-pressed-state-layer-opacity: 0.1;
   --md-sys-state-dragged-state-layer-opacity: 0.16;
+
   --md-sys-elevation-0: none;
-  --md-sys-elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
-  --md-sys-elevation-2: 0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
-  --md-sys-elevation-3: 0 1px 3px 0 rgb(0 0 0 / 0.3), 0 4px 8px 3px rgb(0 0 0 / 0.15);
-  --md-sys-elevation-4: 0 2px 3px 0 rgb(0 0 0 / 0.3), 0 6px 10px 4px rgb(0 0 0 / 0.15);
-  --md-sys-elevation-5: 0 4px 4px 0 rgb(0 0 0 / 0.3), 0 8px 12px 6px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-1:
+    0 1px 2px 0 rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-2:
+    0 1px 2px 0 rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-3:
+    0 1px 3px 0 rgb(0 0 0 / 0.3), 0 4px 8px 3px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-4:
+    0 2px 3px 0 rgb(0 0 0 / 0.3), 0 6px 10px 4px rgb(0 0 0 / 0.15);
+  --md-sys-elevation-5:
+    0 4px 4px 0 rgb(0 0 0 / 0.3), 0 8px 12px 6px rgb(0 0 0 / 0.15);
+
   --md-sys-motion-duration-short1: 50ms;
   --md-sys-motion-duration-short2: 100ms;
   --md-sys-motion-duration-short3: 150ms;
@@ -743,35 +340,50 @@
   --md-sys-motion-duration-long2: 500ms;
   --md-sys-motion-duration-long3: 550ms;
   --md-sys-motion-duration-long4: 600ms;
+
   --md-sys-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --md-sys-motion-easing-standard-decelerate: cubic-bezier(0, 0, 0, 1);
   --md-sys-motion-easing-standard-accelerate: cubic-bezier(0.3, 0, 1, 1);
   --md-sys-motion-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --md-sys-motion-easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
   --md-sys-motion-easing-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+
+  /* Color roles. The values come from
+     assets/material3-tailwind-palettes.css, where `data-theme` selects the
+     palette and `data-mode` selects light or dark. These aliases
+     keep the component rules below independent of the palette variable
+     names. */
   --md-sys-color-primary: var(--md-primary);
   --md-sys-color-on-primary: var(--md-on-primary);
   --md-sys-color-primary-container: var(--md-primary-container);
   --md-sys-color-on-primary-container: var(--md-on-primary-container);
+
   --md-sys-color-secondary: var(--md-secondary);
   --md-sys-color-on-secondary: var(--md-on-secondary);
   --md-sys-color-secondary-container: var(--md-secondary-container);
   --md-sys-color-on-secondary-container: var(--md-on-secondary-container);
+
   --md-sys-color-tertiary: var(--md-tertiary);
   --md-sys-color-on-tertiary: var(--md-on-tertiary);
   --md-sys-color-tertiary-container: var(--md-tertiary-container);
   --md-sys-color-on-tertiary-container: var(--md-on-tertiary-container);
+
   --md-sys-color-error: var(--md-error);
   --md-sys-color-on-error: var(--md-on-error);
   --md-sys-color-error-container: var(--md-error-container);
   --md-sys-color-on-error-container: var(--md-on-error-container);
+
   --md-sys-color-background: var(--md-background);
   --md-sys-color-on-background: var(--md-on-background);
+
   --md-sys-color-surface: var(--md-surface);
   --md-sys-color-on-surface: var(--md-on-surface);
   --md-sys-color-surface-variant: var(--md-surface-variant);
   --md-sys-color-on-surface-variant: var(--md-on-surface-variant);
   --md-sys-color-surface-tint: var(--md-surface-tint);
+
+  /* The palette file does not define explicit dim/bright surfaces, so derive
+     them from the closest palette container roles. */
   --md-sys-color-surface-dim: light-dark(
     var(--md-surface-container-low),
     var(--md-surface)
@@ -780,60 +392,89 @@
     var(--md-surface-container-lowest),
     var(--md-surface-container-highest)
   );
+
   --md-sys-color-surface-container-lowest: var(--md-surface-container-lowest);
   --md-sys-color-surface-container-low: var(--md-surface-container-low);
   --md-sys-color-surface-container: var(--md-surface-container);
   --md-sys-color-surface-container-high: var(--md-surface-container-high);
   --md-sys-color-surface-container-highest: var(--md-surface-container-highest);
+
   --md-sys-color-outline: var(--md-outline);
   --md-sys-color-outline-variant: var(--md-outline-variant);
   --md-sys-color-shadow: var(--md-shadow);
   --md-sys-color-scrim: var(--md-scrim);
+
   --md-sys-color-inverse-surface: var(--md-inverse-surface);
   --md-sys-color-inverse-on-surface: var(--md-inverse-on-surface);
   --md-sys-color-inverse-primary: var(--md-inverse-primary);
+
+  /* Fixed roles do not have separate palette entries; derive them from the
+     corresponding container and accent roles. */
   --md-sys-color-primary-fixed: var(--md-primary-container);
   --md-sys-color-primary-fixed-dim: var(--md-primary);
   --md-sys-color-on-primary-fixed: var(--md-on-primary-container);
   --md-sys-color-on-primary-fixed-variant: var(--md-on-primary);
+
   --md-sys-color-secondary-fixed: var(--md-secondary-container);
   --md-sys-color-secondary-fixed-dim: var(--md-secondary);
   --md-sys-color-on-secondary-fixed: var(--md-on-secondary-container);
   --md-sys-color-on-secondary-fixed-variant: var(--md-on-secondary);
+
   --md-sys-color-tertiary-fixed: var(--md-tertiary-container);
   --md-sys-color-tertiary-fixed-dim: var(--md-tertiary);
   --md-sys-color-on-tertiary-fixed: var(--md-on-tertiary-container);
   --md-sys-color-on-tertiary-fixed-variant: var(--md-on-tertiary);
 }
+
+/* ==========================================================================
+   Base styles
+   ========================================================================== */
+
 @layer base {
   html {
     background-color: var(--md-sys-color-background);
     -webkit-text-size-adjust: 100%;
   }
+
   body {
     min-height: 100vh;
     background-color: var(--md-sys-color-background);
     color: var(--md-sys-color-on-background);
     font-family: var(--font-sans);
-    font-size: var(--text-body-medium);
-    line-height: var(--tw-leading, var(--text-body-medium--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-body-medium--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-body-medium--font-weight));
+    @apply text-body-medium;
   }
+
   ::selection {
     background-color: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
   }
+
   :focus-visible {
     outline: 3px solid var(--md-sys-color-primary);
     outline-offset: 2px;
   }
-  :where( input:not( [type="checkbox"], [type="radio"], [type="file"], [type="range"], [type="hidden"] ), select:not([multiple], [size]) ) {
+
+  /* Every single-line native control inherits the shared height, including
+     controls added later without a component class. Multi-line and non-text
+     controls keep their own sizing. */
+  :where(
+    input:not(
+        [type="checkbox"],
+        [type="radio"],
+        [type="file"],
+        [type="range"],
+        [type="hidden"]
+      ),
+    select:not([multiple], [size])
+  ) {
     height: var(--md3-control-height);
     min-height: var(--md3-control-height);
   }
+
   @media (prefers-reduced-motion: reduce) {
-    *, ::before, ::after {
+    *,
+    ::before,
+    ::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       scroll-behavior: auto !important;
@@ -841,7 +482,15 @@
     }
   }
 }
+
+/* ==========================================================================
+   Material 3 components
+   ========================================================================== */
+
 @layer components {
+  /* ------------------------------------------------------------------
+     Layout: screen container
+     ------------------------------------------------------------------ */
   .md3-screen {
     display: flex;
     flex-direction: column;
@@ -850,12 +499,25 @@
     max-width: 80rem;
     margin-inline: auto;
   }
+
+  /* ------------------------------------------------------------------
+     Navigation shell
+     The top app bar and side panel are both rendered so only CSS decides
+     which presentation is visible at each breakpoint.
+     ------------------------------------------------------------------ */
   .md3-app-shell {
     min-height: 100vh;
   }
+
   .md3-app-shell[data-side-nav-collapsed="true"] {
     --md3-side-nav-width: var(--md3-side-nav-rail-width);
   }
+
+  /* ------------------------------------------------------------------
+     Top app bar (small)
+     The navigation links are styled as primary tabs on tablet and wider
+     windows. Phones show the menu button and active-screen title instead.
+     ------------------------------------------------------------------ */
   .md3-top-app-bar {
     position: sticky;
     top: 0;
@@ -869,6 +531,7 @@
     color: var(--md-sys-color-on-surface);
     box-shadow: var(--md-sys-elevation-1);
   }
+
   .md3-nav-menu-button {
     display: inline-flex;
     flex: none;
@@ -884,19 +547,27 @@
     color: var(--md-sys-color-on-surface-variant);
     cursor: pointer;
     touch-action: manipulation;
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-nav-menu-button:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-nav-menu-button:focus-visible {
     outline: 2px solid var(--md-sys-color-primary);
     outline-offset: -2px;
   }
+
   .md3-top-app-bar-title {
     flex: 1;
     min-width: 0;
@@ -905,17 +576,16 @@
     color: var(--md-sys-color-on-surface);
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-title-large);
-    line-height: var(--tw-leading, var(--text-title-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-title-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-title-large--font-weight));
+    @apply text-title-large;
   }
+
   .md3-top-app-bar-nav {
     display: none;
     align-items: stretch;
     gap: 0.25rem;
     width: 100%;
   }
+
   .md3-top-app-bar-nav a {
     position: relative;
     display: inline-flex;
@@ -929,12 +599,14 @@
     color: var(--md-sys-color-on-surface-variant);
     text-decoration: none;
     white-space: nowrap;
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
-    transition: color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    @apply text-label-large;
+    transition:
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-top-app-bar-nav a::before {
     content: "";
     position: absolute;
@@ -943,23 +615,30 @@
     background-color: currentColor;
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-top-app-bar-nav a:hover::before {
     opacity: var(--md-sys-state-hover-state-layer-opacity);
   }
+
   .md3-top-app-bar-nav a:focus-visible::before {
     opacity: var(--md-sys-state-focus-state-layer-opacity);
   }
+
   .md3-top-app-bar-nav a:active::before {
     opacity: var(--md-sys-state-pressed-state-layer-opacity);
   }
+
   .md3-top-app-bar-nav a:hover {
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-top-app-bar-nav a.active {
     color: var(--md-sys-color-primary);
   }
+
   .md3-top-app-bar-nav a.active::after {
     content: "";
     position: absolute;
@@ -970,12 +649,16 @@
     border-radius: 3px 3px 0 0;
     background-color: var(--md-sys-color-primary);
   }
+
+  /* Settings dropdown in the top app bar. Hover opens it on pointer
+     devices; the chevron button opens it on touch and with the keyboard. */
   .md3-nav-dropdown {
     position: relative;
     display: flex;
     flex: 0 0 auto;
     align-items: stretch;
   }
+
   .md3-nav-dropdown-trigger {
     position: relative;
     display: flex;
@@ -983,8 +666,10 @@
     height: 100%;
     border-radius: var(--radius-md3-sm) var(--radius-md3-sm) 0 0;
     color: var(--md-sys-color-on-surface-variant);
-    transition: color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: color var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-nav-dropdown-trigger::before {
     content: "";
     position: absolute;
@@ -993,26 +678,34 @@
     background-color: currentColor;
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-nav-dropdown-trigger:hover::before {
     opacity: var(--md-sys-state-hover-state-layer-opacity);
   }
+
   .md3-nav-dropdown-trigger:focus-within::before {
     opacity: var(--md-sys-state-focus-state-layer-opacity);
   }
+
   .md3-nav-dropdown-trigger:active::before {
     opacity: var(--md-sys-state-pressed-state-layer-opacity);
   }
+
   .md3-nav-dropdown-trigger:has(a:active, button:active)::before {
     opacity: var(--md-sys-state-pressed-state-layer-opacity);
   }
+
   .md3-nav-dropdown-trigger:hover {
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-nav-dropdown-trigger.active {
     color: var(--md-sys-color-primary);
   }
+
   .md3-nav-dropdown-trigger.active::after {
     content: "";
     position: absolute;
@@ -1023,6 +716,9 @@
     border-radius: 3px 3px 0 0;
     background-color: var(--md-sys-color-primary);
   }
+
+  /* The Settings label and its chevron form one nav entry, so the link
+     drops its own state layer and active underline. */
   .md3-top-app-bar .md3-nav-dropdown-trigger a {
     position: static;
     height: 100%;
@@ -1030,12 +726,16 @@
     border-radius: 0;
     color: inherit;
   }
-  .md3-top-app-bar .md3-nav-dropdown-trigger a::before, .md3-top-app-bar .md3-nav-dropdown-trigger a::after {
+
+  .md3-top-app-bar .md3-nav-dropdown-trigger a::before,
+  .md3-top-app-bar .md3-nav-dropdown-trigger a::after {
     content: none;
   }
+
   .md3-top-app-bar .md3-nav-dropdown-trigger a:hover {
     color: inherit;
   }
+
   .md3-nav-dropdown-toggle {
     display: inline-flex;
     align-items: center;
@@ -1049,20 +749,26 @@
     color: inherit;
     cursor: pointer;
   }
+
   .md3-nav-dropdown-toggle:hover {
     background-color: transparent;
     color: inherit;
   }
+
   .md3-nav-dropdown-toggle:focus-visible {
     outline: 2px solid var(--md-sys-color-primary);
     outline-offset: -2px;
   }
+
   .md3-nav-dropdown-toggle svg {
-    transition: transform var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: transform var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-nav-dropdown.is-open .md3-nav-dropdown-toggle svg {
     transform: rotate(180deg);
   }
+
   .md3-nav-dropdown-menu {
     display: none;
     position: fixed;
@@ -1078,9 +784,12 @@
     background-color: var(--md-sys-color-surface-container-high);
     box-shadow: var(--md-sys-elevation-2);
   }
+
   .md3-nav-dropdown.is-open .md3-nav-dropdown-menu {
     display: flex;
   }
+
+  /* Override the broad top app bar link rules for the menu items. */
   .md3-top-app-bar .md3-nav-dropdown-menu a {
     position: static;
     display: flex;
@@ -1099,20 +808,26 @@
     letter-spacing: var(--text-label-large--letter-spacing);
     font-weight: var(--text-label-large--font-weight);
   }
-  .md3-top-app-bar .md3-nav-dropdown-menu a::before, .md3-top-app-bar .md3-nav-dropdown-menu a::after {
+
+  .md3-top-app-bar .md3-nav-dropdown-menu a::before,
+  .md3-top-app-bar .md3-nav-dropdown-menu a::after {
     content: none;
   }
+
   .md3-top-app-bar .md3-nav-dropdown-menu a:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-top-app-bar .md3-nav-dropdown-menu a.active {
     background-color: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
   }
+
   .md3-nav-dropdown-backdrop {
     position: fixed;
     top: var(--md3-top-app-bar-height);
@@ -1122,10 +837,18 @@
     z-index: 45;
     background-color: transparent;
   }
+
+  /* ------------------------------------------------------------------
+     Side navigation and mobile drawer
+     Both presentations share the vertical NavPanel link styling.
+     ------------------------------------------------------------------ */
   .md3-side-nav {
     display: none;
     position: sticky;
     top: 0;
+    /* Sticky positioning creates a stacking context. Without a z-index the
+       compact Settings flyout (z-index 50) is trapped inside it and table
+       controls such as the checkbox hit area (z-index 1) paint over it. */
     z-index: 40;
     flex-direction: column;
     gap: 1.25rem;
@@ -1138,20 +861,20 @@
     background-color: var(--md-sys-color-surface-container);
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-side-nav-brand {
     flex: none;
     padding-inline: 1rem;
     color: var(--md-sys-color-on-surface);
-    font-size: var(--text-title-medium);
-    line-height: var(--tw-leading, var(--text-title-medium--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-title-medium--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-title-medium--font-weight));
+    @apply text-title-medium;
   }
+
   .md3-side-nav-brand-compact {
     display: flex;
     justify-content: center;
     padding-inline: 0;
   }
+
   .md3-side-nav-monogram {
     display: inline-flex;
     align-items: center;
@@ -1161,12 +884,10 @@
     border-radius: var(--radius-md3-full);
     background-color: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
+    @apply text-label-large;
     font-weight: 600;
   }
+
   .md3-nav-panel {
     display: flex;
     flex: 1;
@@ -1174,14 +895,17 @@
     gap: 0.125rem;
     min-height: 0;
   }
+
   .md3-side-nav .md3-nav-panel {
     overflow-y: auto;
   }
+
   .md3-nav-panel-primary {
     display: flex;
     flex-direction: column;
     gap: 0.125rem;
   }
+
   .md3-nav-panel-link {
     display: flex;
     align-items: center;
@@ -1192,38 +916,46 @@
     color: var(--md-sys-color-on-surface-variant);
     text-decoration: none;
     touch-action: manipulation;
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-nav-panel-link:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-nav-panel-link.active {
     background-color: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+
   .md3-nav-panel-link-nested {
     min-height: 2.75rem;
     padding-inline-start: 1.5rem;
   }
+
   .md3-nav-panel-link-text {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
   .md3-nav-icon {
     flex: none;
     width: 1.5rem;
     height: 1.5rem;
   }
+
   .md3-nav-panel-settings {
     display: flex;
     flex-direction: column;
@@ -1232,6 +964,7 @@
     padding-top: 1rem;
     border-top: 1px solid var(--md-sys-color-outline-variant);
   }
+
   .md3-nav-panel-label {
     display: flex;
     align-items: center;
@@ -1239,34 +972,38 @@
     margin: 0 1rem 0.25rem;
     color: var(--md-sys-color-on-surface-variant);
     text-transform: uppercase;
-    font-size: var(--text-label-small);
-    line-height: var(--tw-leading, var(--text-label-small--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-small--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-small--font-weight));
+    @apply text-label-small;
     letter-spacing: 0.06em;
   }
+
   .md3-nav-panel-label .md3-nav-icon {
     width: 1rem;
     height: 1rem;
   }
+
   .md3-nav-panel-label.active {
     color: var(--md-sys-color-primary);
   }
+
+  /* Compact icon rail */
   .md3-nav-panel-compact .md3-nav-panel-primary {
     width: 100%;
   }
+
   .md3-nav-panel-compact .md3-nav-panel-link {
     justify-content: center;
     width: 3rem;
     margin-inline: auto;
     padding-inline: 0;
   }
+
   .md3-side-nav-footer {
     position: relative;
     display: flex;
     flex: none;
     gap: 0.25rem;
   }
+
   .md3-side-nav-footer-action {
     position: relative;
     display: flex;
@@ -1284,27 +1021,34 @@
     font: inherit;
     cursor: pointer;
     touch-action: manipulation;
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-side-nav-footer-action:hover:not(:disabled) {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
     color: var(--md-sys-color-on-surface);
   }
-  .md3-side-nav-footer-action.active, .md3-side-nav-footer-action.active:hover:not(:disabled) {
+
+  .md3-side-nav-footer-action.active,
+  .md3-side-nav-footer-action.active:hover:not(:disabled) {
     background-color: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+
   .md3-side-nav-footer-action:disabled {
     cursor: not-allowed;
     opacity: 0.38;
   }
+
   .md3-side-nav-footer-action::after {
     content: attr(data-tooltip);
     position: absolute;
@@ -1320,33 +1064,39 @@
     opacity: 0;
     visibility: hidden;
     transform: translateX(-50%);
-    font-size: var(--text-body-small);
-    line-height: var(--tw-leading, var(--text-body-small--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-body-small--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-body-small--font-weight));
-    transition: opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    @apply text-body-small;
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
-  .md3-side-nav-footer-action:hover::after, .md3-side-nav-footer-action:focus-visible::after {
+
+  .md3-side-nav-footer-action:hover::after,
+  .md3-side-nav-footer-action:focus-visible::after {
     opacity: 1;
     visibility: visible;
   }
+
   .md3-app-shell[data-side-nav-collapsed="true"] .md3-side-nav-footer {
     flex-direction: column;
     align-items: center;
     padding-top: 1rem;
     border-top: 1px solid var(--md-sys-color-outline-variant);
   }
+
   .md3-app-shell[data-side-nav-collapsed="true"] .md3-side-nav-footer-action {
     flex: none;
     width: 3rem;
     padding-inline: 0;
   }
+
   .md3-app-shell[data-side-nav-collapsed="true"] .md3-side-nav-footer-action::after {
     top: 50%;
     bottom: auto;
     left: calc(100% + 0.5rem);
     transform: translateY(-50%);
   }
+
+  /* Settings flyout. It is anchored to the footer so it stays above the
+     stacked rail actions and the expanded-panel row alike. */
   .md3-nav-compact-settings-backdrop {
     position: fixed;
     inset-block: 0;
@@ -1355,6 +1105,7 @@
     z-index: 49;
     background-color: transparent;
   }
+
   .md3-nav-compact-settings-menu {
     position: absolute;
     bottom: calc(100% + 0.5rem);
@@ -1372,9 +1123,11 @@
     background-color: var(--md-sys-color-surface-container-high);
     box-shadow: var(--md-sys-elevation-2);
   }
+
   .md3-app-shell[data-side-nav-collapsed="true"] .md3-nav-compact-settings-menu {
     max-height: min(20rem, calc(100dvh - 13.5rem));
   }
+
   .md3-nav-compact-settings-item {
     display: flex;
     align-items: center;
@@ -1384,28 +1137,30 @@
     color: var(--md-sys-color-on-surface);
     text-decoration: none;
     white-space: nowrap;
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
+    @apply text-label-large;
   }
+
   .md3-nav-compact-settings-item:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-nav-compact-settings-item.active {
     background-color: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
   }
+
   .md3-nav-drawer-scrim {
     position: fixed;
     inset: 0;
     z-index: 60;
     background-color: rgb(0 0 0 / 32%);
   }
+
   .md3-nav-drawer {
     position: fixed;
     inset-block: 0;
@@ -1424,8 +1179,10 @@
     background-color: var(--md-sys-color-surface-container);
     color: var(--md-sys-color-on-surface);
     box-shadow: var(--md-sys-elevation-2);
-    animation: md3-nav-drawer-in var(--md-sys-motion-duration-medium2) var(--ease-md3-emphasized-decelerate);
+    animation: md3-nav-drawer-in var(--md-sys-motion-duration-medium2)
+      var(--ease-md3-emphasized-decelerate);
   }
+
   @keyframes md3-nav-drawer-in {
     from {
       opacity: 0;
@@ -1436,6 +1193,7 @@
       transform: translateX(0);
     }
   }
+
   .md3-nav-drawer-header {
     display: flex;
     align-items: center;
@@ -1443,44 +1201,58 @@
     gap: 0.5rem;
     padding-inline: 1rem 0.25rem;
   }
+
   .md3-nav-drawer-header .md3-side-nav-brand {
     padding-inline: 0;
   }
+
   .md3-nav-drawer-close {
     flex: none;
     width: 3rem;
     height: 3rem;
   }
+
   @media (max-width: 47.99rem) {
-    .md3-nav-compact-settings-backdrop, .md3-nav-compact-settings-menu {
+    .md3-nav-compact-settings-backdrop,
+    .md3-nav-compact-settings-menu {
       display: none;
     }
   }
+
   @media (min-width: 48rem) {
     .md3-top-app-bar {
       padding-inline: 1.5rem;
     }
+
     .md3-top-app-bar-nav {
       display: flex;
       overflow: visible;
     }
-    .md3-nav-menu-button, .md3-top-app-bar-title {
+
+    .md3-nav-menu-button,
+    .md3-top-app-bar-title {
       display: none;
     }
+
     .md3-app-shell[data-nav-position="side"] {
       display: grid;
       grid-template-columns: var(--md3-side-nav-width) minmax(0, 1fr);
       align-items: start;
     }
+
     .md3-app-shell[data-nav-position="side"] .md3-top-app-bar {
       display: none;
     }
+
     .md3-app-shell[data-nav-position="side"] .md3-side-nav {
       display: flex;
     }
-    .md3-nav-drawer, .md3-nav-drawer-scrim {
+
+    .md3-nav-drawer,
+    .md3-nav-drawer-scrim {
       display: none;
     }
+
     .md3-nav-dropdown-menu {
       position: absolute;
       top: 100%;
@@ -1490,25 +1262,42 @@
       min-width: 14rem;
     }
   }
+
   @media (min-width: 64rem) {
     .md3-app-shell[data-nav-position="auto"] {
       display: grid;
       grid-template-columns: var(--md3-side-nav-width) minmax(0, 1fr);
       align-items: start;
     }
+
     .md3-app-shell[data-nav-position="auto"] .md3-top-app-bar {
       display: none;
     }
+
     .md3-app-shell[data-nav-position="auto"] .md3-side-nav {
       display: flex;
     }
   }
+
   @media (min-width: 48rem) and (hover: hover) and (pointer: fine) {
     .md3-nav-dropdown:hover .md3-nav-dropdown-menu {
       display: flex;
     }
   }
-  :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated ) {
+
+  /* ------------------------------------------------------------------
+     Buttons
+     Use one of the variant classes; `.md3-button` is an optional base
+     class for shared markup.
+     ------------------------------------------------------------------ */
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ) {
     position: relative;
     display: inline-flex;
     align-items: center;
@@ -1524,79 +1313,170 @@
     white-space: nowrap;
     cursor: pointer;
     user-select: none;
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), border-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      border-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      box-shadow var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
-  :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated )::before {
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  )::before {
     content: "";
     position: absolute;
     inset: 0;
     background-color: currentColor;
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
-  :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated ):hover:not(:disabled)::before {
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):hover:not(:disabled)::before {
     opacity: var(--md-sys-state-hover-state-layer-opacity);
   }
-  :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated ):focus-visible::before {
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):focus-visible::before {
     opacity: var(--md-sys-state-focus-state-layer-opacity);
   }
-  :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated ):active:not(:disabled)::before {
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):active:not(:disabled)::before {
     opacity: var(--md-sys-state-pressed-state-layer-opacity);
   }
-  :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated ):disabled, :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated )[aria-disabled="true"] {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 12%, transparent );
-    }
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):disabled,
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  )[aria-disabled="true"] {
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 12%,
+      transparent
+    );
     border-color: transparent;
-    color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      color: color-mix( in srgb, var(--md-sys-color-on-surface) 38%, transparent );
-    }
+    color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
     box-shadow: none;
     cursor: not-allowed;
     pointer-events: none;
   }
-  :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated ):disabled::before, :is( .md3-button, .md3-button-filled, .md3-button-tonal, .md3-button-outlined, .md3-button-text, .md3-button-elevated )[aria-disabled="true"]::before {
+
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  ):disabled::before,
+  :is(
+    .md3-button,
+    .md3-button-filled,
+    .md3-button-tonal,
+    .md3-button-outlined,
+    .md3-button-text,
+    .md3-button-elevated
+  )[aria-disabled="true"]::before {
     opacity: 0;
   }
+
   .md3-button-filled {
     background-color: var(--md-sys-color-primary);
     color: var(--md-sys-color-on-primary);
   }
+
   .md3-button-filled:hover:not(:disabled) {
     box-shadow: var(--md-sys-elevation-1);
   }
+
   .md3-button-tonal {
     background-color: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+
   .md3-button-tonal:hover:not(:disabled) {
     box-shadow: var(--md-sys-elevation-1);
   }
+
   .md3-button-elevated {
     background-color: var(--md-sys-color-surface-container-low);
     color: var(--md-sys-color-primary);
     box-shadow: var(--md-sys-elevation-1);
   }
+
   .md3-button-elevated:hover:not(:disabled) {
     box-shadow: var(--md-sys-elevation-2);
   }
+
   .md3-button-outlined {
     border-color: var(--md-sys-color-outline);
     background-color: transparent;
     color: var(--md-sys-color-primary);
   }
+
   .md3-button-text {
     padding-inline: 0.75rem;
     background-color: transparent;
     color: var(--md-sys-color-primary);
   }
+
+  /* ------------------------------------------------------------------
+     Checkbox
+     Markup:
+       label.md3-checkbox
+         span.md3-checkbox-control
+           input.md3-checkbox-input
+           span.md3-checkbox-state-layer
+           span.md3-checkbox-box > svg.md3-checkbox-icon
+         span.md3-checkbox-label (optional)
+     ------------------------------------------------------------------ */
   .md3-checkbox {
     --md3-checkbox-state-color: var(--md-sys-color-on-surface);
     display: inline-flex;
@@ -1608,9 +1488,12 @@
     user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
-  .md3-checkbox:has(.md3-checkbox-input:checked), .md3-checkbox-indeterminate {
+
+  .md3-checkbox:has(.md3-checkbox-input:checked),
+  .md3-checkbox-indeterminate {
     --md3-checkbox-state-color: var(--md-sys-color-primary);
   }
+
   .md3-checkbox-control {
     position: relative;
     display: inline-flex;
@@ -1620,6 +1503,7 @@
     width: 18px;
     height: 18px;
   }
+
   .md3-checkbox-control::after {
     content: "";
     position: absolute;
@@ -1627,6 +1511,9 @@
     border-radius: var(--radius-md3-full);
     pointer-events: none;
   }
+
+  /* The native input supplies the 48 px touch target and all interaction
+     semantics; the visible box and state layer are drawn underneath it. */
   .md3-checkbox-input {
     position: absolute;
     inset: -15px;
@@ -1637,9 +1524,11 @@
     opacity: 0;
     cursor: inherit;
   }
+
   .md3-checkbox-input:focus-visible {
     outline: none;
   }
+
   .md3-checkbox-state-layer {
     position: absolute;
     top: -11px;
@@ -1650,8 +1539,10 @@
     background-color: var(--md3-checkbox-state-color);
     opacity: 0;
     pointer-events: none;
-    transition: opacity var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: opacity var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-checkbox-box {
     position: relative;
     box-sizing: border-box;
@@ -1661,8 +1552,15 @@
     border: 2px solid var(--md-sys-color-on-surface-variant);
     border-radius: 2px;
     background-color: transparent;
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), border-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      border-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
+  /* Anchor the 18 px mark to the border box rather than the 14 px content box
+     inside the 2 px border, so the check and dash stay optically centered. */
   .md3-checkbox-icon {
     position: absolute;
     top: -1px;
@@ -1672,96 +1570,161 @@
     height: 18px;
     fill: var(--md-sys-color-on-primary);
   }
-  .md3-checkbox-check, .md3-checkbox-dash {
+
+  .md3-checkbox-check,
+  .md3-checkbox-dash {
     opacity: 0;
     transform: scale(0.6);
     transform-box: fill-box;
     transform-origin: center;
-    transition: opacity var(--md-sys-motion-duration-short1) linear, transform var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-emphasized-accelerate);
+    transition:
+      opacity var(--md-sys-motion-duration-short1) linear,
+      transform var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-emphasized-accelerate);
   }
-  .md3-checkbox-input:checked ~ .md3-checkbox-box, .md3-checkbox-indeterminate .md3-checkbox-box {
+
+  .md3-checkbox-input:checked ~ .md3-checkbox-box,
+  .md3-checkbox-indeterminate .md3-checkbox-box {
     border-color: var(--md-sys-color-primary);
     background-color: var(--md-sys-color-primary);
   }
-  .md3-checkbox-input:checked ~ .md3-checkbox-box .md3-checkbox-check, .md3-checkbox-indeterminate .md3-checkbox-box .md3-checkbox-dash {
+
+  .md3-checkbox-input:checked ~ .md3-checkbox-box .md3-checkbox-check,
+  .md3-checkbox-indeterminate .md3-checkbox-box .md3-checkbox-dash {
     opacity: 1;
     transform: scale(1);
-    transition: opacity var(--md-sys-motion-duration-short1) linear, transform var(--md-sys-motion-duration-medium3) var(--md-sys-motion-easing-emphasized-decelerate);
+    transition:
+      opacity var(--md-sys-motion-duration-short1) linear,
+      transform var(--md-sys-motion-duration-medium3)
+        var(--md-sys-motion-easing-emphasized-decelerate);
   }
+
   .md3-checkbox-indeterminate .md3-checkbox-box .md3-checkbox-check {
     opacity: 0;
   }
-  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):hover .md3-checkbox-state-layer {
+
+  /* Hover, focus, and pressed state layers. The unselected and selected
+     pressed layers use a different color in the M3 token set. */
+  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):hover
+    .md3-checkbox-state-layer {
     opacity: var(--md-sys-state-hover-state-layer-opacity);
   }
-  .md3-checkbox:has(.md3-checkbox-input:focus-visible) .md3-checkbox-state-layer {
+
+  .md3-checkbox:has(.md3-checkbox-input:focus-visible)
+    .md3-checkbox-state-layer {
     opacity: var(--md-sys-state-focus-state-layer-opacity);
   }
-  .md3-checkbox:has(.md3-checkbox-input:focus-visible) .md3-checkbox-control::after {
+
+  .md3-checkbox:has(.md3-checkbox-input:focus-visible)
+    .md3-checkbox-control::after {
     outline: 3px solid var(--md-sys-color-primary);
     outline-offset: 0;
   }
-  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):active .md3-checkbox-state-layer {
+
+  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):active
+    .md3-checkbox-state-layer {
     background-color: var(--md-sys-color-primary);
     opacity: var(--md-sys-state-pressed-state-layer-opacity);
   }
-  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):has( .md3-checkbox-input:checked ):active .md3-checkbox-state-layer, .md3-checkbox-indeterminate:has( .md3-checkbox-input:not(:disabled) ):active .md3-checkbox-state-layer {
+
+  .md3-checkbox:has(.md3-checkbox-input:not(:disabled)):has(
+      .md3-checkbox-input:checked
+    ):active
+    .md3-checkbox-state-layer,
+  .md3-checkbox-indeterminate:has(
+      .md3-checkbox-input:not(:disabled)
+    ):active
+    .md3-checkbox-state-layer {
     background-color: var(--md-sys-color-on-surface);
   }
-  .md3-checkbox:not(.md3-checkbox-indeterminate):has( .md3-checkbox-input:not(:checked, :disabled) ):is(:hover, :focus-within, :active) .md3-checkbox-box {
+
+  .md3-checkbox:not(.md3-checkbox-indeterminate):has(
+      .md3-checkbox-input:not(:checked, :disabled)
+    ):is(:hover, :focus-within, :active)
+    .md3-checkbox-box {
     border-color: var(--md-sys-color-on-surface);
   }
+
   .md3-checkbox:has(.md3-checkbox-input:disabled) {
     cursor: default;
   }
-  .md3-checkbox:has(.md3-checkbox-input:disabled) .md3-checkbox-label {
-    color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      color: color-mix( in srgb, var(--md-sys-color-on-surface) 38%, transparent );
-    }
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled)
+    .md3-checkbox-label {
+    color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
   }
-  .md3-checkbox:has(.md3-checkbox-input:disabled):not( .md3-checkbox-indeterminate ):not(:has(.md3-checkbox-input:checked)) .md3-checkbox-box {
-    border-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix( in srgb, var(--md-sys-color-on-surface) 38%, transparent );
-    }
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled):not(
+      .md3-checkbox-indeterminate
+    ):not(:has(.md3-checkbox-input:checked))
+    .md3-checkbox-box {
+    border-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
   }
-  .md3-checkbox:has(.md3-checkbox-input:disabled):has( .md3-checkbox-input:checked ) .md3-checkbox-box, .md3-checkbox-indeterminate:has(.md3-checkbox-input:disabled) .md3-checkbox-box {
+
+  .md3-checkbox:has(.md3-checkbox-input:disabled):has(
+      .md3-checkbox-input:checked
+    )
+    .md3-checkbox-box,
+  .md3-checkbox-indeterminate:has(.md3-checkbox-input:disabled)
+    .md3-checkbox-box {
     border-color: transparent;
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 38%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
   }
+
   .md3-checkbox:has(.md3-checkbox-input:disabled) .md3-checkbox-icon {
     fill: var(--md-sys-color-surface);
   }
+
   .md3-checkbox-label {
-    font-size: var(--text-body-large);
-    line-height: var(--tw-leading, var(--text-body-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-body-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-body-large--font-weight));
+    @apply text-body-large;
     color: var(--md-sys-color-on-surface);
   }
+
   @media (forced-colors: active) {
     .md3-checkbox-box {
       border-color: CanvasText;
     }
-    .md3-checkbox-input:checked ~ .md3-checkbox-box, .md3-checkbox-indeterminate .md3-checkbox-box {
+
+    .md3-checkbox-input:checked ~ .md3-checkbox-box,
+    .md3-checkbox-indeterminate .md3-checkbox-box {
       border-color: CanvasText;
       background-color: CanvasText;
     }
+
     .md3-checkbox-icon {
       fill: Canvas;
     }
+
     .md3-checkbox:has(.md3-checkbox-input:disabled) .md3-checkbox-box {
       border-color: GrayText;
     }
-    .md3-checkbox:has(.md3-checkbox-input:disabled):has( .md3-checkbox-input:checked ) .md3-checkbox-box, .md3-checkbox-indeterminate:has(.md3-checkbox-input:disabled) .md3-checkbox-box {
+
+    .md3-checkbox:has(.md3-checkbox-input:disabled):has(
+        .md3-checkbox-input:checked
+      )
+      .md3-checkbox-box,
+    .md3-checkbox-indeterminate:has(.md3-checkbox-input:disabled)
+      .md3-checkbox-box {
       border-color: GrayText;
       background-color: GrayText;
     }
   }
+
+  /* ------------------------------------------------------------------
+     Settings controls
+     ------------------------------------------------------------------ */
   .md3-settings-section {
     display: flex;
     flex-direction: column;
@@ -1771,6 +1734,14 @@
     border-radius: var(--radius-md3-lg);
     background-color: var(--md-sys-color-surface-container-low);
   }
+
+  /* Same layout without the card chrome, for a section hosted in a dialog. */
+  .md3-settings-section-dialog {
+    padding: 0;
+    border: none;
+    background-color: transparent;
+  }
+
   .md3-theme-swatch {
     width: 2rem;
     height: 2rem;
@@ -1778,26 +1749,38 @@
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--radius-md3-full);
   }
+
   .md3-theme-swatch-ocean {
     background-image: linear-gradient(135deg, #2457a7 0 50%, #a8c7ff 50% 100%);
   }
+
   .md3-theme-swatch-forest {
     background-image: linear-gradient(135deg, #2f6654 0 50%, #9fd5bf 50% 100%);
   }
+
   .md3-theme-swatch-aurum {
     background-image: linear-gradient(135deg, #815512 0 50%, #f7bc70 50% 100%);
   }
+
   .md3-theme-swatch-sumi {
     background-image: linear-gradient(135deg, #4d699b 0 50%, #e6c384 50% 100%);
   }
+
   .md3-theme-swatch-orange {
     background-image: linear-gradient(135deg, #1f2124 0 50%, #ff7a4d 50% 100%);
   }
+
   .md3-chip-group {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem;
   }
+
+  /* ------------------------------------------------------------------
+     Filled text field
+     Markup:
+       div.md3-text-field > input.md3-input
+     ------------------------------------------------------------------ */
   .md3-text-field {
     position: relative;
     display: flex;
@@ -1807,17 +1790,25 @@
     border-radius: var(--radius-md3-xs) var(--radius-md3-xs) 0 0;
     background-color: var(--md-sys-color-surface-container-highest);
     box-shadow: inset 0 -1px 0 var(--md-sys-color-on-surface-variant);
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      box-shadow var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-text-field:not(:has(.md3-input:disabled)):hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-highest) );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      var(--md-sys-color-surface-container-highest)
+    );
   }
+
   .md3-text-field:focus-within {
     box-shadow: inset 0 -2px 0 var(--md-sys-color-primary);
   }
+
   .md3-input {
     width: 100%;
     height: var(--md3-control-height);
@@ -1827,28 +1818,36 @@
     background-color: transparent;
     color: var(--md-sys-color-on-surface);
     caret-color: var(--md-sys-color-primary);
-    font-size: var(--text-body-large);
-    line-height: var(--tw-leading, var(--text-body-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-body-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-body-large--font-weight));
+    @apply text-body-large;
   }
+
   .md3-input::placeholder {
     color: var(--md-sys-color-on-surface-variant);
     opacity: 1;
   }
+
   .md3-input:disabled {
-    color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      color: color-mix( in srgb, var(--md-sys-color-on-surface) 38%, transparent );
-    }
+    color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 38%,
+      transparent
+    );
     cursor: not-allowed;
   }
+
   .md3-text-field:has(.md3-input:disabled) {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 4%, var(--md-sys-color-surface-container-highest) );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 4%,
+      var(--md-sys-color-surface-container-highest)
+    );
   }
+
+  /* ------------------------------------------------------------------
+     Data table
+     Wrap the table in `.md3-table-container` so narrow screens can scroll
+     horizontally without moving the rest of the page.
+     ------------------------------------------------------------------ */
   .md3-table-container {
     width: 100%;
     overflow-x: auto;
@@ -1857,20 +1856,20 @@
     background-color: var(--md-sys-color-surface-container-lowest);
     -webkit-overflow-scrolling: touch;
   }
+
   .md3-table {
     width: 100%;
     min-width: 48rem;
     border-collapse: separate;
     border-spacing: 0;
     color: var(--md-sys-color-on-surface);
-    font-size: var(--text-body-medium);
-    line-height: var(--tw-leading, var(--text-body-medium--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-body-medium--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-body-medium--font-weight));
+    @apply text-body-medium;
   }
+
   .md3-table thead {
     background-color: var(--md-sys-color-surface-container);
   }
+
   .md3-table th {
     padding: .7rem .8rem;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
@@ -1878,11 +1877,9 @@
     font-weight: 500;
     text-align: start;
     white-space: nowrap;
-    font-size: var(--text-title-small);
-    line-height: var(--tw-leading, var(--text-title-small--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-title-small--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-title-small--font-weight));
+    @apply text-title-small;
   }
+
   .md3-table td {
     padding: .7rem .8rem;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
@@ -1890,45 +1887,71 @@
     text-align: start;
     font-variant-numeric: tabular-nums;
   }
+
   .md3-table tbody tr {
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: background-color var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-table tbody tr:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
   }
+
   .md3-table tbody tr:last-child td {
     border-bottom: 0;
   }
-  .md3-table th.md3-table-select-cell, .md3-table td.md3-table-select-cell {
+
+  /* Multi-select table cells: the checkbox column shrinks to its content so
+     the selector never widens the table. */
+  .md3-table th.md3-table-select-cell,
+  .md3-table td.md3-table-select-cell {
     width: 1%;
     white-space: nowrap;
     padding: 0 1rem;
   }
-  .md3-table th.md3-table-select-actions, .md3-table td:has(.md3-table-actions) {
+
+  /* Bulk-action header and per-row action cells contain only icon buttons:
+     remove the cell padding so they align with the selector column. */
+  .md3-table th.md3-table-select-actions,
+  .md3-table td:has(.md3-table-actions) {
     padding: 0;
   }
-  .md3-table th.md3-table-select-cell .md3-checkbox, .md3-table td.md3-table-select-cell .md3-checkbox {
+
+  .md3-table th.md3-table-select-cell .md3-checkbox,
+  .md3-table td.md3-table-select-cell .md3-checkbox {
     display: flex;
     margin: 0;
   }
+
+  /* Rows checked through a table's multi-selection. The class lives on the
+     row; the cells carry the color so existing cell backgrounds cannot hide
+     the selection. */
   .md3-table tbody tr.md3-table-row-selected td {
     background-color: var(--md-sys-color-secondary-container);
   }
+
   .md3-table tbody tr.md3-table-row-selected:hover td {
-    background-color: var(--md-sys-color-on-secondary-container);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-secondary-container) 8%, var(--md-sys-color-secondary-container) );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-secondary-container) 8%,
+      var(--md-sys-color-secondary-container)
+    );
   }
+
+  /* ------------------------------------------------------------------
+     Catalog settings
+     ------------------------------------------------------------------ */
   .md3-page-actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
   }
+
   .md3-provider-badge {
     display: inline-flex;
     align-items: center;
@@ -1943,36 +1966,45 @@
     letter-spacing: 0.02em;
     box-shadow: inset 0 0 0 1px rgb(0 0 0 / 8%);
   }
+
   .md3-provider-badge-compact {
     width: 1.5rem;
     height: 1.5rem;
     font-size: var(--text-label-small);
   }
-  .md3-catalog-selected, .md3-scope-cell {
+
+  .md3-catalog-selected,
+  .md3-scope-cell {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
   }
+
   .md3-catalog-table {
     min-width: 56rem;
   }
+
   .md3-catalog-name-cell {
     display: flex;
     align-items: center;
     gap: 0.6rem;
   }
+
   .md3-catalog-name-cell > div {
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
   }
+
   .md3-catalog-name-cell strong {
     font-weight: 600;
   }
+
   .md3-number-cell {
     text-align: end;
     font-variant-numeric: tabular-nums;
   }
+
   .md3-category-chip {
     display: inline-flex;
     align-items: center;
@@ -1987,10 +2019,12 @@
     letter-spacing: var(--text-label-small--letter-spacing);
     font-weight: var(--text-label-small--font-weight);
   }
+
   .md3-category-chip-empty {
     font-style: italic;
     opacity: 0.75;
   }
+
   .md3-button-danger {
     display: inline-flex;
     align-items: center;
@@ -2008,22 +2042,27 @@
     letter-spacing: var(--text-label-large--letter-spacing);
     font-weight: var(--text-label-large--font-weight);
   }
+
   .md3-button-danger:hover:not(:disabled) {
     box-shadow: var(--md-sys-elevation-1);
   }
+
   .md3-button-danger:disabled {
     cursor: not-allowed;
     opacity: 0.38;
   }
+
   .md3-dialog.md3-catalog-dialog {
     width: min(100%, 40rem);
   }
+
   .md3-catalog-color-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
   }
+
   .md3-catalog-color-input {
     width: 3.5rem;
     height: var(--md3-control-height);
@@ -2033,6 +2072,7 @@
     background-color: var(--md-sys-color-surface-container-lowest);
     cursor: pointer;
   }
+
   .md3-catalog-color-hex {
     color: var(--md-sys-color-on-surface-variant);
     font-family: var(--font-mono, monospace);
@@ -2041,15 +2081,18 @@
     letter-spacing: var(--text-body-medium--letter-spacing);
     font-weight: var(--text-body-medium--font-weight);
   }
+
   .md3-delete-warning {
     color: var(--md-sys-color-error);
     font-weight: 500;
   }
+
   .md3-delete-impact {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
   }
+
   .md3-delete-impact-row {
     display: flex;
     flex-direction: column;
@@ -2059,6 +2102,7 @@
     border-radius: var(--radius-md3-md);
     background-color: var(--md-sys-color-surface-container-lowest);
   }
+
   .md3-delete-impact-row span:first-child {
     color: var(--md-sys-color-on-surface-variant);
     font-size: var(--text-label-small);
@@ -2066,20 +2110,24 @@
     letter-spacing: var(--text-label-small--letter-spacing);
     font-weight: var(--text-label-small--font-weight);
   }
+
   .md3-delete-impact-row strong {
     font-size: var(--text-title-small);
     line-height: var(--text-title-small--line-height);
     letter-spacing: var(--text-title-small--letter-spacing);
     font-weight: var(--text-title-small--font-weight);
   }
+
   .md3-category-create {
     display: flex;
     align-items: stretch;
     gap: 0.5rem;
   }
+
   .md3-category-create .md3-text-field {
     flex: 1 1 auto;
   }
+
   .md3-category-list {
     display: flex;
     flex-direction: column;
@@ -2087,6 +2135,7 @@
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--radius-md3-md);
   }
+
   .md3-category-row {
     display: flex;
     flex-wrap: wrap;
@@ -2096,9 +2145,11 @@
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     background-color: var(--md-sys-color-surface-container-lowest);
   }
+
   .md3-category-row:last-child {
     border-bottom: 0;
   }
+
   .md3-category-name {
     flex: 1 1 auto;
     font-size: var(--text-body-medium);
@@ -2106,26 +2157,31 @@
     letter-spacing: var(--text-body-medium--letter-spacing);
     font-weight: var(--text-body-medium--font-weight);
   }
+
   .md3-category-actions {
     display: flex;
     align-items: center;
     gap: 0.25rem;
   }
+
   .md3-category-rename {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     width: 100%;
   }
+
   .md3-category-rename .md3-text-field {
     flex: 1 1 auto;
   }
+
   .md3-import-format {
     padding: 0.65rem 0.85rem;
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--radius-md3-md);
     background-color: var(--md-sys-color-surface-container-lowest);
   }
+
   .md3-import-format summary {
     cursor: pointer;
     font-size: var(--text-label-large);
@@ -2133,6 +2189,7 @@
     letter-spacing: var(--text-label-large--letter-spacing);
     font-weight: var(--text-label-large--font-weight);
   }
+
   .md3-import-format code {
     display: block;
     margin-top: 0.4rem;
@@ -2145,6 +2202,7 @@
     letter-spacing: var(--text-body-small--letter-spacing);
     font-weight: var(--text-body-small--font-weight);
   }
+
   .md3-import-summary {
     display: flex;
     flex-wrap: wrap;
@@ -2155,9 +2213,11 @@
     letter-spacing: var(--text-body-medium--letter-spacing);
     font-weight: var(--text-body-medium--font-weight);
   }
+
   .md3-import-summary strong {
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-import-warning {
     color: var(--md-sys-color-error);
     font-size: var(--text-body-small);
@@ -2165,13 +2225,16 @@
     letter-spacing: var(--text-body-small--letter-spacing);
     font-weight: var(--text-body-small--font-weight);
   }
+
   .md3-import-preview {
     max-height: 16rem;
     overflow: auto;
   }
+
   .md3-import-preview .md3-table {
     min-width: 36rem;
   }
+
   .md3-import-result {
     display: flex;
     flex-direction: column;
@@ -2182,12 +2245,14 @@
     background-color: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
   }
+
   .md3-status-cell {
     display: inline-flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
   }
+
   .md3-status-chip {
     display: inline-flex;
     padding: 0.1rem 0.5rem;
@@ -2198,53 +2263,71 @@
     letter-spacing: var(--text-label-small--letter-spacing);
     font-weight: var(--text-label-small--font-weight);
   }
+
   .md3-status-create {
     background-color: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
   }
+
   .md3-status-duplicate {
     background-color: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+
   .md3-status-invalid {
     background-color: var(--md-sys-color-error-container);
     color: var(--md-sys-color-on-error-container);
   }
+
   .md3-exchange-provider.md3-exchange-provider-badge {
     gap: 0.35rem;
     padding: 0;
     background-color: transparent;
     color: inherit;
   }
+
   @media (max-width: 40rem) {
     .md3-delete-impact {
       grid-template-columns: 1fr;
     }
+
     .md3-category-create {
       flex-direction: column;
     }
   }
+
+  /* ------------------------------------------------------------------
+     Cards
+     ------------------------------------------------------------------ */
   .md3-card {
     padding: 1rem;
     border-radius: var(--radius-md3-md);
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-card-elevated {
     background-color: var(--md-sys-color-surface-container-low);
     box-shadow: var(--md-sys-elevation-1);
   }
+
   .md3-card-filled {
     background-color: var(--md-sys-color-surface-container-highest);
   }
+
   .md3-card-outlined {
     border: 1px solid var(--md-sys-color-outline-variant);
     background-color: var(--md-sys-color-surface);
   }
+
+  /* ------------------------------------------------------------------
+     Lists
+     ------------------------------------------------------------------ */
   .md3-list {
     display: flex;
     flex-direction: column;
     padding-block: 0.5rem;
   }
+
   .md3-list-item {
     display: flex;
     align-items: center;
@@ -2253,20 +2336,29 @@
     padding-inline: 1rem;
     color: var(--md-sys-color-on-surface);
     text-decoration: none;
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: background-color var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-list-item:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
   }
+
   .md3-list-item:focus-visible {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 10%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 10%,
+      transparent
+    );
   }
+
+  /* ------------------------------------------------------------------
+     Chips
+     ------------------------------------------------------------------ */
   .md3-chip {
     display: inline-flex;
     align-items: center;
@@ -2279,26 +2371,35 @@
     color: var(--md-sys-color-on-surface-variant);
     white-space: nowrap;
     cursor: pointer;
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    @apply text-label-large;
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-chip:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
   }
+
   .md3-chip:disabled {
     cursor: not-allowed;
   }
+
   .md3-chip-selected {
     border-color: transparent;
     background-color: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+
+  /* ------------------------------------------------------------------
+     Floating action button (FAB)
+     ------------------------------------------------------------------ */
   .md3-fab {
     display: inline-flex;
     align-items: center;
@@ -2310,25 +2411,33 @@
     background-color: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
     box-shadow: var(--md-sys-elevation-3);
-    transition: box-shadow var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition:
+      box-shadow var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-fab:hover {
     box-shadow: var(--md-sys-elevation-4);
-    background-color: var(--md-sys-color-on-primary-container);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-primary-container) 8%, var(--md-sys-color-primary-container) );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-primary-container) 8%,
+      var(--md-sys-color-primary-container)
+    );
   }
+
   .md3-fab-extended {
     width: auto;
     height: 3.5rem;
     padding-inline: 1rem 1.25rem;
     border-radius: var(--radius-md3-lg);
-    font-size: var(--text-label-large);
-    line-height: var(--tw-leading, var(--text-label-large--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-large--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-large--font-weight));
+    @apply text-label-large;
   }
+
+  /* ------------------------------------------------------------------
+     Icon button
+     ------------------------------------------------------------------ */
   .md3-icon-button {
     display: inline-flex;
     align-items: center;
@@ -2338,24 +2447,36 @@
     border-radius: var(--radius-md3-full);
     color: var(--md-sys-color-on-surface-variant);
     cursor: pointer;
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard), color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition:
+      background-color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard),
+      color var(--md-sys-motion-duration-short3)
+        var(--md-sys-motion-easing-standard);
   }
+
   .md3-icon-button:hover:not(:disabled) {
-    background-color: var(--md-sys-color-on-surface-variant);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface-variant) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface-variant) 8%,
+      transparent
+    );
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-icon-button:disabled {
     cursor: not-allowed;
     opacity: 0.38;
   }
+
+  /* ------------------------------------------------------------------
+     Misc
+     ------------------------------------------------------------------ */
   .md3-divider {
     height: 1px;
     border: 0;
     background-color: var(--md-sys-color-outline-variant);
   }
+
   .md3-badge {
     display: inline-flex;
     align-items: center;
@@ -2366,27 +2487,31 @@
     border-radius: var(--radius-md3-full);
     background-color: var(--md-sys-color-error);
     color: var(--md-sys-color-on-error);
-    font-size: var(--text-label-small);
-    line-height: var(--tw-leading, var(--text-label-small--line-height));
-    letter-spacing: var(--tw-tracking, var(--text-label-small--letter-spacing));
-    font-weight: var(--tw-font-weight, var(--text-label-small--font-weight));
+    @apply text-label-small;
   }
+
+  /* ------------------------------------------------------------------
+     Flow screen
+     ------------------------------------------------------------------ */
   .md3-flow-subtitle {
     max-width: 52rem;
     margin-top: 0.25rem;
   }
+
   .md3-flow-filters {
     display: flex;
     flex-direction: column;
     gap: 1rem;
     padding: 1rem;
   }
+
   .md3-flow-filter-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: start;
     gap: 0.75rem;
   }
+
   .md3-filter-field {
     position: relative;
     display: flex;
@@ -2394,10 +2519,12 @@
     flex-direction: column;
     gap: 0.25rem;
   }
+
   .md3-multiselect {
     position: relative;
     min-width: 0;
   }
+
   .md3-multiselect-trigger {
     display: flex;
     width: 100%;
@@ -2419,35 +2546,43 @@
     letter-spacing: var(--text-body-medium--letter-spacing);
     font-weight: var(--text-body-medium--font-weight);
   }
+
   .md3-multiselect-trigger:hover:not(:disabled) {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-highest) );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      var(--md-sys-color-surface-container-highest)
+    );
   }
+
   .md3-multiselect-trigger:focus-visible {
     outline: 2px solid var(--md-sys-color-primary);
     outline-offset: 2px;
   }
+
   .md3-multiselect-trigger:disabled {
     cursor: not-allowed;
     opacity: 0.5;
   }
+
   .md3-multiselect-value {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
   .md3-multiselect-chevron {
     color: var(--md-sys-color-on-surface-variant);
     font-size: 1rem;
   }
+
   .md3-multiselect-scrim {
     position: fixed;
     z-index: 40;
     inset: 0;
     background: transparent;
   }
+
   .md3-multiselect-popover {
     position: absolute;
     z-index: 41;
@@ -2464,9 +2599,11 @@
     background-color: var(--md-sys-color-surface-container-high);
     box-shadow: var(--md-sys-elevation-3);
   }
+
   .md3-multiselect-popover .md3-text-field {
     flex: none;
   }
+
   .md3-multiselect-list {
     display: flex;
     min-height: 0;
@@ -2475,11 +2612,13 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+
   .md3-multiselect-group {
     display: flex;
     flex-direction: column;
     gap: 0.125rem;
   }
+
   .md3-multiselect-group-title {
     padding: 0.25rem 0.5rem;
     color: var(--md-sys-color-on-surface-variant);
@@ -2490,6 +2629,7 @@
     letter-spacing: var(--text-label-small--letter-spacing);
     font-weight: var(--text-label-small--font-weight);
   }
+
   .md3-multiselect-option {
     display: flex;
     width: 100%;
@@ -2503,16 +2643,20 @@
     text-align: start;
     cursor: pointer;
   }
+
   .md3-multiselect-option:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
   }
+
   .md3-multiselect-option-selected {
     background-color: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+
   .md3-multiselect-check {
     width: 1rem;
     flex: none;
@@ -2522,15 +2666,18 @@
     letter-spacing: var(--text-label-large--letter-spacing);
     font-weight: var(--text-label-large--font-weight);
   }
+
   .md3-multiselect-option-selected .md3-multiselect-check {
     color: inherit;
   }
+
   .md3-multiselect-option-text {
     display: flex;
     min-width: 0;
     flex: 1;
     flex-direction: column;
   }
+
   .md3-multiselect-option-label {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2540,6 +2687,7 @@
     letter-spacing: var(--text-body-medium--letter-spacing);
     font-weight: var(--text-body-medium--font-weight);
   }
+
   .md3-multiselect-option-description {
     overflow: hidden;
     color: var(--md-sys-color-on-surface-variant);
@@ -2550,6 +2698,7 @@
     letter-spacing: var(--text-body-small--letter-spacing);
     font-weight: var(--text-body-small--font-weight);
   }
+
   .md3-multiselect-option-count {
     flex: none;
     color: var(--md-sys-color-on-surface-variant);
@@ -2558,10 +2707,12 @@
     letter-spacing: var(--text-label-small--letter-spacing);
     font-weight: var(--text-label-small--font-weight);
   }
+
   .md3-multiselect-empty {
     padding: 0.75rem 0.5rem;
     color: var(--md-sys-color-on-surface-variant);
   }
+
   .md3-multiselect-actions {
     display: flex;
     flex: none;
@@ -2570,12 +2721,20 @@
     border-top: 1px solid var(--md-sys-color-outline-variant);
     padding-top: 0.5rem;
   }
+
+  /* ------------------------------------------------------------------
+     Select
+     Single-choice dropdown for options that need to show more than text,
+     such as the theme palette swatches. A native <option> cannot render
+     them, so the trigger and listbox mirror the multi-select control.
+     ------------------------------------------------------------------ */
   .md3-select {
     position: relative;
     display: flex;
     min-width: 0;
     flex-direction: column;
   }
+
   .md3-select-trigger {
     display: flex;
     width: 100%;
@@ -2592,37 +2751,46 @@
     text-align: start;
     font-size: var(--text-body-medium);
     cursor: pointer;
-    transition: background-color var(--md-sys-motion-duration-short3) var(--md-sys-motion-easing-standard);
+    transition: background-color var(--md-sys-motion-duration-short3)
+      var(--md-sys-motion-easing-standard);
   }
+
   .md3-select-trigger:hover:not(:disabled) {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-highest) );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      var(--md-sys-color-surface-container-highest)
+    );
   }
+
   .md3-select-trigger:focus-visible {
     outline: 2px solid var(--md-sys-color-primary);
     outline-offset: 2px;
   }
+
   .md3-select-trigger:disabled {
     cursor: not-allowed;
     opacity: 0.5;
   }
+
   .md3-select-value {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
   .md3-select-chevron {
     margin-inline-start: auto;
     color: var(--md-sys-color-on-surface-variant);
   }
+
   .md3-select-scrim {
     position: fixed;
     z-index: 40;
     inset: 0;
     background: transparent;
   }
+
   .md3-select-menu {
     position: absolute;
     z-index: 41;
@@ -2638,6 +2806,7 @@
     background-color: var(--md-sys-color-surface-container-high);
     box-shadow: var(--md-sys-elevation-2);
   }
+
   .md3-select-option {
     display: flex;
     width: 100%;
@@ -2652,20 +2821,25 @@
     font-size: var(--text-body-medium);
     cursor: pointer;
   }
+
   .md3-select-option:hover {
-    background-color: var(--md-sys-color-on-surface);
-    @supports (color: color-mix(in lab, red, red)) {
-      background-color: color-mix( in srgb, var(--md-sys-color-on-surface) 8%, transparent );
-    }
+    background-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 8%,
+      transparent
+    );
   }
+
   .md3-select-option[aria-selected="true"] {
     background-color: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+
   .md3-select-check {
     margin-inline-start: auto;
     color: inherit;
   }
+
   .md3-filter-dot {
     display: inline-block;
     width: 0.625rem;
@@ -2674,6 +2848,7 @@
     border-radius: var(--radius-md3-full);
     border: 1px solid var(--md-sys-color-outline-variant);
   }
+
   .md3-flow-banner {
     display: flex;
     flex-wrap: wrap;
@@ -2686,14 +2861,17 @@
     background-color: var(--md-sys-color-surface-container);
     color: var(--md-sys-color-on-surface);
   }
+
   .md3-flow-banner-warning {
-    border-color: var(--md-sys-color-error);
-    @supports (color: color-mix(in lab, red, red)) {
-      border-color: color-mix( in srgb, var(--md-sys-color-error) 45%, var(--md-sys-color-outline-variant) );
-    }
+    border-color: color-mix(
+      in srgb,
+      var(--md-sys-color-error) 45%,
+      var(--md-sys-color-outline-variant)
+    );
     background-color: var(--md-sys-color-error-container);
     color: var(--md-sys-color-on-error-container);
   }
+
   .md3-flow-banner p {
     margin-top: 0.125rem;
     font-size: var(--text-body-small);
@@ -2701,14 +2879,17 @@
     letter-spacing: var(--text-body-small--letter-spacing);
     font-weight: var(--text-body-small--font-weight);
   }
+
   .md3-flow-chart-card {
     min-height: 0;
   }
+
   .md3-flow-view-toggle {
     display: flex;
     flex-wrap: wrap;
     gap: 0.375rem;
   }
+
   .md3-flow-legend {
     display: flex;
     flex-wrap: wrap;
@@ -2719,11 +2900,13 @@
     letter-spacing: var(--text-label-small--letter-spacing);
     font-weight: var(--text-label-small--font-weight);
   }
+
   .md3-flow-legend-item {
     display: inline-flex;
     align-items: center;
     gap: 0.375rem;
   }
+
   .md3-flow-legend-swatch {
     display: inline-block;
     width: 0.75rem;
@@ -2731,27 +2914,35 @@
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: 2px;
   }
+
   .md3-flow-legend-transaction {
     background-color: var(--md-sys-color-outline-variant);
   }
+
   .md3-flow-legend-exchange {
     background-color: var(--md-sys-color-primary-container);
   }
+
   .md3-flow-legend-wallet {
     background-color: var(--md-sys-color-secondary-container);
   }
+
   .md3-flow-legend-address {
     background-color: var(--md-sys-color-tertiary-container);
   }
+
   .md3-flow-legend-external {
     background-color: var(--md-sys-color-surface-container);
   }
+
   .md3-flow-legend-unlinked {
     background-color: var(--md-sys-color-error-container);
   }
+
   .md3-flow-chart-body {
     min-height: 34rem;
   }
+
   .md3-flow-quality-card {
     display: flex;
     flex-direction: column;
@@ -2761,6 +2952,7 @@
     border-radius: var(--radius-md3-lg);
     background-color: var(--md-sys-color-surface-container-low);
   }
+
   .md3-flow-quality-item {
     display: flex;
     flex-direction: column;
@@ -2769,22 +2961,26 @@
     border-radius: var(--radius-md3-sm);
     background-color: var(--md-sys-color-surface-container);
   }
+
   .md3-flow-quality-list {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
+
   .md3-flow-quality-item {
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
   }
+
   .md3-flow-label-cell {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     min-width: 0;
   }
+
   .md3-flow-kind-chip {
     display: inline-flex;
     align-items: center;
@@ -2798,245 +2994,41 @@
     letter-spacing: var(--text-label-small--letter-spacing);
     font-weight: var(--text-label-small--font-weight);
   }
+
   .md3-flow-link-row {
     cursor: pointer;
   }
+
   .md3-flow-link-row:hover {
     background-color: var(--md-sys-color-surface-container);
   }
+
   .md3-flow-error {
     color: var(--md-sys-color-error);
   }
+
   .md3-flow-evidence-dialog {
     width: min(64rem, calc(100vw - 2rem));
     max-height: min(80vh, 48rem);
     overflow-y: auto;
   }
+
   .md3-flow-evidence-header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 1rem;
   }
+
   @media (max-width: 84rem) {
     .md3-flow-filter-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
+
   @media (max-width: 48rem) {
     .md3-flow-filter-grid {
       grid-template-columns: minmax(0, 1fr);
-    }
-  }
-}
-@property --tw-rotate-x {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-rotate-y {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-rotate-z {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-skew-x {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-skew-y {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-leading {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-ordinal {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-slashed-zero {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-numeric-figure {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-numeric-spacing {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-numeric-fraction {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-shadow {
-  syntax: "*";
-  inherits: false;
-  initial-value: 0 0 #0000;
-}
-@property --tw-shadow-color {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-shadow-alpha {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 100%;
-}
-@property --tw-inset-shadow {
-  syntax: "*";
-  inherits: false;
-  initial-value: 0 0 #0000;
-}
-@property --tw-inset-shadow-color {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-inset-shadow-alpha {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 100%;
-}
-@property --tw-ring-color {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-ring-shadow {
-  syntax: "*";
-  inherits: false;
-  initial-value: 0 0 #0000;
-}
-@property --tw-inset-ring-color {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-inset-ring-shadow {
-  syntax: "*";
-  inherits: false;
-  initial-value: 0 0 #0000;
-}
-@property --tw-ring-inset {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-ring-offset-width {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-@property --tw-ring-offset-color {
-  syntax: "*";
-  inherits: false;
-  initial-value: #fff;
-}
-@property --tw-ring-offset-shadow {
-  syntax: "*";
-  inherits: false;
-  initial-value: 0 0 #0000;
-}
-@property --tw-blur {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-brightness {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-contrast {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-grayscale {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-hue-rotate {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-invert {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-opacity {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-saturate {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-sepia {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-drop-shadow {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-drop-shadow-color {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-drop-shadow-alpha {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 100%;
-}
-@property --tw-drop-shadow-size {
-  syntax: "*";
-  inherits: false;
-}
-@property --tw-ease {
-  syntax: "*";
-  inherits: false;
-}
-@layer properties {
-  @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
-    *, ::before, ::after, ::backdrop {
-      --tw-rotate-x: initial;
-      --tw-rotate-y: initial;
-      --tw-rotate-z: initial;
-      --tw-skew-x: initial;
-      --tw-skew-y: initial;
-      --tw-leading: initial;
-      --tw-ordinal: initial;
-      --tw-slashed-zero: initial;
-      --tw-numeric-figure: initial;
-      --tw-numeric-spacing: initial;
-      --tw-numeric-fraction: initial;
-      --tw-shadow: 0 0 #0000;
-      --tw-shadow-color: initial;
-      --tw-shadow-alpha: 100%;
-      --tw-inset-shadow: 0 0 #0000;
-      --tw-inset-shadow-color: initial;
-      --tw-inset-shadow-alpha: 100%;
-      --tw-ring-color: initial;
-      --tw-ring-shadow: 0 0 #0000;
-      --tw-inset-ring-color: initial;
-      --tw-inset-ring-shadow: 0 0 #0000;
-      --tw-ring-inset: initial;
-      --tw-ring-offset-width: 0px;
-      --tw-ring-offset-color: #fff;
-      --tw-ring-offset-shadow: 0 0 #0000;
-      --tw-blur: initial;
-      --tw-brightness: initial;
-      --tw-contrast: initial;
-      --tw-grayscale: initial;
-      --tw-hue-rotate: initial;
-      --tw-invert: initial;
-      --tw-opacity: initial;
-      --tw-saturate: initial;
-      --tw-sepia: initial;
-      --tw-drop-shadow: initial;
-      --tw-drop-shadow-color: initial;
-      --tw-drop-shadow-alpha: 100%;
-      --tw-drop-shadow-size: initial;
-      --tw-ease: initial;
     }
   }
 }

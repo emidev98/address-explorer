@@ -6,8 +6,20 @@
 FROM rust:1.99-bookworm AS builder
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev \
+    && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# `build.rs` compiles the Tailwind stylesheet before rustc runs.
+ARG TAILWIND_VERSION=v4.1.5
+RUN case "$(dpkg --print-architecture)" in \
+        amd64) arch=x64 ;; \
+        arm64) arch=arm64 ;; \
+        *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 3 \
+        --output /usr/local/bin/tailwindcss \
+        "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-${arch}" \
+    && chmod 0755 /usr/local/bin/tailwindcss
 
 WORKDIR /app
 COPY . .

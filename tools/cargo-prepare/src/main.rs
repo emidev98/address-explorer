@@ -65,6 +65,7 @@ fn main() -> ExitCode {
             system::ensure(&mut ctx);
             tools::dioxus::ensure(&mut ctx);
             tools::node::ensure(&mut ctx);
+            tools::tailwind::ensure(&mut ctx);
             tools::webtoolchain::ensure(&mut ctx);
             tools::android::ensure(&mut ctx);
             tools::ios::ensure(&mut ctx);
@@ -128,7 +129,8 @@ fn print_summary(ctx: &Context) {
         println!("  - ensure Visual Studio Build Tools, Windows SDK, WebView2, and LLVM");
     }
     println!("  - install Dioxus CLI 0.7.10");
-    println!("  - install Node.js LTS and warm the Tailwind 4.1.5 cache");
+    println!("  - install Node.js LTS");
+    println!("  - install the Tailwind CSS 4.1.5 CLI");
     println!("  - verify the wasm clang/lld/archiver toolchain");
 
     if ctx.opts.all {

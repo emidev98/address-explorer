@@ -40,10 +40,10 @@ cannot exist (for example Android on Linux arm64) are reported as
 
 | Host | `cargo prepare` | `cargo prepare --all` adds |
 | --- | --- | --- |
-| **Linux x86_64** | Rust stable with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, wasm `clang` + `lld`, Node.js LTS + Tailwind 4.1.5 cache, GTK3/WebKitGTK 4.1/libsoup3/OpenSSL development libraries, GCC, pkg-config, `unzip`, `curl` | JDK 17, Android command-line tools, SDK platform 34, build-tools 34.0.0, NDK 25.2.9519653, CMake 3.22.1, `adb`, Android Rust targets, Android environment variables |
+| **Linux x86_64** | Rust stable with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, wasm `clang` + `lld`, Node.js LTS, Tailwind CSS 4.1.5 CLI, GTK3/WebKitGTK 4.1/libsoup3/OpenSSL development libraries, GCC, pkg-config, `unzip`, `curl` | JDK 17, Android command-line tools, SDK platform 34, build-tools 34.0.0, NDK 25.2.9519653, CMake 3.22.1, `adb`, Android Rust targets, Android environment variables |
 | **Linux arm64** | Same desktop/web tools | Android is reported as unsupported (Google's SDK/NDK host tools are x86_64-only); no iOS |
-| **macOS** | Xcode Command Line Tools, Rust stable with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, Homebrew, Homebrew LLVM + lld, Node.js + Tailwind cache | JDK 17, Android SDK/NDK/targets/environment; iOS Xcode and SDK verification plus iOS Rust targets |
-| **Windows x86_64** | Visual Studio Build Tools with the C++ workload, Windows SDK, WebView2 runtime, LLVM (clang/llvm-ar/wasm-ld), Rust MSVC with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, Node.js + Tailwind cache | JDK 17, Android SDK/NDK/targets/environment |
+| **macOS** | Xcode Command Line Tools, Rust stable with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, Homebrew, Homebrew LLVM + lld, Node.js, Tailwind CSS 4.1.5 CLI | JDK 17, Android SDK/NDK/targets/environment; iOS Xcode and SDK verification plus iOS Rust targets |
+| **Windows x86_64** | Visual Studio Build Tools with the C++ workload, Windows SDK, WebView2 runtime, LLVM (clang/llvm-ar/wasm-ld), Rust MSVC with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, Node.js, Tailwind CSS 4.1.5 CLI | JDK 17, Android SDK/NDK/targets/environment |
 
 Environment variables for Android are persisted to the Windows user
 environment, or to a marked block in the detected Unix shell profile
@@ -73,8 +73,8 @@ Android builds on supported hosts, and iOS requires macOS.
 | **Linux desktop** — `.deb`, `.rpm`, `.AppImage` | Yes | No | No | Rust stable, `dx`, GCC/`build-essential`, `pkg-config`, GTK3 + WebKitGTK 4.1 + libsoup3 + OpenSSL dev libraries |
 | **macOS desktop** — `.app`, `.dmg` | No | Yes | No | Rust stable, `dx`, Xcode Command Line Tools |
 | **Windows desktop** — `.msi`, `.exe` (NSIS) | No | No | Yes | Rust MSVC, `dx`, Visual Studio Build Tools + Windows SDK, WebView2; `dx` downloads WiX/NSIS |
-| **Web PWA** — static `public/` with SharedWorker WASM; Local and Remote modes | Yes | Yes | Yes | Rust `wasm32-unknown-unknown`, `dx`, wasm-capable `clang`, `lld`/`wasm-ld`, a working archiver (`llvm-ar` or `ar`), Node/npm for Tailwind; no external `wasm-bindgen-cli` |
-| **Web/Remote server** — native `server` binary | Yes | Yes | Yes | Rust stable with the `server` feature, host C toolchain; OpenSSL dev libraries on Linux; build on the deployment OS family |
+| **Web PWA** — static `public/` with SharedWorker WASM; Local and Remote modes | Yes | Yes | Yes | Rust `wasm32-unknown-unknown`, `dx`, wasm-capable `clang`, `lld`/`wasm-ld`, a working archiver (`llvm-ar` or `ar`), the Tailwind 4.1.5 CLI; no external `wasm-bindgen-cli` |
+| **Web/Remote server** — native `server` binary | Yes | Yes | Yes | Rust stable with the `server` feature, host C toolchain, the Tailwind 4.1.5 CLI; OpenSSL dev libraries on Linux; build on the deployment OS family |
 | **Android** — `.apk`, `.aab` | Yes (x86_64) | Yes (x86_64/arm64) | Yes (x86_64) | JDK 17, Android SDK 34 + build-tools 34 + NDK + CMake, `adb`, Rust Android targets, `dx` |
 | **iOS** — `.app`, `.ipa` | No | Yes | No | macOS, Xcode + iOS SDK, Rust iOS targets, `dx` |
 
@@ -83,8 +83,8 @@ Notes:
 - `dx bundle` builds native desktop bundles only for the host platform. Use
   native CI runners for other operating systems instead of cross-building.
 - `dx` automatically downloads `linuxdeploy`, WiX, NSIS, the WebView2
-  bootstrapper, `wasm-bindgen`, `wasm-opt`, and its bundled Tailwind binary.
-  `cargo prepare` does not install those separately.
+  bootstrapper, `wasm-bindgen`, and `wasm-opt`. `cargo prepare` installs the
+  Tailwind CLI that `build.rs` uses; `dx` reuses the same binary.
 - Signing, notarization, and store credentials are out of scope. Keep them out
   of the repository.
 - The web PWA supports latest 2026+ Chrome (desktop/Android), Edge, Firefox,
@@ -163,6 +163,11 @@ cargo build --release --locked --no-default-features --features server
 add those features again. These native commands must not build the web worker
 or require clang.
 
+Every command above runs `build.rs`, which compiles `styles/tailwind.css` into
+Cargo's `OUT_DIR` before rustc embeds it. `cargo prepare` installs the Tailwind
+CLI that the build script uses; set `TAILWIND_BIN` to point at another 4.1.5
+binary.
+
 ## Platform notes and troubleshooting
 
 ### Linux
@@ -179,8 +184,8 @@ host tools are x86_64-only. Use an x86_64 Linux host or container.
 
 If your distribution ships Node.js older than 20, install a current LTS from
 <https://nodejs.org> (or NodeSource); `cargo prepare --check` reports the
-version it found. `dx` can still build with its bundled Tailwind even when the
-manual `npx @tailwindcss/cli` workflow is unavailable.
+version it found. The Tailwind stylesheet is built by the standalone CLI that
+`cargo prepare` installs, so it does not depend on the npx workflow.
 
 ### macOS
 
@@ -253,8 +258,8 @@ the generated worker assets are not committed.
 - Node.js: current LTS, minimum 20
 - Android versions listed above
 
-Updating a pin requires updating this page, the `cargo-prepare` constants, and
-the corresponding lockfile or dependency entry.
+Updating a pin requires updating this page, the `cargo-prepare` and `build.rs`
+constants, and the corresponding lockfile or dependency entry.
 
 ## Manual and global installation
 

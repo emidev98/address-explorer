@@ -89,7 +89,7 @@ detection falls sharply past a few hundred lines in a single review session. The
 800-line hard stop exists because a pull request that large is not reviewed, it is
 skimmed, and a skimmed merge is worse than a rejection.
 
-Generated files (`Cargo.lock`, `assets/tailwind.css`, snapshots, the vendored
+Generated files (`Cargo.lock`, `target/**/out/tailwind.css`, snapshots, the vendored
 ECharts bundle, generated worker output) are excluded from the line count, because
 they inflate a diff without adding review burden.
 

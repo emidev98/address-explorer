@@ -43,8 +43,23 @@ fn main() {
 
     #[cfg(any(feature = "desktop", feature = "mobile", not(feature = "server")))]
     {
+        #[cfg(all(target_arch = "wasm32", feature = "web-client"))]
+        clear_server_rendered_root();
         dioxus::launch(app::Root);
     }
+}
+
+/// The web build mounts without hydration, so a server-rendered gate would stay
+/// above the app. Drop it before the client renders.
+#[cfg(all(target_arch = "wasm32", feature = "web-client"))]
+fn clear_server_rendered_root() {
+    let Some(main) = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.get_element_by_id("main"))
+    else {
+        return;
+    };
+    main.set_inner_html("");
 }
 
 #[cfg(all(feature = "server", not(any(feature = "desktop", feature = "mobile"))))]

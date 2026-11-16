@@ -79,7 +79,7 @@ include the local server and the optional remote backend.
 ### Toolchain preparation
 
 `cargo prepare` installs the Rust stable toolchain, Dioxus CLI, wasm clang and
-lld, Node/Tailwind, and the platform build dependencies. `cargo prepare --all`
+lld, Node, the Tailwind CLI, and the platform build dependencies. `cargo prepare --all`
 also installs the Android toolchain and, on macOS, verifies Xcode and the iOS
 targets. CI uses the composite action in
 [`.github/actions/prepare/action.yml`](../.github/actions/prepare/action.yml),
@@ -94,19 +94,23 @@ troubleshooting.
 A web build is self-contained because the root `build.rs` owns the
 SharedWorker build:
 
-1. `build.rs` runs only for a `wasm32` target with the `web` feature.
-2. It builds `address-explorer-web-worker` in release mode with a separate
+1. `build.rs` compiles `styles/tailwind.css` with the pinned Tailwind 4.1.5
+   CLI into `OUT_DIR/tailwind.css` for every target and profile. The crate
+   embeds that file, so web, desktop, and server builds share the theme.
+2. For a `wasm32` target with the `web` feature, `build.rs` also builds
+   `address-explorer-web-worker` in release mode with a separate
    `CARGO_TARGET_DIR`.
 3. It converts the worker WASM with `wasm-bindgen-cli-support` in
    `no_modules` mode. No external `wasm-bindgen-cli` is required.
 4. It writes `public/local-worker.js`, `public/worker/*`, and
    `public/btc_usd.bin`.
-5. The Dioxus CLI builds the main PWA and regenerates `assets/tailwind.css`
-   from `tailwind.css` with the pinned Tailwind 4.1.5 binary.
+5. The Dioxus CLI builds the main PWA. It does not run Tailwind, because the
+   input is not in the manifest root; the stylesheet is already generated and
+   embedded.
 
 ```mermaid
 flowchart TB
-    Prep["cargo prepare"] --> Toolchain["Rust stable, dx, wasm clang/lld,<br/>Node, Tailwind, optional Android/iOS"]
+    Prep["cargo prepare"] --> Toolchain["Rust stable, dx, wasm clang/lld,<br/>Node, Tailwind CLI, optional Android/iOS"]
     Toolchain --> Source["Repository source"]
     Source --> WebBuild["Web build<br/>wasm32-unknown-unknown + web feature"]
     WebBuild --> BuildRs["build.rs"]
@@ -116,7 +120,9 @@ flowchart TB
     Seed["assets/pricing/btc_usd.bin"] --> BuildRs
     BuildRs --> PublicSeed["public/btc_usd.bin"]
     Source --> Dioxus["dx build / dx bundle"]
-    Dioxus --> Tailwind["assets/tailwind.css"]
+    Source --> Tailwind["styles/tailwind.css"]
+    Tailwind --> BuildRs
+    BuildRs --> GeneratedCss["target/.../out/tailwind.css<br/>embedded by include_str!"]
     Dioxus --> PWA["target/dx/.../web/public"]
     Generated --> PWA
     PublicSeed --> PWA
@@ -135,7 +141,7 @@ not require wasm clang. The pure server selects only the `server` feature;
 | Path | Status | Produced by |
 | --- | --- | --- |
 | `assets/pricing/btc_usd.bin` | committed | `cargo run --bin pricing_pack` |
-| `assets/tailwind.css` | committed | Dioxus CLI + Tailwind |
+| `target/**/build/*/out/tailwind.css` | generated, gitignored | `build.rs` + Tailwind, embedded by `include_str!` |
 | `public/local-worker.js` | generated, gitignored | `build.rs` |
 | `public/worker/*` | generated, gitignored | `build.rs` + `wasm-bindgen-cli-support` |
 | `public/btc_usd.bin` | generated, gitignored | `build.rs` copy |
@@ -144,8 +150,9 @@ not require wasm clang. The pure server selects only the `server` feature;
 ### CI and release
 
 CI runs formatting, `dx check` for web/desktop/fullstack, native tests,
-Clippy for server/desktop/web/worker, and a release web build that fails when
-the committed Tailwind stylesheet differs. CI runs on Linux.
+Clippy for server/desktop/web/worker, and a release web build that asserts the
+generated Tailwind stylesheet exists and the retired committed copy is absent.
+CI runs on Linux.
 
 The release workflow validates the tag against `Cargo.toml`, the `main`
 branch, and a successful CI run before it builds the web PWA, desktop

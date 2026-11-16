@@ -31,12 +31,16 @@ struct UnlockState {
 }
 
 /// General API rate limiter. Health is exempt so container probes never trip
-/// the limiter.
+/// the limiter. The encryption and session status probes are exempt too: the
+/// unlock gate polls them before a session exists, so a 429 there would wedge
+/// the unlock screen instead of protecting anything.
 #[cfg(all(feature = "server", not(any(feature = "desktop", feature = "mobile"))))]
 pub async fn layer(request: Request, next: Next) -> Response {
     let path = request.uri().path();
     if !path.contains("/api/")
         || path.ends_with("/api/health")
+        || path.ends_with("/api/encryption/status")
+        || path.ends_with("/api/session/status")
         || request.method() == dioxus::server::axum::http::Method::OPTIONS
     {
         return next.run(request).await;

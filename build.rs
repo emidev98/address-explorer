@@ -1,7 +1,10 @@
-//! Build the browser SharedWorker and copy the stable web assets.
+//! Build the Tailwind stylesheet for every target, and the browser SharedWorker
+//! for web builds.
 //!
-//! This runs only for web builds. Native desktop/mobile and pure-server builds
-//! must not require clang or build the worker.
+//! The stylesheet is generated into Cargo's `OUT_DIR` and embedded by the crate,
+//! so debug, release, web, desktop, and server builds all ship the same theme.
+//! The worker runs only for web builds; native desktop/mobile and pure-server
+//! builds must not require clang or build the worker.
 
 use std::env;
 use std::ffi::OsString;
@@ -9,18 +12,26 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Tailwind release pinned for the stylesheet; keep it in step with the CLI
+/// that `cargo prepare` installs.
+const TAILWIND_VERSION: &str = "v4.1.5";
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=src/domain");
-    println!("cargo:rerun-if-changed=src/data");
-    println!("cargo:rerun-if-changed=src/application");
-    println!("cargo:rerun-if-changed=src/clients");
+    println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=crates/core");
     println!("cargo:rerun-if-changed=crates/web-worker");
     println!("cargo:rerun-if-changed=web/worker-entry.js");
     println!("cargo:rerun-if-changed=assets/pricing/btc_usd.bin");
+    println!("cargo:rerun-if-changed=styles/tailwind.css");
+    println!("cargo:rerun-if-changed=assets/material3-tailwind-palettes.css");
+    println!("cargo:rerun-if-env-changed=TAILWIND_BIN");
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rerun-if-changed=Cargo.lock");
+
+    if let Err(error) = write_tailwind_stylesheet() {
+        panic!("failed to build the Tailwind stylesheet: {error}");
+    }
 
     if env::var("TARGET")
         .map(|target| !target.starts_with("wasm32"))
@@ -38,6 +49,119 @@ fn main() {
     if let Err(error) = build_worker() {
         panic!("failed to build the web SharedWorker: {error}");
     }
+}
+
+/// Compile `styles/tailwind.css` into `OUT_DIR/tailwind.css`.
+///
+/// The crate embeds that file, which is why this must run for every target and
+/// profile before rustc expands the `include_str!` in `src/app.rs`.
+fn write_tailwind_stylesheet() -> Result<(), Box<dyn std::error::Error>> {
+    let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let output = out_dir.join("tailwind.css");
+    let temporary = out_dir.join("tailwind.css.tmp");
+
+    if env::var_os("DOCS_RS").is_some() {
+        fs::write(
+            &output,
+            "/* Tailwind styles are generated outside docs.rs. */\n",
+        )?;
+        return Ok(());
+    }
+
+    let input = root.join("styles").join("tailwind.css");
+
+    if let Some(explicit) = env::var_os("TAILWIND_BIN") {
+        let cli = PathBuf::from(explicit);
+        run_tailwind(&cli, &root, &input, &temporary)?;
+    } else {
+        let mut failures = Vec::new();
+        let mut built = false;
+        for cli in tailwind_candidates() {
+            match run_tailwind(&cli, &root, &input, &temporary) {
+                Ok(()) => {
+                    built = true;
+                    break;
+                }
+                Err(error) => failures.push(format!("{}: {error}", cli.display())),
+            }
+        }
+        if !built {
+            return Err(format!(
+                "no usable Tailwind CLI found. Run `cargo prepare`, set TAILWIND_BIN, \
+                 or run a dx build once so dx downloads it.\n{}",
+                failures.join("\n")
+            )
+            .into());
+        }
+    }
+
+    let _ = fs::remove_file(&output);
+    fs::rename(&temporary, &output)?;
+    Ok(())
+}
+
+fn run_tailwind(cli: &Path, root: &Path, input: &Path, output: &Path) -> Result<(), String> {
+    let result = Command::new(cli)
+        .current_dir(root)
+        .arg("--input")
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .output()
+        .map_err(|error| format!("{}: {error}", cli.display()))?;
+
+    if !result.status.success() {
+        let _ = fs::remove_file(output);
+        let stderr = String::from_utf8_lossy(&result.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            format!("{cli:?} exited with {}", result.status)
+        } else {
+            stderr
+        });
+    }
+
+    Ok(())
+}
+
+/// Preferred locations for the pinned CLI: the binary dx manages, then `PATH`.
+fn tailwind_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(tools) = dx_tools_dir() {
+        candidates.push(
+            tools
+                .join(format!("tailwindcss-{TAILWIND_VERSION}"))
+                .join(tailwind_binary_name()),
+        );
+    }
+    candidates.push(PathBuf::from(tailwind_binary_name()));
+    candidates
+}
+
+fn tailwind_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "tailwindcss.exe"
+    } else {
+        "tailwindcss"
+    }
+}
+
+/// Mirror the directory the Dioxus CLI installs managed tools into.
+fn dx_tools_dir() -> Option<PathBuf> {
+    if let Some(home) = env::var_os("DX_HOME") {
+        return Some(PathBuf::from(home).join("tools"));
+    }
+
+    let home = env::var_os("HOME").or_else(|| env::var_os("USERPROFILE"))?;
+    let data_dir = if cfg!(any(target_os = "macos", target_os = "windows")) {
+        PathBuf::from(home).join(".dx")
+    } else {
+        env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(&home).join(".local").join("share"))
+            .join(".dx")
+    };
+    Some(data_dir.join("tools"))
 }
 
 fn build_worker() -> Result<(), Box<dyn std::error::Error>> {

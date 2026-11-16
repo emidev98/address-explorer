@@ -21,11 +21,13 @@ use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 
 const IMPORT_INPUT_ID: &str = "data-import-file";
+const SQLITE_HEADER: &[u8; 16] = b"SQLite format 3\0";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct PendingImport {
     file_name: String,
     encoded: String,
+    encrypted: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -96,6 +98,11 @@ pub fn DataSettingsSection() -> Element {
         let pending = pending_import.read();
         pending.as_ref().map(|pending| pending.file_name.clone())
     };
+    let pending_encrypted = pending_import
+        .read()
+        .as_ref()
+        .map(|pending| pending.encrypted)
+        .unwrap_or(true);
     let import_message = pending_name.as_ref().map(|name| {
         format!(
             "Import \"{name}\" into {target_label}? This replaces the current database. Export a backup first."
@@ -211,7 +218,12 @@ pub fn DataSettingsSection() -> Element {
             import_key.set(key.wrapping_add(1));
             match result {
                 Ok((file_name, encoded)) => {
-                    pending_import.set(Some(PendingImport { file_name, encoded }));
+                    let encrypted = encoded_backup_is_encrypted(&encoded);
+                    pending_import.set(Some(PendingImport {
+                        file_name,
+                        encoded,
+                        encrypted,
+                    }));
                     import_passphrase.set(String::new());
                     import_encrypted_open.set(true);
                     status.set(None);
@@ -233,7 +245,7 @@ pub fn DataSettingsSection() -> Element {
             return;
         };
         let passphrase = import_passphrase();
-        if !backup_passphrase_present(&passphrase) {
+        if pending.encrypted && !backup_passphrase_present(&passphrase) {
             import_error.set(Some("Enter the backup passphrase.".to_string()));
             return;
         }
@@ -539,7 +551,7 @@ pub fn DataSettingsSection() -> Element {
         }
         if import_encrypted_open() {
             Modal {
-                title: "Import encrypted backup".to_string(),
+                title: "Import database backup".to_string(),
                 title_id: "data-import-encrypted-title".to_string(),
                 dismissible: operation() == DataOperation::Idle,
                 on_close: move |_| {
@@ -553,24 +565,30 @@ pub fn DataSettingsSection() -> Element {
                 p { class: "text-body-medium text-on-surface-variant",
                     "{import_message.clone().unwrap_or_default()}"
                 }
-                p { class: "text-body-small text-on-surface-variant",
-                    "Enter the backup passphrase. The imported database is sanitized before it replaces the active data."
-                }
-                label {
-                    class: "text-body-medium text-on-surface-variant",
-                    r#for: "data-import-passphrase",
-                    "Backup passphrase"
-                }
-                div { class: "md3-text-field",
-                    input {
-                        id: "data-import-passphrase",
-                        class: "md3-input",
-                        r#type: "password",
-                        autocomplete: "current-password",
-                        autofocus: true,
-                        value: "{import_passphrase}",
-                        disabled: busy,
-                        oninput: move |event| import_passphrase.set(event.value()),
+                if pending_encrypted {
+                    p { class: "text-body-small text-on-surface-variant",
+                        "Enter the backup passphrase. The imported database is sanitized before it replaces the active data."
+                    }
+                    label {
+                        class: "text-body-medium text-on-surface-variant",
+                        r#for: "data-import-passphrase",
+                        "Backup passphrase"
+                    }
+                    div { class: "md3-text-field",
+                        input {
+                            id: "data-import-passphrase",
+                            class: "md3-input",
+                            r#type: "password",
+                            autocomplete: "current-password",
+                            autofocus: true,
+                            value: "{import_passphrase}",
+                            disabled: busy,
+                            oninput: move |event| import_passphrase.set(event.value()),
+                        }
+                    }
+                } else {
+                    p { class: "text-body-small text-on-surface-variant",
+                        "This is an unencrypted SQLite backup. It will be validated and imported into the encrypted database; no backup passphrase is needed."
                     }
                 }
                 if let Some(message) = import_error() {
@@ -835,9 +853,23 @@ fn backup_passphrase_present(passphrase: &str) -> bool {
     !passphrase.trim().is_empty()
 }
 
+/// Detect whether a base64-encoded backup is encrypted from its SQLite header.
+///
+/// Only the first base64 block needs decoding; the rest of the file is not
+/// copied for detection.
+fn encoded_backup_is_encrypted(encoded: &str) -> bool {
+    const HEADER_BASE64_LEN: usize = 24;
+    let prefix: String = encoded.chars().take(HEADER_BASE64_LEN).collect();
+    match base64::engine::general_purpose::STANDARD.decode(prefix.as_bytes()) {
+        Ok(bytes) => !bytes.starts_with(SQLITE_HEADER),
+        Err(_) => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::backup_passphrase_present;
+    use super::{backup_passphrase_present, encoded_backup_is_encrypted};
+    use base64::Engine;
 
     #[test]
     fn backup_passphrases_are_not_bound_to_the_database_password_policy() {
@@ -845,5 +877,15 @@ mod tests {
         assert!(backup_passphrase_present("correct horse battery staple"));
         assert!(!backup_passphrase_present(""));
         assert!(!backup_passphrase_present("   "));
+    }
+
+    #[test]
+    fn backup_detection_recognizes_the_sqlite_header() {
+        let plaintext =
+            base64::engine::general_purpose::STANDARD.encode(b"SQLite format 3\0\0\0\0");
+        assert!(!encoded_backup_is_encrypted(&plaintext));
+
+        let encrypted = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+        assert!(encoded_backup_is_encrypted(&encrypted));
     }
 }

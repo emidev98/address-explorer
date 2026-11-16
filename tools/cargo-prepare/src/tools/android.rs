@@ -4,7 +4,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::context::{
-    append_path, capture_stdout, run, run_output, which, CommandSpec, Context, Status, Target,
+    append_path, capture_stdout, download, run, run_output, which, CommandSpec, Context, Status,
+    Target,
 };
 use crate::env_file::{self, PersistOutcome};
 use crate::platform::{Os, PkgManager};
@@ -776,33 +777,6 @@ fn verify_adb(ctx: &mut Context, sdk: &Path) {
             ),
         );
     }
-}
-
-fn download(ctx: &Context, url: &str, destination: &Path) -> Result<(), String> {
-    if ctx.platform.is_windows() {
-        let script = "Invoke-WebRequest -Uri $env:AE_PREPARE_URL -OutFile $env:AE_PREPARE_DEST";
-        return run(
-            ctx,
-            &CommandSpec::new("powershell")
-                .args(["-NoProfile", "-NonInteractive", "-Command", script])
-                .env("AE_PREPARE_URL", url)
-                .env("AE_PREPARE_DEST", destination.as_os_str()),
-        );
-    }
-
-    let curl = CommandSpec::new("curl")
-        .args(["--fail", "--location", "--retry", "3", "--output"])
-        .arg(destination)
-        .arg(url);
-    if run(ctx, &curl).is_ok() {
-        return Ok(());
-    }
-
-    println!("curl failed; retrying the download with wget...");
-    run(
-        ctx,
-        &CommandSpec::new("wget").arg("-O").arg(destination).arg(url),
-    )
 }
 
 fn extract_zip(ctx: &Context, zip: &Path, destination: &Path) -> Result<(), String> {

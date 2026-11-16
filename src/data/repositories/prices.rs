@@ -97,6 +97,34 @@ pub fn find_latest_price_between(
         .optional()
         .map_err(Into::into)
 }
+/// Newest stored close of `symbol`, regardless of how old it is.
+///
+/// The live price sources cannot be reached without connectivity, so the
+/// latest-price resolution falls back to this row and keeps the fiat display
+/// working with the freshest value the database holds.
+pub fn find_latest_price(
+    database: &Database,
+    symbol: &str,
+) -> Result<Option<Price>, DatabaseError> {
+    let connection = database.connection()?;
+    connection
+        .query_row(
+            "SELECT close_time, close, symbol FROM historical_prices
+             WHERE symbol = ?1
+             ORDER BY close_time DESC
+             LIMIT 1",
+            params![symbol],
+            |row| {
+                Ok(Price {
+                    close_time: row.get(0)?,
+                    close: row.get(1)?,
+                    symbol: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+}
 /// Persist a price. The primary key keeps the first value for a
 /// `(symbol, close_time)` pair; `Ok(true)` reports an actual insert.
 pub fn store_price(database: &Database, price: &Price) -> Result<bool, DatabaseError> {
@@ -426,6 +454,24 @@ mod tests {
             find_latest_price_between(&database, "GBP", 0, 500).unwrap(),
             None
         );
+    }
+    #[test]
+    fn find_latest_price_reads_the_newest_row_of_the_symbol() -> Result<(), DatabaseError> {
+        let database = Database::open_in_memory()?;
+        for (close_time, close) in [(100, 1.0), (500, 5.0), (200, 2.0)] {
+            store_price(&database, &store("USD", close_time, close))?;
+        }
+        store_price(&database, &store("EUR", 900, 9.0))?;
+        assert_eq!(
+            find_latest_price(&database, "USD")?,
+            Some(store("USD", 500, 5.0)),
+        );
+        assert_eq!(
+            find_latest_price(&database, "EUR")?,
+            Some(store("EUR", 900, 9.0)),
+        );
+        assert_eq!(find_latest_price(&database, "GBP")?, None);
+        Ok(())
     }
     fn row(symbol: &str, close_time: i64, close: f64, other_symbols: &[&str]) -> PriceRow {
         PriceRow {

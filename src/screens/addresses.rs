@@ -61,7 +61,9 @@ pub fn Addresses() -> Element {
     let loading = overview_state.is_none();
     let overview_ready = matches!(&overview_state, Some(Ok(_)));
     let symbol = fiat.code();
-    let latest_value = latest_price().flatten();
+    let latest_price = latest_price().flatten();
+    let latest_value = latest_price.as_ref().map(|price| price.close);
+    let latest_price_time = latest_price.as_ref().map(|price| price.close_time);
     let empty_message = format!("No {} balances", scope_filter().empty_noun());
     let tx_kpi_title = if scope_filter() == AddressScopeFilter::Exchanges {
         "Deposits & Withdrawals"
@@ -510,6 +512,7 @@ pub fn Addresses() -> Element {
                 BalanceKpi {
                     balance_sats,
                     latest_price: latest_value,
+                    latest_price_time,
                     currency: symbol.clone(),
                     loading,
                 }

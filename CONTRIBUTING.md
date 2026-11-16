@@ -113,15 +113,15 @@ crates/
 └── web-worker/             # SharedWorker WASM entry (includes src modules)
 tools/
 └── cargo-prepare/          # Development environment installer (`cargo prepare`)
-build.rs                    # Web worker + stable seed generation
+build.rs                    # Tailwind, web worker, and stable seed generation
 web/worker-entry.js         # Classic SharedWorker JavaScript loader
 public/                     # PWA manifest, service worker, registration, icons
-assets/                     # Fonts, pricing data, Tailwind source/output, ECharts
+assets/                     # Fonts, pricing data, palettes, ECharts
 scripts/                    # Vercel output and release changelog helpers
 .github/                    # CI, release, prepare action, runtime Dockerfile
 docs/                       # Architecture, build, deployment, release, install
 vendor/sqlite-wasm-vfs/     # Vendored relaxed-idb commit-barrier patch
-tailwind.css                # Material 3 Tailwind source
+styles/tailwind.css         # Material 3 Tailwind source (compiled into OUT_DIR)
 ```
 
 The `data`, `application`, `clients`, and `domain` modules stay in `src/` as the shared backend source. `crates/web-worker` includes those files for the WASM worker; the main PWA WASM **MUST NOT** link `rusqlite`, SQLite C, the application layer, the data layer, or the external API clients. `crates/core` owns the worker envelope and protocol version. The worker reuses the same schema, migrations, seeds, repositories, services, and external clients as native builds.
@@ -131,7 +131,7 @@ Generated and committed web artifacts are distinct:
 | Path | Status | Produced by |
 | --- | --- | --- |
 | `assets/pricing/btc_usd.bin` | committed | `cargo run --bin pricing_pack` |
-| `assets/tailwind.css` | committed | Dioxus CLI + Tailwind |
+| `target/**/build/*/out/tailwind.css` | generated, gitignored | `build.rs` + Tailwind, embedded by `include_str!` |
 | `public/local-worker.js` | generated, gitignored | `build.rs` |
 | `public/worker/*` | generated, gitignored | `build.rs` + `wasm-bindgen-cli-support` |
 | `public/btc_usd.bin` | generated, gitignored | `build.rs` copy |
@@ -144,7 +144,7 @@ A small application **MAY** use fewer modules. Modules **SHOULD** be introduced 
 Contributors **SHOULD** install the stable Rust toolchain, platform prerequisites for the selected Dioxus renderer, and the Dioxus CLI version recommended for the pinned dependency. Linux desktop builds generally require the GTK/WebKitGTK development libraries for the selected renderer. Android development requires the applicable Android SDK/NDK and Java toolchain. Contributors **MUST** follow the official, version-matched platform guide for exact package names and setup steps.
 
 Run `cargo prepare` once per machine to install the stable toolchain, system
-build dependencies, web worker compiler, Node/Tailwind, and (with
+build dependencies, web worker compiler, Node, the Tailwind CLI, and (with
 `cargo prepare --all`) the Android/iOS toolchains. See
 [`docs/BUILDING.md`](docs/BUILDING.md) for the OS/bundle matrix, version pins,
 and troubleshooting. `cargo prepare --check` verifies the environment without
@@ -163,7 +163,7 @@ list, Vercel deployment, and changelog behavior are documented in
 | Compile checks | `dx check --platform web`, `dx check --platform desktop`, `dx check --fullstack` |
 | Tests | `cargo test -p address-explorer --no-default-features --features server` and `cargo test -p address-explorer --no-default-features --features desktop` |
 | Clippy | server, desktop, web wasm, and `address-explorer-web-worker` wasm with `-D warnings` |
-| Web release | `dx build --web --release --locked`, then `git diff --exit-code -- assets/tailwind.css` |
+| Web release | `dx build --web --release --locked`, then assert `assets/tailwind.css` is absent and the generated stylesheet is non-empty |
 
 `dx fmt` is deliberately not a CI gate; use it on changed files as described in
 Section 4.1.
@@ -174,7 +174,7 @@ The web PWA and its SharedWorker add these prerequisites:
 - a wasm-capable `clang` and `lld`/`wasm-ld` (required by `sqlite-wasm-rs`);
 - no external `wasm-bindgen-cli`: `build.rs` uses `wasm-bindgen-cli-support` as a build dependency;
 - optional `wasm-pack` and a browser driver if you add worker browser tests;
-- Node/npx for Tailwind, as today;
+- the Tailwind 4.1.5 CLI, installed by `cargo prepare` (or `TAILWIND_BIN`);
 - HTTPS or `localhost` for service-worker and PWA testing.
 
 ```sh
@@ -402,21 +402,16 @@ clients use `dioxus::launch`.
 #### Styling: Tailwind CSS v4 and Material 3
 
 The interface uses a Material 3 theme implemented with Tailwind CSS v4 in
-`tailwind.css`. `assets/tailwind.css` is the generated stylesheet that the
-application loads, and `assets/main.css` holds hand-written layout and
-component overrides that sit on top of the generated theme. The Dioxus CLI runs
-the pinned Tailwind 4.1.5 binary automatically before `dx serve` and `dx build`,
-writing `assets/tailwind.css`. Contributors **MUST** commit the regenerated
-stylesheet after changing the theme or the Tailwind classes in the Rust views;
-do not hand-edit it:
-
-```bash
-dx build --web
-```
-
-The CI web build regenerates the stylesheet and fails when the committed file
-differs. `cargo prepare` installs the toolchain and warms the Tailwind CLI
-cache; see [`docs/BUILDING.md`](docs/BUILDING.md).
+`styles/tailwind.css`, and `assets/main.css` holds hand-written layout and
+component overrides that sit on top of the generated theme. `build.rs` runs the
+pinned Tailwind 4.1.5 CLI for every target and profile and writes the generated
+stylesheet into Cargo's `OUT_DIR`
+(`target/<target>/<profile>/build/.../out/tailwind.css`). `src/app.rs` embeds
+that file with `include_str!` and renders it as an inline `document::Style`, so
+web, desktop, and server builds all ship the same theme. Contributors **MUST
+NOT** commit the generated stylesheet or hand-edit it; there is no
+`assets/tailwind.css` anymore. `cargo prepare` installs the standalone CLI; see
+[`docs/BUILDING.md`](docs/BUILDING.md).
 
 The theme provides:
 
@@ -439,7 +434,7 @@ and disabled states. Table selection stays behind `TableSelectionHeader` and
 `TableSelectionCell`, which use the same component.
 
 Single-line form controls share one height token: `--md3-control-height`
-(2.5rem / 40 px), declared in the shared dimensions block of `tailwind.css`.
+(2.5rem / 40 px), declared in the shared dimensions block of `styles/tailwind.css`.
 `.md3-text-field`, `.md3-input`, `.md3-multiselect-trigger`, and
 `.md3-date-picker` consume it, and a base-layer rule applies it to native
 `input` and single-select elements, so a new control inherits the height
@@ -458,7 +453,7 @@ are saved automatically to the SQLite `setting` table, created by
 during server rendering, applied in the document head before the app markup
 is parsed, and serialized into the page so hydration starts with the same
 values instead of flashing the default palette. Palette definitions live in
-`assets/material3-tailwind-palettes.css`, which `tailwind.css` imports. The
+`assets/material3-tailwind-palettes.css`, which `styles/tailwind.css` imports. The
 theme aliases the `--md-*` palette variables to the `--md-sys-color-*` roles,
 so palette changes affect both the component classes and the Tailwind color
 utilities. Changes that alter palettes, color roles, or component classes
@@ -510,7 +505,7 @@ NOT** fork the theme with hardcoded colors.
 The bundled typefaces live in `assets/fonts/` and are injected through the
 `FontFaces` component in `src/components/theme.rs`; the app **MUST NOT**
 request a remote font. Themes may override `--font-sans`, `--font-heading`,
-`--font-numeric`, and the radius scale in `tailwind.css`. Charts **MUST** use
+`--font-numeric`, and the radius scale in `styles/tailwind.css`. Charts **MUST** use
 the `FONT_FAMILY`, `FONT_HEADING`, and `FONT_NUMERIC` tokens from
 `src/components/charts/theme.rs` so canvas text follows the active theme; the
 ECharts host resolves those tokens and re-applies options when the fonts

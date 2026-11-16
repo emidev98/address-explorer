@@ -46,7 +46,8 @@ pub enum Route {
 }
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
-const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+/// Compiled by `build.rs` from `styles/tailwind.css` for the active profile.
+const TAILWIND_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/tailwind.css"));
 
 /// Application root: provides the backend preference and owns the mobile
 /// hard-reload remount. Desktop/web perform a process/page reload instead.
@@ -213,7 +214,7 @@ fn DocumentHead() -> Element {
         FontFaces {}
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
-        document::Link { rel: "stylesheet", href: TAILWIND_CSS }
+        document::Style { {TAILWIND_CSS} }
         if register_service_worker {
             document::Script { src: "/sw-register.js" }
         }
@@ -231,6 +232,9 @@ fn RootContent() -> Element {
         reload_generation,
         reloading,
     });
+    // The toast channel lives above the vault gate so the locked screen and its
+    // backend switcher can report outcomes too.
+    use_toast_provider();
 
     use_effect(move || {
         if reloading() {
@@ -253,6 +257,7 @@ fn RootContent() -> Element {
                 "Reloading…"
             }
         }
+        ToastHost {}
     }
 }
 
@@ -328,7 +333,6 @@ pub fn App() -> Element {
         }
     });
     use_context_provider(|| InterfaceSettingsContext(interface_settings));
-    use_toast_provider();
     let mut toast = use_toast();
     use_effect(move || {
         if let Some(alert) = crate::backend::take_startup_alert() {
@@ -379,12 +383,20 @@ pub fn App() -> Element {
     rsx! {
         document::Script { "{attribute_script(initial_theme)}" }
         Router::<Route> {}
-        ToastHost {}
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_tailwind_stylesheet_is_complete() {
+        assert!(TAILWIND_CSS.contains("--md-sys-color-primary"));
+        assert!(TAILWIND_CSS.contains(".md3-checkbox"));
+        assert!(TAILWIND_CSS.contains(".md3-table"));
+        assert!(!TAILWIND_CSS.contains("</style"));
+    }
+
     #[test]
     fn exchange_account_detail_route_round_trips_the_optional_transaction_query() {
         let route = Route::ExchangeAccountDetail {
