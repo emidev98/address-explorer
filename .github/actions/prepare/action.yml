@@ -34,7 +34,7 @@ runs:
         tool: cargo-binstall
 
     - name: Cache Dioxus tools
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/bin/dx
