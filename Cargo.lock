@@ -16,7 +16,7 @@ dependencies = [
 
 [[package]]
 name = "address-explorer"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "address-explorer-core",
  "argon2",
@@ -50,7 +50,7 @@ dependencies = [
 
 [[package]]
 name = "address-explorer-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "address-explorer-web-worker"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "address-explorer-core",
  "argon2",
@@ -714,7 +714,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-prepare"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "cast"
