@@ -492,7 +492,8 @@ jobs:
           set -euo pipefail
           (
             cd dist
-            find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS.txt
+            find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' \
+              | sort | xargs -r sha256sum > SHA256SUMS.txt
             cat SHA256SUMS.txt
           )
 
@@ -501,7 +502,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.meta.outputs.tag }}
-        run: gh release upload "$TAG" dist/* --clobber
+        run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
 
   deploy-vercel:
     name: Deploy web to Vercel
@@ -547,8 +548,10 @@ jobs:
           set -euo pipefail
           OUTPUT="$(npx --yes vercel@latest deploy --prebuilt --prod --yes --json --token="$VERCEL_TOKEN")"
           printf '%s\n' "$OUTPUT"
+          # Vercel Authentication protects the per-deployment URL, so use the
+          # public production alias when the CLI reports one.
           URL="$(printf '%s' "$OUTPUT" \
-            | jq -r '.url // .deployment.url // .deploymentUrl // .deployments[0].url // empty' \
+            | jq -r '.productionUrl // .url // .deployment.url // .deploymentUrl // .deployments[0].url // empty' \
               2>/dev/null || true)"
           if [ -z "$URL" ]; then
             URL="$(printf '%s\n' "$OUTPUT" | grep -Eo 'https://[^"[:space:]]+' | head -n 1 || true)"
@@ -566,7 +569,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS "$VERCEL_DEPLOYMENT_URL/" >/dev/null
+          PAGE="$(curl -fsS "$VERCEL_DEPLOYMENT_URL/")"
+          grep -q '<title>Address Explorer</title>' <<< "$PAGE"
           curl -fsS "$VERCEL_DEPLOYMENT_URL/sw.js" >/dev/null
           curl -fsS "$VERCEL_DEPLOYMENT_URL/btc_usd.bin" -o /tmp/address-explorer-btc_usd.bin
           test "$(wc -c < /tmp/address-explorer-btc_usd.bin)" -gt 6000000
