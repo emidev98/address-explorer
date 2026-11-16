@@ -7,8 +7,8 @@ Remote**. The release workflow deploys the PWA but does not deploy a live
 server backend.
 
 For diagrams of the build/deployment topology and client-server transports,
-see [`architecture.md`](ARCHITECTURE.md). For the release artifact list and
-workflow gates, see [`release.md`](RELEASE.md).
+see [`ARCHITECTURE.md`](ARCHITECTURE.md). For the release artifact list and
+workflow gates, see [`RELEASE.md`](RELEASE.md).
 
 ## Deployment topology
 

@@ -71,7 +71,7 @@ The deployable web directory includes the app shell, SharedWorker WASM,
 `local-worker.js`, the PWA manifest and service worker, icons, and the stable
 `btc_usd.bin` seed. Serve it over HTTPS (or `localhost`) and rewrite unknown
 paths to `index.html` for the client-side router. See
-[`docs/deployment.md`](docs/DEPLOYMENT.md) for static-host and server
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for static-host and server
 deployment details.
 
 ## Runtime modes
@@ -89,7 +89,7 @@ allowlist, HTTPS, and a matching API version. See
 [`docs/PRIVACY.md`](docs/PRIVACY.md) for the third-party request disclosure.
 
 For diagrams of the build pipeline, deployment topology, and client-server
-transports, see [`docs/architecture.md`](docs/ARCHITECTURE.md).
+transports, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Documentation
 
