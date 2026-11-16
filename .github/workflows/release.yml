@@ -39,7 +39,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       deploy: ${{ steps.version.outputs.deploy }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # A branch with the same name as the tag makes the short ref
           # ambiguous; resolve the tag explicitly.
@@ -98,7 +98,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
           fetch-depth: 0
@@ -117,7 +117,7 @@ jobs:
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
@@ -134,7 +134,7 @@ jobs:
             zip -qr "$GITHUB_WORKSPACE/dist/address-explorer-web_${VERSION}.zip" .
           )
           test -s "dist/address-explorer-web_${VERSION}.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-web
           path: dist/address-explorer-web_*.zip
@@ -159,7 +159,7 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
       ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
@@ -194,7 +194,7 @@ jobs:
 
           test -f "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
           test -f "dist/address-explorer_${VERSION}_linux_${ARCH}.deb"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-linux-${{ matrix.arch }}
           path: dist/*
@@ -208,7 +208,7 @@ jobs:
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
@@ -252,7 +252,7 @@ jobs:
 
           test -f "dist/address-explorer_${VERSION}_macos_arm64.app.zip"
           test -f "dist/address-explorer_${VERSION}_macos_arm64.dmg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-macos-arm64
           path: dist/*
@@ -266,7 +266,7 @@ jobs:
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
@@ -316,7 +316,7 @@ jobs:
           Compress-Archive -Path $exe `
             -DestinationPath "dist/address-explorer_${env:VERSION}_windows_x86_64.zip" `
             -Force
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-windows-x86_64
           path: dist/*
@@ -330,10 +330,10 @@ jobs:
     env:
       VERSION: ${{ needs.meta.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -365,7 +365,7 @@ jobs:
           test -n "$APK"
           cp "$APK" "dist/address-explorer_${VERSION}_android_debug.apk"
           test -s "dist/address-explorer_${VERSION}_android_debug.apk"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-android-debug
           path: dist/address-explorer_*_android_debug.apk
@@ -390,7 +390,7 @@ jobs:
       VERSION: ${{ needs.meta.outputs.version }}
       ARCH: ${{ matrix.arch }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
@@ -411,12 +411,12 @@ jobs:
 
           cp target/release/address-explorer "dist/context-${ARCH}/address-explorer"
           cp assets/pricing/btc_usd.bin "dist/context-${ARCH}/btc_usd.bin"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: release-server-${{ matrix.arch }}
           path: dist/address-explorer-server_*.tar.gz
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: context-server-${{ matrix.arch }}
           path: dist/context-${{ matrix.arch }}/*
@@ -431,35 +431,35 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: context-server-x86_64
           path: docker-context/amd64
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: context-server-arm64
           path: docker-context/arm64
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - id: image-meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ needs.meta.outputs.version }}
             type=raw,value=latest
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: docker-context
           file: ./.github/docker/server-runtime.Dockerfile
@@ -480,7 +480,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
@@ -518,10 +518,10 @@ jobs:
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       VERCEL_TELEMETRY_DISABLED: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-web
           path: dist/web
