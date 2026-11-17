@@ -42,6 +42,7 @@ The workflow validates:
 - Generates `SHA256SUMS.txt`.
 - Appends a grouped commit changelog to the release notes.
 - Deploys the web PWA to Vercel.
+- Links the release notes to the production deployment.
 
 All build jobs must succeed before any asset is attached or Vercel is deployed.
 
@@ -74,6 +75,17 @@ The workflow builds a Vercel Build Output directory from the PWA and runs
 Keep the project's Build Command empty so a dashboard or CLI source deploy
 cannot run `cargo build` on Vercel. For a manual deploy from a prepared
 checkout, use `scripts/deploy-vercel.sh --prod`.
+
+The production alias is `https://address-explorer-teal.vercel.app`. The deploy
+job compares the alias Vercel reports with the repository variable
+`VERCEL_PRODUCTION_URL` (the alias above when the variable is unset) and fails
+when they differ, so a deployment to an unexpected host cannot pass silently.
+Once the assets are attached, the `Link the deployment in the release notes` job
+appends a `## Web app` section delimited by
+`<!-- address-explorer-deployment:start -->` and
+`<!-- address-explorer-deployment:end -->` to the release body, and records the
+same URL on the run's deployment environment. Re-running the workflow replaces
+the section instead of duplicating it.
 
 ## Retrying a release
 

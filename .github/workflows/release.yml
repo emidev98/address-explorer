@@ -511,6 +511,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: Deploy Vercel
+    outputs:
+      deployment_url: ${{ steps.deploy.outputs.deployment_url }}
     permissions:
       contents: read
     env:
@@ -567,10 +569,54 @@ jobs:
 
       - name: Verify deployment
         shell: bash
+        env:
+          EXPECTED_URL: ${{ vars.VERCEL_PRODUCTION_URL }}
         run: |
           set -euo pipefail
-          PAGE="$(curl -fsS "$VERCEL_DEPLOYMENT_URL/")"
-          grep -q '<title>Address Explorer</title>' <<< "$PAGE"
-          curl -fsS "$VERCEL_DEPLOYMENT_URL/sw.js" >/dev/null
-          curl -fsS "$VERCEL_DEPLOYMENT_URL/btc_usd.bin" -o /tmp/address-explorer-btc_usd.bin
-          test "$(wc -c < /tmp/address-explorer-btc_usd.bin)" -gt 6000000
+          EXPECTED_URL="${EXPECTED_URL:-https://address-explorer-teal.vercel.app}"
+          if [ "${VERCEL_DEPLOYMENT_URL%/}" != "${EXPECTED_URL%/}" ]; then
+            echo "Vercel reported ${VERCEL_DEPLOYMENT_URL} but production is ${EXPECTED_URL}." >&2
+            echo "Point the VERCEL_PRODUCTION_URL repository variable at the canonical alias." >&2
+            exit 1
+          fi
+          # The production alias can lag the deployment by a few seconds.
+          for attempt in $(seq 1 10); do
+            if PAGE="$(curl -fsS "$VERCEL_DEPLOYMENT_URL/")" \
+              && grep -q '<title>Address Explorer</title>' <<< "$PAGE" \
+              && curl -fsS "$VERCEL_DEPLOYMENT_URL/sw.js" > /dev/null \
+              && curl -fsS "$VERCEL_DEPLOYMENT_URL/btc_usd.bin" -o "$RUNNER_TEMP/btc_usd.bin" \
+              && [ "$(wc -c < "$RUNNER_TEMP/btc_usd.bin")" -gt 6000000 ]; then
+              echo "Verified ${VERCEL_DEPLOYMENT_URL}." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt ${attempt}/10: ${VERCEL_DEPLOYMENT_URL} is not serving the release yet" >&2
+            sleep 6
+          done
+          echo "the deployment never served the release assets" >&2
+          exit 1
+
+  # Runs after the notes and the assets exist, so the release can point at the
+  # deployment. The job-level environment URL is what gives the run its
+  # "View deployment" link.
+  announce-deployment:
+    name: Link the deployment in the release notes
+    needs: [meta, publish, deploy-vercel]
+    if: needs.meta.outputs.deploy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: Deploy Vercel
+      url: ${{ needs.deploy-vercel.outputs.deployment_url }}
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.meta.outputs.tag }}
+      DEPLOYMENT_URL: ${{ needs.deploy-vercel.outputs.deployment_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.meta.outputs.tag }}
+      - name: Append the deployment to the release notes
+        shell: bash
+        run: scripts/release-announce.sh "$TAG" "$DEPLOYMENT_URL"

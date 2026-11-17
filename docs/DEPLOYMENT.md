@@ -59,6 +59,11 @@ scripts/deploy-vercel.sh --prod
 The script builds the PWA, writes `.vercel/output`, and deploys with
 `--prebuilt`, so Vercel only serves the uploaded files.
 
+The production alias is `https://address-explorer-teal.vercel.app`. The release
+workflow compares it with the `VERCEL_PRODUCTION_URL` repository variable (the
+alias above when the variable is unset) and writes the same URL into the release
+notes once the deployment is verified.
+
 ## Run the remote server
 
 ### Tarball
