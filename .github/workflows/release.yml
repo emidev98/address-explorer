@@ -214,13 +214,11 @@ jobs:
       - uses: ./.github/actions/prepare
         with:
           github-env: "false"
-      # Signing hook (disabled). Expected secrets when enabled:
-      #   APPLE_CERTIFICATE_P12, APPLE_CERTIFICATE_PASSWORD,
-      #   APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_TEAM_ID,
-      #   APPLE_APP_SPECIFIC_PASSWORD.
-      # Import the certificate into a temporary keychain and pass the identity
-      # to `dx bundle --codesign --apple-team-id ...` in this job.
-      - name: Build macOS bundles
+      # Ad-hoc signing gives the bundle a valid signature seal, so Gatekeeper
+      # reports an unidentified developer instead of a damaged app. A Developer
+      # ID certificate plus notarization are still required for a download that
+      # launches without user intervention.
+      - name: Build and sign the macOS bundle
         shell: bash
         run: |
           set -euo pipefail
@@ -228,7 +226,7 @@ jobs:
           DX_LOG="$RUNNER_TEMP/dx-bundle.log"
           DX_JSON="$RUNNER_TEMP/dx-bundle.json"
           if ! dx bundle --desktop --release --locked --no-default-features \
-            --package-types macos --package-types dmg --json-output \
+            --package-types macos --json-output \
             --log-to-file "$DX_LOG" > "$DX_JSON" 2>&1; then
             cat "$DX_LOG" >&2 || true
             cat "$DX_JSON" >&2
@@ -236,19 +234,27 @@ jobs:
           fi
           BUNDLES="$(tail -n 1 "$DX_JSON" \
             | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
+          APP="$(grep -m 1 '\.app$' <<< "$BUNDLES")"
+          test -n "$APP"
+          test -d "$APP"
 
-          while IFS= read -r path; do
-            [ -n "$path" ] || continue
-            case "$path" in
-              *.app)
-                ditto -c -k --sequesterRsrc --keepParent \
-                  "$path" "dist/address-explorer_${VERSION}_macos_arm64.app.zip"
-                ;;
-              *.dmg)
-                cp "$path" "dist/address-explorer_${VERSION}_macos_arm64.dmg"
-                ;;
-            esac
-          done <<< "$BUNDLES"
+          # `dx --codesign` signs an intermediate bundle that it replaces before
+          # packaging, and the DMG is created inside `dx bundle`, so the signature
+          # has to be applied to the packaged bundle and the DMG built after it.
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$APP" "dist/address-explorer_${VERSION}_macos_arm64.app.zip"
+
+          STAGE="$RUNNER_TEMP/dmg-stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          ditto "$APP" "$STAGE/$(basename "$APP")"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "Address Explorer" -srcfolder "$STAGE" \
+            -ov -format UDZO \
+            "dist/address-explorer_${VERSION}_macos_arm64.dmg"
 
           test -f "dist/address-explorer_${VERSION}_macos_arm64.app.zip"
           test -f "dist/address-explorer_${VERSION}_macos_arm64.dmg"
