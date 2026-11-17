@@ -12,12 +12,12 @@ use crate::platform::{Os, PkgManager};
 use crate::system::{linux, macos, windows};
 
 const CMDLINE_TOOLS_BASE: &str = "https://dl.google.com/android/repository";
-const NDK_VERSION: &str = "25.2.9519653";
+const NDK_VERSION: &str = "28.2.13676358";
 const SDK_PACKAGES: &[&str] = &[
     "platform-tools",
     "platforms;android-34",
     "build-tools;34.0.0",
-    "ndk;25.2.9519653",
+    "ndk;28.2.13676358",
     "cmake;3.22.1",
 ];
 

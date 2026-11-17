@@ -135,7 +135,7 @@ fn print_summary(ctx: &Context) {
 
     if ctx.opts.all {
         if ctx.platform.android_supported() {
-            println!("  - install JDK 17, Android SDK 34, build-tools 34, NDK 25.2.9519653, CMake, and Android Rust targets");
+            println!("  - install JDK 17, Android SDK 34, build-tools 34, NDK 28.2.13676358, CMake, and Android Rust targets");
             if let Some(profile) = ctx.platform.profile_file() {
                 println!(
                     "  - persist Android environment variables to {}",
