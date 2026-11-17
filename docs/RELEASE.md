@@ -84,10 +84,13 @@ replaces previous artifacts.
 If CI is still running or failed for the tag commit, wait for or fix `main`
 first.
 
-## Signing hooks
+## Signing
 
-Desktop artifacts are currently unsigned. The workflows contain comments marking
-where signing steps belong; the following secrets are reserved for enabling them:
+The macOS `.app` and `.dmg` are ad-hoc signed by the release workflow. That
+gives the bundle a valid signature seal, so Gatekeeper reports an unidentified
+developer, but it carries no trusted identity, so the first launch still needs
+**Open Anyway**. Full trust needs a Developer ID certificate plus notarization;
+the following secrets are reserved for that follow-up:
 
 - macOS: `APPLE_CERTIFICATE_P12` (base64), `APPLE_CERTIFICATE_PASSWORD`,
   `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_TEAM_ID`, and
@@ -103,7 +106,7 @@ Signing credentials **MUST NOT** be committed to the repository.
 
 ## Notes and limitations
 
-- Desktop and Android artifacts are unsigned or debug-signed. See
+- macOS is ad-hoc signed, Windows is unsigned, and Android is debug-signed. See
   [`INSTALLATION.md`](INSTALLATION.md).
 - The Android APK is a debug build, not a Play Store artifact.
 - The server image is published to GHCR; no live backend is deployed. See

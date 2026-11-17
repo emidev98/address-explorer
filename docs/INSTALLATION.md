@@ -30,17 +30,23 @@ sha256sum -c SHA256SUMS.txt
 
 ## macOS
 
-The macOS build is currently unsigned and not notarized. Gatekeeper may warn
-that the app cannot be verified.
+The macOS build is ad-hoc signed but not notarized, so Gatekeeper stops the
+first launch. Without an Apple Developer ID, macOS reports that the app cannot
+be verified; releases published before v0.0.3 were unsigned and were reported as
+damaged instead.
 
-1. Open the `.dmg` and drag the app to Applications.
-2. Right-click the app and choose **Open**, or run:
+1. Open the `.dmg` and drag `AddressExplorer.app` to Applications.
+2. Open **System Settings → Privacy & Security**, find the message about
+   `AddressExplorer`, and choose **Open Anyway**.
+3. If the app still refuses to start, clear the quarantine flag:
 
    ```sh
-   xattr -dr com.apple.quarantine "/Applications/Address Explorer.app"
+   xattr -dr com.apple.quarantine "/Applications/AddressExplorer.app"
    ```
 
-Only run builds you downloaded from the official release page.
+`codesign --verify --deep --strict "/Applications/AddressExplorer.app"` confirms
+that the bundle signature is intact. Only run builds you downloaded from the
+official release page.
 
 ## Windows
 
