@@ -72,6 +72,7 @@ impl Database {
                 return Ok(path);
             }
         }
+        #[cfg(not(target_os = "android"))]
         if cfg!(debug_assertions) {
             let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("target")
@@ -88,15 +89,61 @@ impl Database {
                 return Ok(legacy);
             }
         }
-        let directory = dirs::data_dir()
-            .or_else(dirs::home_dir)
-            .map(|base| base.join(APP_NAME))
-            .ok_or_else(|| {
-                DatabaseError::new("could not determine the application-data directory")
-            })?;
+        let directory = Self::platform_data_dir()?;
         ensure_private_dir(&directory).map_err(DatabaseError::new)?;
         crate::security::files::restrict_dir(&directory).map_err(DatabaseError::new)?;
         Ok(directory.join(DB_FILE_NAME))
+    }
+    /// Resolve the per-user application-data directory for the current target.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn platform_data_dir() -> Result<PathBuf, DatabaseError> {
+        #[cfg(target_os = "android")]
+        {
+            Self::android_data_dir()
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            dirs::data_dir()
+                .or_else(dirs::home_dir)
+                .map(|base| base.join(APP_NAME))
+                .ok_or_else(|| {
+                    DatabaseError::new("could not determine the application-data directory")
+                })
+        }
+    }
+    /// Read `Context.getFilesDir()`. Android has no `dirs` backend, so the path
+    /// has to come from the JNI handles the runtime initializes before `main`.
+    #[cfg(target_os = "android")]
+    fn android_data_dir() -> Result<PathBuf, DatabaseError> {
+        use jni::objects::{JObject, JString};
+        let context = ndk_context::android_context();
+        // SAFETY: the runtime initializes the context before `main` and keeps
+        // both handles alive for the process lifetime.
+        let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }
+            .map_err(|error| format!("could not access the Android Java VM: {error}"))
+            .map_err(DatabaseError::new)?;
+        let mut env = vm
+            .attach_current_thread_permanently()
+            .map_err(|error| format!("could not attach to the Android Java VM: {error}"))
+            .map_err(DatabaseError::new)?;
+        // SAFETY: a global reference owned by the runtime, valid for the process.
+        let activity = unsafe { JObject::from_raw(context.context().cast()) };
+        let files = env
+            .call_method(&activity, "getFilesDir", "()Ljava/io/File;", &[])
+            .and_then(|value| value.l())
+            .map_err(|error| format!("could not read the Android files directory: {error}"))
+            .map_err(DatabaseError::new)?;
+        let path = env
+            .call_method(&files, "getAbsolutePath", "()Ljava/lang/String;", &[])
+            .and_then(|value| value.l())
+            .map_err(|error| format!("could not read the Android files path: {error}"))
+            .map_err(DatabaseError::new)?;
+        let path: String = env
+            .get_string(&JString::from(path))
+            .map_err(|error| format!("could not decode the Android files path: {error}"))
+            .map_err(DatabaseError::new)?
+            .into();
+        Ok(PathBuf::from(path).join(APP_NAME))
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(path: impl AsRef<Path>) -> Result<Self, DatabaseError> {

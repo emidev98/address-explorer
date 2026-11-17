@@ -356,19 +356,61 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           DX_LOG="$RUNNER_TEMP/dx-bundle.log"
+          # arm64 is the only ABI a real Android 14+ phone runs; without an
+          # explicit target dx builds for the x86_64 runner and the package
+          # manager rejects the APK with INSTALL_FAILED_NO_MATCHING_ABIS.
           if ! dx bundle --android --locked --no-default-features --package-types apk \
+            --target aarch64-linux-android \
+            --rustc-args "-Clink-arg=-Wl,-z,max-page-size=16384 -Clink-arg=-Wl,-z,common-page-size=16384" \
             --json-output --log-to-file "$DX_LOG"; then
             cat "$DX_LOG" >&2 || true
             exit 1
           fi
           APK="$(find target/dx/address-explorer -type f -name '*.apk' | head -n 1)"
           test -n "$APK"
-          cp "$APK" "dist/address-explorer_${VERSION}_android_debug.apk"
-          test -s "dist/address-explorer_${VERSION}_android_debug.apk"
+          cp "$APK" "dist/address-explorer_${VERSION}_android_arm64.apk"
+          test -s "dist/address-explorer_${VERSION}_android_arm64.apk"
+      - name: Verify the APK ships an installable arm64 build
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="dist/address-explorer_${VERSION}_android_arm64.apk"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/34.0.0"
+
+          BADGING="$("$BUILD_TOOLS/aapt2" dump badging "$APK")"
+          grep -qF "package: name='com.emidev98.addressexplorer'" <<<"$BADGING"
+          grep -qF "sdkVersion:'24'" <<<"$BADGING"
+          grep -qF "targetSdkVersion:'34'" <<<"$BADGING"
+          grep -qF "native-code: 'arm64-v8a'" <<<"$BADGING"
+          if grep -qE "native-code: '.*(x86|armeabi)" <<<"$BADGING"; then
+            echo "the APK ships an ABI other than arm64-v8a" >&2
+            exit 1
+          fi
+
+          EXTRACTED="$RUNNER_TEMP/apk-libs"
+          rm -rf "$EXTRACTED"
+          mkdir -p "$EXTRACTED"
+          unzip -q "$APK" 'lib/arm64-v8a/*' -d "$EXTRACTED"
+          test -f "$EXTRACTED/lib/arm64-v8a/libdioxusmain.so"
+          test -f "$EXTRACTED/lib/arm64-v8a/libc++_shared.so"
+
+          # Android 15+ devices may use 16 KB pages; a 4 KB-aligned LOAD
+          # segment fails to dlopen there.
+          READELF="$(command -v llvm-readelf || command -v readelf)"
+          for library in "$EXTRACTED"/lib/arm64-v8a/*.so; do
+            while read -r alignment; do
+              if [ "$alignment" != "0x4000" ]; then
+                echo "$(basename "$library") has a LOAD segment aligned to $alignment, expected 0x4000" >&2
+                exit 1
+              fi
+            done < <("$READELF" -lW "$library" | awk '$1 == "LOAD" { print $NF }')
+          done
+
+          "$BUILD_TOOLS/apksigner" verify "$APK"
       - uses: actions/upload-artifact@v6
         with:
-          name: release-android-debug
-          path: dist/address-explorer_*_android_debug.apk
+          name: release-android-arm64
+          path: dist/address-explorer_*_android_arm64.apk
           if-no-files-found: error
 
   server:

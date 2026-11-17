@@ -51,8 +51,11 @@ is included with current Windows 10 and Windows 11.
 
 ## Android
 
-The release APK is **debug-signed**. It is installable for testing but is not a
-Play Store artifact and cannot be updated with a production signing key.
+The release APK is **debug-signed**, arm64-only
+(`address-explorer_<version>_android_arm64.apk`), and supports Android 7.0
+(API 24) and newer, including Android 14, 15 and 16. It is installable for
+testing but is not a Play Store artifact and cannot be updated with a production
+signing key.
 
 Enable installation from unknown sources for your browser or file manager, then
 open the APK. Do not use the debug APK for production data.

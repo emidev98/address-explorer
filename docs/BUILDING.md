@@ -40,7 +40,7 @@ cannot exist (for example Android on Linux arm64) are reported as
 
 | Host | `cargo prepare` | `cargo prepare --all` adds |
 | --- | --- | --- |
-| **Linux x86_64** | Rust stable with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, wasm `clang` + `lld`, Node.js LTS, Tailwind CSS 4.1.5 CLI, GTK3/WebKitGTK 4.1/libsoup3/OpenSSL development libraries, GCC, pkg-config, `unzip`, `curl` | JDK 17, Android command-line tools, SDK platform 34, build-tools 34.0.0, NDK 25.2.9519653, CMake 3.22.1, `adb`, Android Rust targets, Android environment variables |
+| **Linux x86_64** | Rust stable with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, wasm `clang` + `lld`, Node.js LTS, Tailwind CSS 4.1.5 CLI, GTK3/WebKitGTK 4.1/libsoup3/OpenSSL development libraries, GCC, pkg-config, `unzip`, `curl` | JDK 17, Android command-line tools, SDK platform 34, build-tools 34.0.0, NDK 28.2.13676358, CMake 3.22.1, `adb`, Android Rust targets, Android environment variables |
 | **Linux arm64** | Same desktop/web tools | Android is reported as unsupported (Google's SDK/NDK host tools are x86_64-only); no iOS |
 | **macOS** | Xcode Command Line Tools, Rust stable with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, Homebrew, Homebrew LLVM + lld, Node.js, Tailwind CSS 4.1.5 CLI | JDK 17, Android SDK/NDK/targets/environment; iOS Xcode and SDK verification plus iOS Rust targets |
 | **Windows x86_64** | Visual Studio Build Tools with the C++ workload, Windows SDK, WebView2 runtime, LLVM (clang/llvm-ar/wasm-ld), Rust MSVC with rustfmt/clippy, `wasm32-unknown-unknown`, Dioxus CLI 0.7.10, Node.js, Tailwind CSS 4.1.5 CLI | JDK 17, Android SDK/NDK/targets/environment |
@@ -53,7 +53,7 @@ environment, or to a marked block in the detected Unix shell profile
 
 - JDK 17
 - Android SDK platform 34, build-tools 34.0.0
-- NDK 25.2.9519653 (the version used by the Dioxus 0.7 mobile guide)
+- NDK 28.2.13676358, whose toolchains align every shipped library to 16 KB pages
 - CMake 3.22.1
 - Google command-line tools build 16111833
 - Rust targets: `aarch64-linux-android`, `armv7-linux-androideabi`,
@@ -156,8 +156,10 @@ static-host cache rules and the optional server setup.
 # Desktop
 dx bundle --desktop --release --locked --no-default-features
 
-# Android
-dx bundle --android --release --locked --no-default-features
+# Android: arm64, 16 KB page aligned, Gradle debug build type (installable)
+dx bundle --android --locked --no-default-features --package-types apk \
+  --target aarch64-linux-android \
+  --rustc-args "-Clink-arg=-Wl,-z,max-page-size=16384 -Clink-arg=-Wl,-z,common-page-size=16384"
 
 # iOS
 dx bundle --ios --release --locked --no-default-features
@@ -168,7 +170,9 @@ cargo build --release --locked --no-default-features --features server
 
 `desktop` and `mobile` already include `server` and `remote-backend`; do not
 add those features again. These native commands must not build the web worker
-or require clang.
+or require clang. The Android bundle keeps the Gradle `debug` build type on
+purpose: `dx --release` selects the unsigned, minified release build type, so
+the debug build type is the installable artifact shipped in releases.
 
 Every command above runs `build.rs`, which compiles `styles/tailwind.css` into
 Cargo's `OUT_DIR` before rustc embeds it. `cargo prepare` installs the Tailwind
@@ -220,15 +224,14 @@ On a supported host, `cargo prepare --all`:
 - downloads the Android command-line tools and verifies their SHA-1;
 - accepts SDK licenses (only with the install command; use `--dry-run` to
   inspect first);
-- installs `platform-tools`, platform 34, build-tools 34, NDK 25.2.9519653,
+- installs `platform-tools`, platform 34, build-tools 34, NDK 28.2.13676358,
   and CMake 3.22.1;
 - adds the Android Rust targets;
 - sets `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `ANDROID_NDK_HOME`, and
   `NDK_HOME`, and adds the platform-tools and command-line tools to `PATH`.
 
 Re-run `cargo prepare --all` to repair a partial setup. On Apple Silicon, NDK
-25.2.9519653 may use x86_64 host tools and require Rosetta 2; install a newer
-NDK manually if you prefer native arm64 host tools.
+28.2.13676358 ships native arm64 host tools, so Rosetta 2 is not required.
 
 ### iOS
 
