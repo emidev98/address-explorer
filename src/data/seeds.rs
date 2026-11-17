@@ -33,9 +33,12 @@ use std::sync::{LazyLock, Mutex};
 /// Quote symbol of the imported price history.
 pub const BTC_USD_SYMBOL: &str = "USD";
 #[cfg(not(target_arch = "wasm32"))]
-const PACKED_RELATIVE_PATH: &str = "assets/pricing/btc_usd.bin";
-#[cfg(not(target_arch = "wasm32"))]
 const PACKED_ENV_VAR: &str = "ADDRESS_EXPLORER_PRICING_FILE";
+/// Native builds carry the pack, because an installed binary has no build
+/// checkout or asset directory to read it from. The environment variable still
+/// overrides it at runtime.
+#[cfg(not(target_arch = "wasm32"))]
+const PACKED_PRICING_BYTES: &[u8] = include_bytes!("../../assets/pricing/btc_usd.bin");
 /// Researched exchange-wallet catalog imported by the `0019_addresses_data`
 /// seed migration. Every row is tagged by exchange name and existing addresses
 /// keep their user-edited description and owner.
@@ -65,8 +68,8 @@ pub fn set_packed_pricing_text(text: String) {
 pub fn historical_prices(connection: &Connection) -> Result<(), DatabaseError> {
     #[cfg(not(target_arch = "wasm32"))]
     let imported = {
-        let path = packed_pricing_path()?;
-        import_packed_prices(connection, &path)?
+        let override_value = std::env::var(PACKED_ENV_VAR).ok();
+        import_native_packed_prices(connection, override_value.as_deref())?
     };
     #[cfg(target_arch = "wasm32")]
     let imported = {
@@ -88,47 +91,44 @@ pub fn historical_prices(connection: &Connection) -> Result<(), DatabaseError> {
     }
     Ok(())
 }
-/// Resolve the packed pricing file location: the
-/// `ADDRESS_EXPLORER_PRICING_FILE` environment variable takes precedence,
-/// then the workspace checkout and the directory next to the executable (for
-/// packaged builds).
+/// Import the packed price history from the override file when one is
+/// configured, otherwise from the copy embedded at build time.
 #[cfg(not(target_arch = "wasm32"))]
-fn packed_pricing_path() -> Result<PathBuf, DatabaseError> {
-    if let Ok(path) = std::env::var(PACKED_ENV_VAR) {
-        if path.trim().is_empty() {
-            return Err(DatabaseError::new(format!(
-                "{PACKED_ENV_VAR} is set but empty"
-            )));
-        }
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Ok(path);
-        }
+fn import_native_packed_prices(
+    connection: &Connection,
+    override_value: Option<&str>,
+) -> Result<usize, DatabaseError> {
+    if let Some(path) = packed_pricing_override(override_value)? {
+        return import_packed_prices(connection, &path);
+    }
+    let contents = std::str::from_utf8(PACKED_PRICING_BYTES).map_err(|error| {
+        DatabaseError::new(format!(
+            "the embedded packed pricing file is not valid UTF-8: {error}"
+        ))
+    })?;
+    import_packed_prices_text(connection, contents)
+}
+/// Validate the `ADDRESS_EXPLORER_PRICING_FILE` value. An explicitly set but
+/// unusable path is an error instead of a silent fallback, so a typo cannot
+/// seed the wrong reference data unnoticed.
+#[cfg(not(target_arch = "wasm32"))]
+fn packed_pricing_override(value: Option<&str>) -> Result<Option<PathBuf>, DatabaseError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.trim().is_empty() {
         return Err(DatabaseError::new(format!(
-            "{PACKED_ENV_VAR} points at a missing file: {}",
-            path.display()
+            "{PACKED_ENV_VAR} is set but empty"
         )));
     }
-    let mut candidates = vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(PACKED_RELATIVE_PATH)];
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(directory) = executable.parent() {
-            candidates.push(directory.join(PACKED_RELATIVE_PATH));
-        }
+    let path = PathBuf::from(value);
+    if path.is_file() {
+        return Ok(Some(path));
     }
-    candidates
-        .iter()
-        .find(|path| path.is_file())
-        .cloned()
-        .ok_or_else(|| {
-            let searched: Vec<String> = candidates
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect();
-            DatabaseError::new(format!(
-                "packed pricing file not found; searched: {}; set {PACKED_ENV_VAR}",
-                searched.join(", "),
-            ))
-        })
+    Err(DatabaseError::new(format!(
+        "{PACKED_ENV_VAR} points at a missing file: {}",
+        path.display()
+    )))
 }
 /// Parse the packed pricing file at `path` and insert one row per decoded
 /// record into `historical_prices`. Returns the number of rows attempted
@@ -297,7 +297,7 @@ mod tests {
         .is_err(),);
     }
     #[test]
-    fn full_migration_imports_the_workspace_pricing_file() {
+    fn full_migration_imports_the_embedded_pricing_file() {
         let connection = fresh_connection();
         historical_prices(&connection).unwrap();
         let count: i64 = connection
@@ -322,6 +322,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(close, 13556.15);
+    }
+    #[test]
+    fn embedded_pack_seeds_prices_without_an_override() -> Result<(), DatabaseError> {
+        let connection = fresh_connection();
+        let imported = import_native_packed_prices(&connection, None)?;
+        assert!(
+            imported > 290_000,
+            "unexpectedly few rows imported: {imported}"
+        );
+        Ok(())
+    }
+    #[test]
+    fn override_file_takes_precedence_over_the_embedded_pack() -> Result<(), DatabaseError> {
+        let packed = TempPricingFile::write("201801010014591355615,");
+        let path = packed.0.to_string_lossy().into_owned();
+        let connection = fresh_connection();
+        assert_eq!(import_native_packed_prices(&connection, Some(&path))?, 1);
+        Ok(())
+    }
+    #[test]
+    fn unusable_override_is_rejected_instead_of_falling_back() {
+        assert!(packed_pricing_override(Some("")).is_err());
+        assert!(packed_pricing_override(Some("/nonexistent/definitely-missing.bin")).is_err());
+        assert!(matches!(packed_pricing_override(None), Ok(None)));
     }
     #[test]
     fn exchange_address_catalog_imports_verified_wallets_idempotently() {
