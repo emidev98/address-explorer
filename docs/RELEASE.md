@@ -69,9 +69,10 @@ Unset means disabled. Re-enabling needs no workflow change, but the first run is
 cold: the macOS/Windows toolchain and Rust caches must be repopulated.
 
 While a toggle is off, users on that platform must build from source; see
-[`BUILDING.md`](BUILDING.md). The `CI` workflow still compiles the desktop app on
-macOS and Windows for pull requests, so platform regressions are caught before a
-release.
+[`BUILDING.md`](BUILDING.md). The `CI` workflow compiles the desktop app on
+Linux only — `dx check --platform desktop`, the desktop Cargo tests, and desktop
+Clippy — so the macOS and Windows bundles are exercised by their release job
+when the toggle is enabled, not on every pull request.
 
 Billing note: GitHub bills standard macOS and Windows runners only for private
 repositories. On a public repository standard runners are free, so the toggles
