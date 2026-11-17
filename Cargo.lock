@@ -16,7 +16,7 @@ dependencies = [
 
 [[package]]
 name = "address-explorer"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "address-explorer-core",
  "argon2",
