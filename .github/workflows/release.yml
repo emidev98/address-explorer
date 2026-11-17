@@ -410,8 +410,10 @@ jobs:
           mkdir -p "$EXTRACTED"
           unzip -q "$APK" 'lib/arm64-v8a/*' -d "$EXTRACTED"
           ls -l "$EXTRACTED/lib/arm64-v8a" >&2 || true
-          test -f "$EXTRACTED/lib/arm64-v8a/libdioxusmain.so"
-          test -f "$EXTRACTED/lib/arm64-v8a/libc++_shared.so"
+          # dx packages the JNI library under the Android entry point's class
+          # name (dev.dioxus.main.MainActivity) and links the C++ runtime into
+          # it, so libmain.so is the only shared library in the APK.
+          test -f "$EXTRACTED/lib/arm64-v8a/libmain.so"
 
           # Android 15+ devices may use 16 KB pages; a 4 KB-aligned LOAD
           # segment fails to dlopen there.
