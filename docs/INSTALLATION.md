@@ -30,9 +30,9 @@ sha256sum -c SHA256SUMS.txt
 
 ## macOS and Windows
 
-The release workflow does not publish macOS or Windows desktop bundles by
-default; only the web, Linux, Android, and server artifacts are attached to a
-release. Build the desktop app on the target platform instead:
+Releases publish only the web, Linux, Android, and server artifacts, so there is
+no prebuilt macOS or Windows desktop download. Build the desktop app on the
+target platform instead:
 
 ```sh
 cargo prepare
@@ -41,11 +41,9 @@ dx bundle --desktop --release --locked --no-default-features
 
 See [`BUILDING.md`](BUILDING.md) for the per-platform prerequisites.
 
-If a build is ever published, treat it as unsigned. Without an Apple Developer
-ID a macOS bundle is ad-hoc signed, so Gatekeeper reports an unidentified
-developer and the first launch needs **Open Anyway**; the NSIS installer is
-unsigned, so SmartScreen warns before running it. Only run builds downloaded
-from the official release page.
+A build you produce this way is unsigned: Gatekeeper reports an unidentified
+developer for a macOS bundle, and SmartScreen warns before running a Windows
+installer. Treat any desktop build you did not produce yourself as untrusted.
 
 ## Android
 

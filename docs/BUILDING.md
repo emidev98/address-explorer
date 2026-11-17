@@ -80,8 +80,9 @@ Android builds on supported hosts, and iOS requires macOS.
 
 Notes:
 
-- `dx bundle` builds native desktop bundles only for the host platform. Use
-  native CI runners for other operating systems instead of cross-building.
+- `dx bundle` builds native desktop bundles only for the host platform. A
+  release publishes the Linux bundles; build macOS or Windows bundles on their
+  own hosts.
 - `dx` automatically downloads `linuxdeploy`, WiX, NSIS, the WebView2
   bootstrapper, `wasm-bindgen`, and `wasm-opt`. `cargo prepare` installs the
   Tailwind CLI that `build.rs` uses; `dx` reuses the same binary.
