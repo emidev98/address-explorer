@@ -28,32 +28,24 @@ sha256sum -c SHA256SUMS.txt
   sudo apt install ./address-explorer_<version>_linux_x86_64.deb
   ```
 
-## macOS
+## macOS and Windows
 
-The macOS build is ad-hoc signed but not notarized, so Gatekeeper stops the
-first launch. Without an Apple Developer ID, macOS reports that the app cannot
-be verified; releases published before v0.0.3 were unsigned and were reported as
-damaged instead.
+The release workflow does not publish macOS or Windows desktop bundles by
+default; only the web, Linux, Android, and server artifacts are attached to a
+release. Build the desktop app on the target platform instead:
 
-1. Open the `.dmg` and drag `AddressExplorer.app` to Applications.
-2. Open **System Settings → Privacy & Security**, find the message about
-   `AddressExplorer`, and choose **Open Anyway**.
-3. If the app still refuses to start, clear the quarantine flag:
+```sh
+cargo prepare
+dx bundle --desktop --release --locked --no-default-features
+```
 
-   ```sh
-   xattr -dr com.apple.quarantine "/Applications/AddressExplorer.app"
-   ```
+See [`BUILDING.md`](BUILDING.md) for the per-platform prerequisites.
 
-`codesign --verify --deep --strict "/Applications/AddressExplorer.app"` confirms
-that the bundle signature is intact. Only run builds you downloaded from the
-official release page.
-
-## Windows
-
-The NSIS installer is unsigned, so SmartScreen may show a warning. Choose
-**More info → Run anyway** if you trust the download. The portable `.zip`
-contains the executable and can be extracted anywhere; WebView2 is required and
-is included with current Windows 10 and Windows 11.
+If a build is ever published, treat it as unsigned. Without an Apple Developer
+ID a macOS bundle is ad-hoc signed, so Gatekeeper reports an unidentified
+developer and the first launch needs **Open Anyway**; the NSIS installer is
+unsigned, so SmartScreen warns before running it. Only run builds downloaded
+from the official release page.
 
 ## Android
 

@@ -202,6 +202,9 @@ jobs:
 
   macos:
     name: macOS desktop (arm64)
+    # Disabled by default: the most expensive runner class. Re-enable with the
+    # repository variable ENABLE_MACOS_RELEASE=true.
+    if: vars.ENABLE_MACOS_RELEASE == 'true'
     needs: meta
     runs-on: macos-15
     timeout-minutes: 90
@@ -266,6 +269,9 @@ jobs:
 
   windows:
     name: Windows desktop (x86_64)
+    # Disabled by default: billed at a higher rate than Linux. Re-enable with
+    # the repository variable ENABLE_WINDOWS_RELEASE=true.
+    if: vars.ENABLE_WINDOWS_RELEASE == 'true'
     needs: meta
     runs-on: windows-2022
     timeout-minutes: 90
@@ -522,7 +528,9 @@ jobs:
 
   publish:
     name: Publish release assets
-    needs: [meta, web, linux, macos, windows, android, server, server-image]
+    # macOS and Windows are opt-in; listing a skipped job in `needs` would skip
+    # this job too, so they are intentionally absent.
+    needs: [meta, web, linux, android, server, server-image]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

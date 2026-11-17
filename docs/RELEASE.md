@@ -32,8 +32,10 @@ The workflow validates:
 
 - Builds the web PWA and attaches `address-explorer-web_<version>.zip`.
 - Builds Linux x86_64 and arm64 AppImage/`.deb` bundles.
-- Builds macOS arm64 `.dmg` and `.app.zip`.
-- Builds the Windows x86_64 NSIS installer and portable `.zip`.
+- Builds macOS arm64 `.dmg` and `.app.zip` when `ENABLE_MACOS_RELEASE` is
+  `true`.
+- Builds the Windows x86_64 NSIS installer and portable `.zip` when
+  `ENABLE_WINDOWS_RELEASE` is `true`.
 - Builds a debug-signed Android APK.
 - Builds Linux x86_64/arm64 server tarballs and a multi-arch GHCR image.
 - Builds the GHCR image from the prebuilt server binary using
@@ -44,7 +46,36 @@ The workflow validates:
 - Deploys the web PWA to Vercel.
 - Links the release notes to the production deployment.
 
-All build jobs must succeed before any asset is attached or Vercel is deployed.
+All enabled build jobs must succeed before any asset is attached or Vercel is
+deployed.
+
+## Desktop release toggles
+
+macOS and Windows desktop bundles are **disabled by default**. Both are billed at
+a higher rate than Linux (macOS roughly 10x, Windows roughly 1.7x) and are the
+two longest jobs in the workflow. While they are off, a release publishes the web
+PWA, the Linux AppImage/`.deb` bundles, the Android APK, the server tarballs, and
+the container image.
+
+Enable either job under **Settings → Secrets and variables → Actions →
+Variables**:
+
+| Variable | Effect |
+| --- | --- |
+| `ENABLE_MACOS_RELEASE` | Runs the macOS arm64 job; publishes `.dmg` and `.app.zip` |
+| `ENABLE_WINDOWS_RELEASE` | Runs the Windows x86_64 job; publishes the NSIS installer and portable `.zip` |
+
+Unset means disabled. Re-enabling needs no workflow change, but the first run is
+cold: the macOS/Windows toolchain and Rust caches must be repopulated.
+
+While a toggle is off, users on that platform must build from source; see
+[`BUILDING.md`](BUILDING.md). The `CI` workflow still compiles the desktop app on
+macOS and Windows for pull requests, so platform regressions are caught before a
+release.
+
+Billing note: GitHub bills standard macOS and Windows runners only for private
+repositories. On a public repository standard runners are free, so the toggles
+control wall time and maintenance rather than spend.
 
 ## Release notes
 
@@ -98,10 +129,10 @@ first.
 
 ## Signing
 
-The macOS `.app` and `.dmg` are ad-hoc signed by the release workflow. That
-gives the bundle a valid signature seal, so Gatekeeper reports an unidentified
-developer, but it carries no trusted identity, so the first launch still needs
-**Open Anyway**. Full trust needs a Developer ID certificate plus notarization;
+When the macOS job is enabled, the `.app` and `.dmg` are ad-hoc signed by the
+release workflow. That gives the bundle a valid signature seal, so Gatekeeper
+reports an unidentified developer, but it carries no trusted identity, so the
+first launch still needs **Open Anyway**. Full trust needs a Developer ID certificate plus notarization;
 the following secrets are reserved for that follow-up:
 
 - macOS: `APPLE_CERTIFICATE_P12` (base64), `APPLE_CERTIFICATE_PASSWORD`,
@@ -118,8 +149,9 @@ Signing credentials **MUST NOT** be committed to the repository.
 
 ## Notes and limitations
 
-- macOS is ad-hoc signed, Windows is unsigned, and Android is debug-signed. See
-  [`INSTALLATION.md`](INSTALLATION.md).
+- macOS and Windows desktop artifacts are not published while their toggles are
+  off. When enabled, macOS is ad-hoc signed, Windows is unsigned, and Android is
+  debug-signed. See [`INSTALLATION.md`](INSTALLATION.md).
 - The Android APK is a debug build, not a Play Store artifact.
 - The server image is published to GHCR; no live backend is deployed. See
   [`DEPLOYMENT.md`](DEPLOYMENT.md).

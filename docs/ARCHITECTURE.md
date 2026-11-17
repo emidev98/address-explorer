@@ -155,9 +155,10 @@ generated Tailwind stylesheet exists and the retired committed copy is absent.
 CI runs on Linux.
 
 The release workflow validates the tag against `Cargo.toml`, the `main`
-branch, and a successful CI run before it builds the web PWA, desktop
-artifacts, Android APK, server tarballs, and the multi-arch GHCR image. It then
-publishes checksums and deploys the prebuilt PWA to Vercel. See
+branch, and a successful CI run before it builds the web PWA, Linux desktop
+artifacts, Android APK, server tarballs, and the multi-arch GHCR image. macOS
+and Windows desktop bundles are opt-in repository variables and disabled by
+default. It then publishes checksums and deploys the prebuilt PWA to Vercel. See
 [`RELEASE.md`](RELEASE.md).
 
 ## 3. Deployment architecture
@@ -166,7 +167,7 @@ publishes checksums and deploys the prebuilt PWA to Vercel. See
 flowchart LR
     Release["GitHub release vX.Y.Z"] --> Workflow["Release workflow"]
     Workflow --> WebArtifact["address-explorer-web_<version>.zip"]
-    Workflow --> DesktopArtifacts["Linux, macOS, Windows artifacts"]
+    Workflow --> DesktopArtifacts["Linux artifacts (macOS/Windows opt-in)"]
     Workflow --> AndroidArtifact["Android debug APK"]
     Workflow --> ServerArtifacts["Linux server tarballs"]
     Workflow --> Image["GHCR multi-arch image"]
