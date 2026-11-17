@@ -371,9 +371,11 @@ jobs:
           # arm64 is the only ABI a real Android 14+ phone runs; without an
           # explicit target dx builds for the x86_64 runner and the package
           # manager rejects the APK with INSTALL_FAILED_NO_MATCHING_ABIS.
+          # The link args must be attached with `=`; a space-separated value
+          # that starts with `-C` is parsed as an unknown dx flag.
           if ! dx bundle --android --locked --no-default-features --package-types apk \
             --target aarch64-linux-android \
-            --rustc-args "-Clink-arg=-Wl,-z,max-page-size=16384 -Clink-arg=-Wl,-z,common-page-size=16384" \
+            --rustc-args="-Clink-arg=-Wl,-z,max-page-size=16384 -Clink-arg=-Wl,-z,common-page-size=16384" \
             --json-output --log-to-file "$DX_LOG"; then
             cat "$DX_LOG" >&2 || true
             exit 1
