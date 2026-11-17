@@ -159,7 +159,7 @@ dx bundle --desktop --release --locked --no-default-features
 # Android: arm64, 16 KB page aligned, Gradle debug build type (installable)
 dx bundle --android --locked --no-default-features --package-types apk \
   --target aarch64-linux-android \
-  --rustc-args "-Clink-arg=-Wl,-z,max-page-size=16384 -Clink-arg=-Wl,-z,common-page-size=16384"
+  --rustc-args="-Clink-arg=-Wl,-z,max-page-size=16384 -Clink-arg=-Wl,-z,common-page-size=16384"
 
 # iOS
 dx bundle --ios --release --locked --no-default-features
