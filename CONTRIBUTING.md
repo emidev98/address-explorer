@@ -152,9 +152,9 @@ changing it.
 
 CI runs the checks below on every pull request and every push to `main`. A
 release is accepted only when the tagged commit is on `main` and its CI run
-succeeded. CI runs on Linux; the release workflow builds the Linux and Android
-artifacts, and the macOS and Windows desktop bundles only when their
-repository-variable toggles are enabled. The release build, artifact list,
+succeeded. CI runs on Linux; the release workflow builds the web, Linux desktop,
+Android, and server artifacts. Neither CI nor a release builds macOS or Windows
+desktop bundles. The release build, artifact list,
 Vercel deployment, and changelog behavior are documented in
 [`docs/release.md`](docs/release.md).
 
@@ -1333,7 +1333,7 @@ The baseline pre-PR commands are listed in Section 4. Release builds and target-
 - UI layout, fonts, keyboard behavior, touch targets, scrolling, and accessibility **SHOULD** be checked on each supported renderer/platform. CSS and WebView behavior can differ.
 - Android lifecycle transitions, background restrictions, permission prompts, and low-memory behavior **SHOULD** be considered for long-running work.
 - A feature unavailable on a platform **MUST** fail gracefully or be explicitly marked unsupported; it **MUST NOT** silently report success.
-- PR CI runs on Linux. The release workflow builds Linux and Android artifacts, and the macOS and Windows desktop bundles only when the corresponding repository variable is enabled; platform packaging, signing, and notarization requirements **MUST** be documented separately from ordinary development builds.
+- PR CI runs on Linux. The release workflow builds the web, Linux desktop, Android, and server artifacts; it does not build macOS or Windows desktop bundles, so platform packaging, signing, and notarization requirements **MUST** be documented separately from ordinary development builds.
 - The web PWA is supported only on latest 2026+ Chrome (desktop/Android), Edge, Firefox, and Safari (macOS/iOS). Do not add legacy polyfills or a dedicated-worker fallback for older browsers.
 - On an unsupported browser, Local mode **MUST** fail gracefully with a clear message; Remote remains available. It **MUST NOT** silently create a second database or report Local as ready.
 - Service workers, `navigator.storage.persist()`, and persistent browser storage require HTTPS or `localhost`. A plain-HTTP deployment can run the app but not the offline shell.
