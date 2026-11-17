@@ -15,10 +15,11 @@ ADDRESS_EXPLORER_PRICING_FILE=./assets/pricing/btc_usd.bin \
 ./address-explorer
 ```
 
-The binary also finds `assets/pricing/btc_usd.bin` next to the executable when
-`ADDRESS_EXPLORER_PRICING_FILE` is not set. The database directory must be
-writable. Creating the first password runs the SQLite migrations and imports the
-bundled pricing history into the new encrypted database.
+The binary carries the packed history, so the archive needs no pricing file and
+`ADDRESS_EXPLORER_PRICING_FILE` overrides the embedded copy. The database
+directory must be writable. Creating the first password runs the SQLite
+migrations and imports the bundled pricing history into the new encrypted
+database.
 
 Keep the empty `public/` directory next to the binary. The Dioxus server reads it
 at startup even when the PWA is served separately.

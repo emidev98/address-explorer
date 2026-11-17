@@ -99,9 +99,10 @@ trusted CA. The CA certificate can be copied from the TLS directory or retrieved
 JSON-encoded PEM string from `GET /api/tls/ca`.
 
 The database directory must be writable. Creating the first database password
-applies migrations and imports the bundled price history. The binary looks for
-`assets/pricing/btc_usd.bin` beside itself; set `ADDRESS_EXPLORER_PRICING_FILE`
-to use a different path. Keep the empty `public/` directory next to the binary:
+applies migrations and imports the bundled price history. The binary carries the
+packed history, so no asset file is required beside it; set
+`ADDRESS_EXPLORER_PRICING_FILE` to override the embedded copy, for example after
+regenerating the pack. Keep the empty `public/` directory next to the binary:
 the Dioxus server reads it at startup even when the PWA is served separately.
 
 ### Container
