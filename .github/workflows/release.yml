@@ -169,31 +169,44 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           DX_LOG="$RUNNER_TEMP/dx-bundle.log"
+          DX_STDERR="$RUNNER_TEMP/dx-bundle.stderr"
           DX_JSON="$RUNNER_TEMP/dx-bundle.json"
           if ! dx bundle --desktop --release --locked --no-default-features \
             --package-types appimage --package-types deb --json-output \
-            --log-to-file "$DX_LOG" > "$DX_JSON" 2>&1; then
+            --log-to-file "$DX_LOG" > "$DX_JSON" 2> "$DX_STDERR"; then
             cat "$DX_LOG" >&2 || true
-            cat "$DX_JSON" >&2
+            cat "$DX_STDERR" >&2 || true
+            cat "$DX_JSON" >&2 || true
             exit 1
           fi
           BUNDLES="$(tail -n 1 "$DX_JSON" \
             | jq -r '.json | fromjson | .BundleOutput.bundles[]')"
+          printf 'dx reported these bundles:\n%s\n' "$BUNDLES" >&2
 
           while IFS= read -r path; do
             [ -n "$path" ] || continue
             case "$path" in
               *.AppImage)
-                cp "$path" "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
+                scripts/package-linux-desktop.sh appimage "$path" \
+                  "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
                 ;;
               *.deb)
-                cp "$path" "dist/address-explorer_${VERSION}_linux_${ARCH}.deb"
+                scripts/package-linux-desktop.sh deb "$path" \
+                  "dist/address-explorer_${VERSION}_linux_${ARCH}.deb"
                 ;;
             esac
           done <<< "$BUNDLES"
 
           test -f "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
           test -f "dist/address-explorer_${VERSION}_linux_${ARCH}.deb"
+      - name: Smoke test the AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb
+          scripts/package-linux-desktop.sh smoke \
+            "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
       - uses: actions/upload-artifact@v6
         with:
           name: release-linux-${{ matrix.arch }}
@@ -432,6 +445,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.meta.outputs.tag }}
         run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Verify the published assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/published"
+          # Check what a user downloads, not the copy we just uploaded.
+          gh release download "$TAG" --dir "$RUNNER_TEMP/published" --clobber \
+            --repo "$GITHUB_REPOSITORY"
+          cd "$RUNNER_TEMP/published"
+          sha256sum -c SHA256SUMS.txt
 
   deploy-vercel:
     name: Deploy web to Vercel
