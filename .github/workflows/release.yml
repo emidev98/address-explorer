@@ -163,6 +163,13 @@ jobs:
         with:
           ref: refs/tags/${{ needs.meta.outputs.tag }}
       - uses: ./.github/actions/prepare
+      - name: Install bundle tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            squashfs-tools xvfb xauth
       - name: Build Linux bundles
         shell: bash
         run: |
@@ -203,8 +210,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb
           scripts/package-linux-desktop.sh smoke \
             "dist/address-explorer_${VERSION}_linux_${ARCH}.AppImage"
       - uses: actions/upload-artifact@v6
