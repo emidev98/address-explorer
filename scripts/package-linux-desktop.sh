@@ -177,11 +177,16 @@ smoke() {
     local runner
 
     [ -f "$input" ] || die "no such AppImage: $input"
-    command -v xvfb-run >/dev/null || die "xvfb-run is required for the smoke test"
+
+    local prefix=()
+    if command -v xvfb-run >/dev/null; then
+        prefix=(xvfb-run -a --server-args="-screen 0 1280x800x24")
+    elif [ -z "${DISPLAY:-}" ]; then
+        die "xvfb-run is required for the smoke test"
+    fi
 
     set +e
-    xvfb-run -a --server-args="-screen 0 1280x800x24" \
-        env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 \
+    "${prefix[@]}" env GDK_BACKEND=x11 LIBGL_ALWAYS_SOFTWARE=1 \
         WEBKIT_DISABLE_DMABUF_RENDERER=1 APPIMAGE_EXTRACT_AND_RUN=1 \
         "$input" > "$log" 2>&1 &
     runner=$!
@@ -238,7 +243,8 @@ smoke() {
 
     if [ "$status" -ne 0 ]; then
         echo "--- application log" >&2
-        sed 's/^/    /' "$log" >&2
+        grep -v 'File exists and file size matches' "$log" \
+            | sed 's/^/    /' >&2 || true
         exit 1
     fi
     printf 'smoke: %s renders with the bundled WebKit\n' "$input"
