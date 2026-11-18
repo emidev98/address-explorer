@@ -169,7 +169,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            squashfs-tools xvfb xauth
+            squashfs-tools xvfb xauth dpkg-dev
       - name: Build Linux bundles
         shell: bash
         run: |
