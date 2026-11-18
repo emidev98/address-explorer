@@ -133,6 +133,8 @@ appimage() {
             rm -f "$entry"
         fi
     done
+    # Removing a library can leave the SONAME link that pointed at it dangling.
+    find "$appdir/usr/lib" -maxdepth 1 -type l ! -exec test -e {} \; -delete
     mkdir -p "$appdir/usr/lib/$multi"
     cp -a "$libexec" "$appdir/usr/lib/$multi/"
     rm -f "$appdir/usr/lib/$multi/webkit2gtk-4.1/MiniBrowser"
