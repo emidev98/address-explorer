@@ -12,6 +12,11 @@ sha256sum -c SHA256SUMS.txt
 
 ## Linux
 
+Linux bundles are built on Ubuntu 24.04, so they need glibc 2.39 or newer:
+Ubuntu 24.04+, Debian 13+, Fedora 40+, or RHEL 10+. They use the host's
+display and GPU stack (Mesa, Wayland or X11); only the GTK and WebKitGTK
+libraries ship inside the packages.
+
 - **AppImage**: make it executable and run it:
 
   ```sh
@@ -19,14 +24,19 @@ sha256sum -c SHA256SUMS.txt
   ./address-explorer_<version>_linux_x86_64.AppImage
   ```
 
-  If your distribution does not have AppImage FUSE support, run it with
-  `--appimage-extract-and-run`.
+  The AppImage carries its own GTK and WebKitGTK build, including the WebKit
+  helper processes. It still needs AppImage FUSE support: install `libfuse2`,
+  or run it with `--appimage-extract-and-run`.
 
 - **Debian/Ubuntu**: install the `.deb`:
 
   ```sh
   sudo apt install ./address-explorer_<version>_linux_x86_64.deb
   ```
+
+  The package declares its runtime dependencies, so `apt` pulls WebKitGTK 4.1,
+  GTK 3, libsoup 3, and `libxdo3`. Check them with
+  `dpkg-deb -f <package>.deb Depends`.
 
 ## macOS and Windows
 

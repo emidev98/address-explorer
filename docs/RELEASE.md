@@ -52,6 +52,26 @@ build macOS or Windows desktop bundles, so a release never queues a native
 runner; users on those platforms build the app from source, as described in
 [`INSTALLATION.md`](INSTALLATION.md) and [`BUILDING.md`](BUILDING.md).
 
+`dx bundle` leaves two problems that would only appear on a user's machine:
+its AppImage copies the build image's libraries but not the WebKit helper
+processes (so the UI process and its helpers end up on different WebKit
+builds), and its `.deb` declares no runtime dependencies. The Linux jobs run
+`scripts/package-linux-desktop.sh` on both bundles, which:
+
+- bundles `webkit2gtk-4.1` (helper processes and injected bundle) next to the
+  AppImage's libraries and points `libwebkit2gtk` at them, so one WebKit build
+  serves the whole process tree;
+- drops the display and GPU libraries (`libwayland-*`, `libxkbcommon*`,
+  `libEGL*`, `libgbm*`, `libdrm*`) because they must match the host's Mesa and
+  compositor;
+- adds the `Depends:` field to the `.deb`.
+
+The job then smoke-tests the AppImage under Xvfb and fails unless WebKit's web
+process runs from the bundle and the application stays alive. The publish job
+downloads the attached assets again and runs `sha256sum -c SHA256SUMS.txt`, so
+a release reports success only when the bytes users download are the bytes CI
+built.
+
 Desktop code is still compiled on every pull request and every push to `main`:
 `dx check --platform desktop`, the desktop Cargo tests, and desktop Clippy run
 on Linux. Platform packaging — codesigning, notarization, NSIS — is out of scope
